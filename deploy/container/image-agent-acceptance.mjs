@@ -58,7 +58,10 @@ try {
   await expectStatus(`/api/knowledge/documents/${alphaDoc.id}`, 403, { headers: betaHeaders });
   await expectStatus('/api/companies/workspace-beta/knowledge/collections', 201, { method: 'POST', headers: betaHeaders, body: JSON.stringify({ name: 'Workspace beta private knowledge' }) });
   await expectStatus('/api/companies/workspace-beta/knowledge/collections', 403, { method: 'POST', headers: alphaHeaders, body: JSON.stringify({ name: 'forged cross-partition write' }) });
-  await expectStatus('/api/companies/workspace-alpha/knowledge/collections?partitionKey=workspace-beta', 403, { headers: alphaHeaders });
+  // A caller-supplied foreign selector is malformed scope input, so the API
+  // rejects it as 400 before capability authorization; cross-partition writes
+  // remain 403 because they target an authorized route with a forbidden grant.
+  await expectStatus('/api/companies/workspace-alpha/knowledge/collections?partitionKey=workspace-beta', 400, { headers: alphaHeaders });
 
   docker('restart', id);
   base = `http://${docker('port', id, '5310/tcp')}`;
@@ -78,7 +81,7 @@ try {
   const memory = docker('stats', '--no-stream', '--format', '{{.MemUsage}} {{.CPUPerc}}', id);
   let peak = 'unavailable';
   try { peak = docker('exec', id, 'sh', '-c', 'cat /sys/fs/cgroup/memory.peak').trim(); } catch {}
-  console.log(JSON.stringify({ ok: true, image, proof: ['anonymous-pull', 'agent-auth', 'partition-isolation', 'volume-restart', 'cold-volume-restore'], container: { status: state.Status, memory, memoryPeakBytes: peak } }));
+  console.log(JSON.stringify({ ok: true, image, registryAccess: process.env.KNOWLEDGE_REGISTRY_ACCESS ?? 'unknown', proof: ['registry-pull', 'agent-auth', 'partition-isolation', 'volume-restart', 'cold-volume-restore'], container: { status: state.Status, memory, memoryPeakBytes: peak } }));
 } finally {
   if (running) { try { docker('rm', '-f', id); } catch {} }
   try { docker('volume', 'rm', id); } catch {}

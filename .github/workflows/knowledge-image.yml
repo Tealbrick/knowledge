@@ -79,6 +79,7 @@ jobs:
     env:
       KNOWLEDGE_IMAGE: ${{ needs.publish.outputs.image_reference }}
       KNOWLEDGE_PACKAGE_VISIBILITY: ${{ needs.publish.outputs.package_visibility }}
+      KNOWLEDGE_REGISTRY_ACCESS: ${{ needs.publish.outputs.package_visibility == 'public' && 'anonymous' || 'authenticated' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:

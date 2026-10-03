@@ -22,8 +22,8 @@ or authority.
 - Source tag: `v0.1.0`.
 - OCI image target: `ghcr.io/tealbrick/knowledge@sha256:<published digest>`
   (the current GHCR package remains private pending organization policy).
-- Agent package target: `@tealbrick/knowledge-agent@0.1.0` (npm publication
-  remains pending its required one-time-password step).
+- Agent package: `@tealbrick/knowledge-agent@0.1.0`, published with registry
+  integrity `sha512-LAI1xHKwQa4N5jMiyrUz/duGx6Rgdz+9IxEkEJrq7SqysQO7XCVMMGJbgaz9XfGA2F9zdUts3FNlwK+k4P91/w==`.
 
 The image digest and package integrity are filled from publication receipts,
 not inferred from a source build or mutable tag. Portal consumers must use the
@@ -46,6 +46,10 @@ Source and deterministic evidence:
   Its authenticated agent consumer proved the listed runtime checks and
   measured a container memory peak of 114073600 bytes (about 108.8 MiB) under
   a 1.5 GiB test limit.
+- The npm registry serves the exact 20-file adapter tarball with the reviewed
+  shasum `4b38d0fd8a80d708f25c750ef0f111cc0ac817ea`, matching the reviewed
+  local pack. A clean consumer install imported the MCP/client entrypoints and
+  the root Eve extension when its declared `eve@0.58.1` peer was installed.
 
 Image evidence is supplied by the image CI workflow. The consumer job pulls
 the exact published digest with the smallest registry credential currently
@@ -62,6 +66,6 @@ Research provider/model configuration, real Brain quality, Portal entitlement,
 customer deployment, backup custody, and named human UAT remain separate
 acceptance records. The GHCR package is still private: an unauthenticated
 manifest probe returned HTTP 401, so anonymous pull and public-image readiness
-are not proven. The GitHub release is not created and the npm package is not
-published. The optional Portal attachment path is not a substitute for direct
-Knowledge principal authorization.
+are not proven. The GitHub release is not created and live deployment or
+human UAT remain unproven. The optional Portal attachment path is not a
+substitute for direct Knowledge principal authorization.

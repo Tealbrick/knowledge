@@ -1,0 +1,151 @@
+{
+  "format": "tealbrick.railway-blueprint.v1",
+  "providerImportFormat": false,
+  "status": "authored-not-created-or-published-on-railway",
+  "name": "Teal Brick Knowledge — isolated workspace",
+  "architecture": "linux/amd64",
+  "projectPolicy": "one customer workspace per dedicated project environment and three volumes",
+  "requiredInputs": {
+    "knowledgeImage": "Public image reference required in ghcr.io/tealbrick/knowledge@sha256:<verified digest>",
+    "TEALBRICK_PORTAL_URL": "Exact trusted Portal HTTPS origin",
+    "TEALBRICK_DEPLOYMENT_ID": "Existing server-issued Teal Brick deployment ID, not RAILWAY_DEPLOYMENT_ID",
+    "KNOWLEDGE_COMPANY_ID": "Existing server-bound workspace ID; never generated from browser labels",
+    "KNOWLEDGE_PORTAL_ORG_ID": "Existing server-attested Portal organization ID; never generated from browser labels"
+  },
+  "services": [
+    {
+      "name": "SurrealDB",
+      "source": {
+        "image": "surrealdb/surrealdb:v2.6.5@sha256:7db835aab6355b66e2b5779a3cddae811f201c417adadb4413310ae7f925110e"
+      },
+      "publicNetworking": false,
+      "tcpProxy": false,
+      "port": 8000,
+      "replicas": 1,
+      "volume": {
+        "name": "surreal-data",
+        "mountPath": "/mydata"
+      },
+      "startCommand": "/surreal start --log info --bind 0.0.0.0:8000 rocksdb:/mydata/knowledge.db",
+      "healthcheckPath": "/health",
+      "healthcheckTimeout": 300,
+      "variables": {
+        "PORT": "8000",
+        "RAILWAY_RUN_UID": "0",
+        "SURREAL_USER": "knowledge",
+        "SURREAL_PASS": "${{secret(64, \"abcdef0123456789\")}}",
+        "SURREAL_NAMESPACE": "knowledge",
+        "SURREAL_DATABASE": "knowledge",
+        "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS": "0",
+        "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": "30"
+      }
+    },
+    {
+      "name": "OpenNotebook",
+      "source": {
+        "image": "lfnovo/open_notebook:1.14.0@sha256:6c5fb35b6c60549e4c2dc7617d1f07aaf0a67c4954564a73498d536b8186e879"
+      },
+      "publicNetworking": false,
+      "tcpProxy": false,
+      "port": 5055,
+      "replicas": 1,
+      "volume": {
+        "name": "notebook-data",
+        "mountPath": "/app/data"
+      },
+      "startCommand": null,
+      "startCommandPolicy": "Keep official image entrypoint: API plus background worker",
+      "healthcheckPath": "/health",
+      "healthcheckTimeout": 300,
+      "variables": {
+        "PORT": "5055",
+        "OPEN_NOTEBOOK_PASSWORD": "${{secret(64, \"abcdef0123456789\")}}",
+        "OPEN_NOTEBOOK_ENCRYPTION_KEY": "${{secret(64, \"abcdef0123456789\")}}",
+        "SURREAL_URL": "ws://${{SurrealDB.RAILWAY_PRIVATE_DOMAIN}}:8000/rpc",
+        "SURREAL_USER": "${{SurrealDB.SURREAL_USER}}",
+        "SURREAL_PASSWORD": "${{SurrealDB.SURREAL_PASS}}",
+        "SURREAL_NAMESPACE": "${{SurrealDB.SURREAL_NAMESPACE}}",
+        "SURREAL_DATABASE": "${{SurrealDB.SURREAL_DATABASE}}",
+        "OPEN_NOTEBOOK_ENABLE_DOCLING": "false",
+        "OPEN_NOTEBOOK_ENABLE_CRAWL4AI": "false",
+        "OPEN_NOTEBOOK_WORKER_MAX_TASKS": "1",
+        "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS": "0",
+        "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": "30"
+      },
+      "optionalProviderSecretVariables": [
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GOOGLE_API_KEY"
+      ]
+    },
+    {
+      "name": "Knowledge",
+      "source": {
+        "image": null,
+        "requiredInput": "knowledgeImage",
+        "visibility": "public"
+      },
+      "publicNetworking": true,
+      "publicTargetPort": 5310,
+      "tcpProxy": false,
+      "port": 5310,
+      "replicas": 1,
+      "volume": {
+        "name": "knowledge-data",
+        "mountPath": "/data"
+      },
+      "startCommand": null,
+      "startCommandPolicy": "Keep authenticated image entrypoint; never launch program/src/index.ts directly",
+      "healthcheckPath": "/healthz",
+      "healthcheckTimeout": 300,
+      "provisionalMemoryMiB": 1536,
+      "variables": {
+        "HOST": "0.0.0.0",
+        "PORT": "5310",
+        "NODE_ENV": "production",
+        "RAILWAY_RUN_UID": "0",
+        "KNOWLEDGE_DATA_DIR": "/data",
+        "KNOWLEDGE_GBRAIN_HOME": "/data/gbrain-home",
+        "KNOWLEDGE_GBRAIN_AUTOSTART": "true",
+        "KNOWLEDGE_INSTANCE_TOKEN": "${{secret(64, \"abcdef0123456789\")}}",
+        "KNOWLEDGE_OPEN_NOTEBOOK_BASE_URL": "http://${{OpenNotebook.RAILWAY_PRIVATE_DOMAIN}}:5055",
+        "KNOWLEDGE_OPEN_NOTEBOOK_TOKEN": "${{OpenNotebook.OPEN_NOTEBOOK_PASSWORD}}",
+        "KNOWLEDGE_SERVICE_PRINCIPALS": "[]",
+        "KNOWLEDGE_OPEN_NOTEBOOK_BINDINGS": "[]",
+        "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS": "0",
+        "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": "30"
+      },
+      "requiredOperatorVariables": [
+        "TEALBRICK_PORTAL_URL",
+        "TEALBRICK_DEPLOYMENT_ID",
+        "KNOWLEDGE_COMPANY_ID",
+        "KNOWLEDGE_PORTAL_ORG_ID"
+      ],
+      "optionalAfterProvisioning": [
+        "KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID"
+      ],
+      "forbiddenSharedEngineOverrides": [
+        "GBRAIN_BASE_URL",
+        "GBRAIN_TOKEN",
+        "KNOWLEDGE_GBRAIN_REPO_PATH"
+      ],
+      "credentialPolicy": "Instance token is operator recovery only; customer agents use scoped Knowledge principal bearer through a trusted adapter"
+    }
+  ],
+  "manualBootstrapOrder": [
+    "SurrealDB",
+    "OpenNotebook",
+    "Knowledge"
+  ],
+  "continuousMonitorRequired": true,
+  "templateUrl": null,
+  "remainingGates": [
+    "public Knowledge image build and anonymous pull verification with immutable digest",
+    "trusted Portal deployment/workspace binding",
+    "actual three-service Railway deployment and volume persistence",
+    "Research principal/notebook/provider/model provisioning and acceptance",
+    "template creation and separately authorized publication"
+  ],
+  "distribution": "public-source-and-digest-pinned-image",
+  "registryAuth": "none"
+}

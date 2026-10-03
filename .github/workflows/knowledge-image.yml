@@ -1,0 +1,82 @@
+name: Publish Knowledge 0.1.0 image
+
+on:
+  push:
+    tags: ['v0.1.0']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: knowledge-image-0.1.0
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/tealbrick/knowledge
+  VERSION: 0.1.0
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30deaf803 # v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - name: Validate source and generated deployment artifacts
+        run: |
+          node deploy/container/generate-public-deployment.mjs --check
+          test "$(node -p "require('./manifest.json').version")" = "$VERSION"
+      - name: Authenticate only the publisher job to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build and publish immutable image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --file deploy/container/Dockerfile \
+            --tag "$IMAGE:$VERSION" \
+            --tag "$IMAGE:sha-${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.version=${VERSION}" \
+            --provenance=mode=max \
+            --sbom=true \
+            --push \
+            .
+      - name: Request public package visibility
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method PATCH \
+            -H 'Accept: application/vnd.github+json' \
+            "/orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/knowledge" \
+            -f visibility=public
+      - name: Record immutable digest
+        run: |
+          digest="$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | node -pe 'JSON.parse(fs.readFileSync(0,"utf8")).digest')"
+          case "$digest" in sha256:[a-f0-9][a-f0-9]*) ;; *) echo "No immutable digest returned" >&2; exit 1 ;; esac
+          printf 'Published image: `%s@%s`\n' "$IMAGE" "$digest" >> "$GITHUB_STEP_SUMMARY"
+
+  anonymous-agent-acceptance:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30deaf803 # v6
+        with:
+          persist-credentials: false
+      - name: Resolve public digest without repository credentials
+        id: image
+        run: |
+          digest="$(curl --fail --silent --show-error -H 'Accept: application/vnd.oci.image.index.v1+json' "https://ghcr.io/v2/tealbrick/knowledge/manifests/$VERSION" | node -pe 'JSON.parse(fs.readFileSync(0,"utf8")).manifests.find(m => m.platform?.architecture === "amd64" && m.platform?.os === "linux")?.digest || ""')"
+          case "$digest" in sha256:[a-f0-9][a-f0-9]*) ;; *) echo "Anonymous manifest lookup failed" >&2; exit 1 ;; esac
+          echo "reference=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
+      - name: Pull image anonymously and run agent-first acceptance
+        env:
+          KNOWLEDGE_IMAGE: ${{ steps.image.outputs.reference }}
+        run: |
+          docker pull "$KNOWLEDGE_IMAGE"
+          node deploy/container/image-agent-acceptance.mjs

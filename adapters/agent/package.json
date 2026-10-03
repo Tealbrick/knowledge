@@ -1,0 +1,59 @@
+{
+  "name": "@tealbrick/knowledge-agent",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Standalone Knowledge MCP, JavaScript client and opt-in Eve extension",
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ],
+  "bin": {
+    "tealbrick-knowledge-mcp": "src/mcp.mjs"
+  },
+  "exports": {
+    "./client": "./src/client.mjs",
+    "./mcp": "./src/mcp.mjs",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.mjs"
+    },
+    "./tools": {
+      "types": "./dist/tools/index.d.ts",
+      "default": "./dist/tools/index.mjs"
+    }
+  },
+  "eve": {
+    "extension": {
+      "source": "./extension",
+      "dist": "./dist/extension"
+    }
+  },
+  "scripts": {
+    "build": "eve extension build",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "ai": "7.0.105",
+    "just-bash": "3.1.0",
+    "eve": "0.58.1",
+    "typescript": "^5.9.3",
+    "@types/node": "^24.0.0"
+  },
+  "peerDependencies": {
+    "eve": ">=0.58.1 <0.59.0"
+  },
+  "peerDependenciesMeta": {
+    "eve": {
+      "optional": true
+    }
+  },
+  "license": "MIT"
+}

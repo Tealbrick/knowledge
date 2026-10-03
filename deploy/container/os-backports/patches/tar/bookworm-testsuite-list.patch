@@ -1,0 +1,34 @@
+Description: Add upstream regression tests to Debian's generated test suite
+ The test additions are integrated using a unified diff generated from the
+ exact Debian GNU tar 1.35+dfsg-3.1 source after its Debian patch series and
+ ordered upstream source patches have been applied. The injection and skipdir fixture sources remain in the corresponding source
+ package but are not included in the generated executable suite.
+Forwarded: not-needed
+--- a/tests/Makefile.am
++++ b/tests/Makefile.am
+@@ -125,6 +125,8 @@
+  extrac23.at\
+  extrac24.at\
+  extrac25.at\
++ extrac30.at\
++ extrac32.at\
+  filerem01.at\
+  filerem02.at\
+  dirrem01.at\
+@@ -232,6 +234,7 @@
+  shortupd.at\
+  shortrec.at\
+  sigpipe.at\
++ skipdir.at\
+  sparse01.at\
+  sparse02.at\
+  sparse03.at\
+--- a/tests/testsuite.at
++++ b/tests/testsuite.at
+@@ -349,6 +349,7 @@
+ m4_include([extrac23.at])
+ m4_include([extrac24.at])
+ m4_include([extrac25.at])
++m4_include([extrac30.at])
+ 
+ m4_include([backup01.at])

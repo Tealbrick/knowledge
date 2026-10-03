@@ -1,0 +1,225 @@
+{
+  "api_version": "gbrain-schema-pack-v1",
+  "name": "doppelganger",
+  "version": "1.1.0",
+  "description": "Doppelganger domain schema for Product memory, App extension topology, runtime bridge capability relay, and operator decisions.",
+  "author": "Doppelganger",
+  "license": "UNLICENSED",
+  "gbrain_min_version": "0.38.0",
+  "extends": "gbrain-base",
+  "borrow_from": [],
+  "page_types": [
+    {
+      "name": "knowledge_document",
+      "primitive": "media",
+      "path_prefixes": ["knowledge-docs/"],
+      "aliases": [],
+      "extractable": false,
+      "expert_routing": false
+    },
+    {
+      "name": "research_source",
+      "primitive": "media",
+      "path_prefixes": ["knowledge-research/sources/"],
+      "aliases": [],
+      "extractable": false,
+      "expert_routing": false
+    },
+    {
+      "name": "doppelganger-agent",
+      "primitive": "entity",
+      "path_prefixes": ["doppelganger/agent/", "agent/"],
+      "aliases": ["person"],
+      "extractable": true,
+      "expert_routing": true
+    },
+    {
+      "name": "doppelganger-app",
+      "primitive": "entity",
+      "path_prefixes": ["doppelganger/app/", "app/"],
+      "aliases": ["project"],
+      "extractable": true,
+      "expert_routing": true
+    },
+    {
+      "name": "doppelganger-product",
+      "primitive": "concept",
+      "path_prefixes": ["doppelganger/product/", "product/"],
+      "aliases": ["project"],
+      "extractable": true,
+      "expert_routing": false
+    },
+    {
+      "name": "doppelganger-microapp",
+      "primitive": "entity",
+      "path_prefixes": ["doppelganger/microapps/", "microapps/"],
+      "aliases": ["project"],
+      "extractable": true,
+      "expert_routing": true
+    },
+    {
+      "name": "doppelganger-plugin",
+      "primitive": "entity",
+      "path_prefixes": ["doppelganger/plugins/", "plugins/"],
+      "aliases": ["doppelganger-microapp"],
+      "extractable": true,
+      "expert_routing": true
+    },
+    {
+      "name": "doppelganger-extension",
+      "primitive": "entity",
+      "path_prefixes": ["doppelganger/extensions/", "extensions/"],
+      "aliases": ["doppelganger-plugin"],
+      "extractable": true,
+      "expert_routing": true
+    },
+    {
+      "name": "doppelganger-program",
+      "primitive": "entity",
+      "path_prefixes": ["doppelganger/programs/", "programs/"],
+      "aliases": ["doppelganger-microapp"],
+      "extractable": true,
+      "expert_routing": true
+    },
+    {
+      "name": "doppelganger-skill",
+      "primitive": "media",
+      "path_prefixes": ["doppelganger/skills/", "skills/"],
+      "aliases": ["guide"],
+      "extractable": true,
+      "expert_routing": false
+    },
+    {
+      "name": "doppelganger-sidecar",
+      "primitive": "entity",
+      "path_prefixes": ["doppelganger/sidecars/", "sidecars/"],
+      "aliases": ["doppelganger-program"],
+      "extractable": true,
+      "expert_routing": true
+    },
+    {
+      "name": "doppelganger-runtime",
+      "primitive": "temporal",
+      "path_prefixes": ["doppelganger/runtime/", "runtime/"],
+      "aliases": ["doppelganger-program"],
+      "extractable": true,
+      "expert_routing": false
+    },
+    {
+      "name": "doppelganger-remote",
+      "primitive": "entity",
+      "path_prefixes": ["doppelganger/remote/", "remote/"],
+      "aliases": ["place"],
+      "extractable": true,
+      "expert_routing": true
+    },
+    {
+      "name": "doppelganger-local",
+      "primitive": "entity",
+      "path_prefixes": ["doppelganger/local/", "local/"],
+      "aliases": ["place"],
+      "extractable": true,
+      "expert_routing": true
+    },
+    {
+      "name": "doppelganger-operator",
+      "primitive": "entity",
+      "path_prefixes": ["doppelganger/operators/", "operators/"],
+      "aliases": ["person"],
+      "extractable": true,
+      "expert_routing": true
+    },
+    {
+      "name": "doppelganger-decision",
+      "primitive": "annotation",
+      "path_prefixes": ["doppelganger/decisions/", "decisions/"],
+      "aliases": ["analysis"],
+      "extractable": true,
+      "expert_routing": false
+    },
+    {
+      "name": "doppelganger-risk",
+      "primitive": "annotation",
+      "path_prefixes": ["doppelganger/risks/", "risks/"],
+      "aliases": ["analysis"],
+      "extractable": true,
+      "expert_routing": false
+    }
+  ],
+  "link_types": [
+    { "name": "owns", "inverse": "owned_by" },
+    { "name": "installs", "inverse": "installed_by" },
+    { "name": "materializes", "inverse": "materialized_by" },
+    { "name": "provides", "inverse": "provided_by" },
+    { "name": "relays", "inverse": "relayed_by" },
+    { "name": "deploys", "inverse": "deployed_by" },
+    { "name": "adapts", "inverse": "adapted_by" },
+    { "name": "governs", "inverse": "governed_by" },
+    { "name": "depends_on", "inverse": "depended_on_by" },
+    { "name": "blocks", "inverse": "blocked_by" },
+    { "name": "supersedes", "inverse": "superseded_by" }
+  ],
+  "frontmatter_links": [
+    {
+      "page_type": "doppelganger-microapp",
+      "fields": ["plugin_id", "extension_id", "program_id"],
+      "link_type": "owns"
+    },
+    {
+      "page_type": "doppelganger-extension",
+      "fields": ["surface_id", "hook_region"],
+      "link_type": "materializes"
+    },
+    {
+      "page_type": "doppelganger-program",
+      "fields": ["sidecar_id", "runtime_id"],
+      "link_type": "provides"
+    },
+    {
+      "page_type": "doppelganger-remote",
+      "fields": ["deployed_microapp", "runtime_bridge"],
+      "link_type": "deploys"
+    }
+  ],
+  "takes_kinds": ["fact", "take", "bet", "hunch", "decision", "risk", "blocker"],
+  "enrichable_types": [
+    {
+      "type": "doppelganger-agent",
+      "rubric": "Summarize the Agent capability boundary, provider path, installed extensions, and operator-facing constraints."
+    },
+    {
+      "type": "doppelganger-microapp",
+      "rubric": "Summarize Program, Plugin, Extension, Skill, App surface, install status, and verification proof."
+    },
+    {
+      "type": "doppelganger-runtime",
+      "rubric": "Summarize local or remote runtime authority, auth boundary, relay path, and current health evidence."
+    }
+  ],
+  "filing_rules": [
+    {
+      "kind": "microapp",
+      "directory": "doppelganger/microapps/",
+      "examples": ["local-runtime-bridge", "knowledge", "remote-setup"],
+      "description": "First-party Product units that own a capability boundary."
+    },
+    {
+      "kind": "runtime",
+      "directory": "doppelganger/runtime/",
+      "examples": ["local-runtime-bridge", "gbrain", "desktop-provider"],
+      "description": "Runtime authority, bridge, sidecar, or provider state."
+    },
+    {
+      "kind": "decision",
+      "directory": "doppelganger/decisions/",
+      "examples": ["extension-placement", "runtime-bridge-auth"],
+      "description": "Operator decisions, open calls, and settled architecture choices."
+    },
+    {
+      "kind": "risk",
+      "directory": "doppelganger/risks/",
+      "examples": ["false-localhost-remote", "duplicate-extension-owner"],
+      "description": "Known blockers, correctness risks, and verification gaps."
+    }
+  ]
+}

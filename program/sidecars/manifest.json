@@ -1,0 +1,53 @@
+{
+  "sidecars": [
+    {
+      "id": "knowledge-program",
+      "kind": "fastify-program",
+      "required": true,
+      "launch": {
+        "strategy": "pnpm",
+        "command": "pnpm",
+        "args": ["dev"],
+        "cwd": "../"
+      },
+      "health": "/healthz",
+      "portStrategy": "dynamic-ephemeral"
+    },
+    {
+      "id": "gbrain",
+      "kind": "brain-runtime",
+      "required": true,
+      "launch": {
+        "strategy": "packaged-bun-or-configured-url",
+        "cwd": "../../sidecars/gbrain",
+        "command": "bun",
+        "args": ["run", "src/cli.ts", "serve", "--http", "--port", "$PORT", "--bind", "127.0.0.1", "--suppress-bootstrap-token"]
+      },
+      "health": "/health",
+      "portStrategy": "dynamic-ephemeral",
+      "defaultHome": "~/.doppelganger-knowledge/gbrain-home",
+      "homeEnv": "KNOWLEDGE_GBRAIN_HOME"
+    },
+    {
+      "id": "knowledge-db",
+      "kind": "sqlite",
+      "required": true,
+      "launch": {
+        "strategy": "program-owned-file",
+        "defaultPath": "~/.doppelganger-knowledge/knowledge.sqlite",
+        "dataDirEnv": "KNOWLEDGE_DATA_DIR"
+      }
+    },
+    {
+      "id": "forgejo-docs-source",
+      "kind": "canonical-document-source",
+      "required": false,
+      "launch": {
+        "strategy": "configured-source-provider",
+        "allowlistEnv": "KNOWLEDGE_FORGEJO_ALLOWED_BASE_URLS",
+        "tokenEnvPattern": "KNOWLEDGE_*_TOKEN",
+        "secretEnvPattern": "KNOWLEDGE_SECRET_*"
+      }
+    }
+  ]
+}

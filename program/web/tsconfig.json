@@ -1,0 +1,17 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "paths": {
+      "@doppelganger/ui": ["../../.sdk/doppelganger-ui/src/index.tsx", "../../../.sdk/doppelganger-ui/src/index.tsx"],
+      "@doppelganger/ui/*": ["../../.sdk/doppelganger-ui/*", "../../../.sdk/doppelganger-ui/*"],
+      "react": ["../node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": ["../node_modules/@types/react/jsx-runtime.d.ts"]
+    },
+    "types": ["vite/client"]
+  },
+  "include": ["src", "e2e"]
+}

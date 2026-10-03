@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "doppelganger.remote-program-adapter/v1",
+  "unitId": "knowledge",
+  "program": {
+    "kind": "remote",
+    "baseUrlEnv": "KNOWLEDGE_BASE_URL",
+    "connectionFile": "runtime-connection.json",
+    "healthPath": "/healthz",
+    "loopbackOnly": true
+  },
+  "gateway": {
+    "registryUnitId": "knowledge",
+    "proxyBasePath": "/api/plugins/doppelganger-registry/proxy/knowledge",
+    "deployment": {
+      "programBaseUrlEnv": "KNOWLEDGE_BASE_URL",
+      "healthPath": "/healthz"
+    }
+  },
+  "agent": {
+    "pluginId": "knowledge",
+    "requiredTools": [
+      "knowledge_docs_read",
+      "brain_recall"
+    ]
+  },
+  "research": {
+    "contractVersion": "doppelganger.knowledge-research-tools/v1",
+    "implementation": "research_tools.py",
+    "serviceTokenEnv": "KNOWLEDGE_RESEARCH_SERVICE_TOKEN",
+    "credentialAuthority": "knowledge-service-principal",
+    "policyOwner": "knowledge-program",
+    "upstreamProvider": "open_notebook",
+    "callerContextAllowed": false,
+    "automaticRetries": false,
+    "requiredTools": [
+      "knowledge_research_notebooks_discover",
+      "knowledge_research_engine_get",
+      "knowledge_research_sources_list",
+      "knowledge_research_source_get",
+      "knowledge_research_notes_list",
+      "knowledge_research_note_get",
+      "knowledge_research_context_get",
+      "knowledge_research_source_create",
+      "knowledge_research_write_receipt_get",
+      "knowledge_research_chat_create",
+      "knowledge_research_chat_get",
+      "knowledge_research_chat_send",
+      "knowledge_research_chat_receipt_get"
+    ]
+  },
+  "nativeMemory": {
+    "contractVersion": "knowledge.native-memory/v1",
+    "implementation": "native_tools.py",
+    "catalogPath": "/api/brain/native/tools",
+    "operationPath": "/api/brain/native/:operation",
+    "serviceTokenEnv": "KNOWLEDGE_SERVICE_TOKEN",
+    "partitionEnv": "KNOWLEDGE_PARTITION_KEY",
+    "credentialAuthority": "knowledge-service-principal",
+    "policyOwner": "knowledge-program",
+    "transport": "https-or-loopback-http-no-redirects",
+    "automaticRetries": false,
+    "requiredTools": ["knowledge_brain_tools", "knowledge_brain_call", "brain_think"]
+  }
+}

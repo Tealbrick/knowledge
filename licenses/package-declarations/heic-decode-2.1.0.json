@@ -1,0 +1,19 @@
+{
+  "name": "heic-decode",
+  "version": "2.1.0",
+  "license": "ISC",
+  "author": {
+    "name": "Kiril Vatev",
+    "email": "vatev.1@gmail.com"
+  },
+  "contributors": null,
+  "repository": {
+    "url": "git+https://github.com/catdad-experiments/heic-decode.git",
+    "type": "git"
+  },
+  "gitHead": "47773f7b17acc22bfb8bb7869b6ef087d24c0ca9",
+  "metadataUrl": "https://registry.npmjs.org/heic-decode/2.1.0",
+  "tarballUrl": "https://registry.npmjs.org/heic-decode/-/heic-decode-2.1.0.tgz",
+  "tarballSha256": "e7a8c4c1f0dbb57144d02abac9139da5d46922854b08ab34d08b34bde4f8771c",
+  "suppliedCopyrightFiles": []
+}

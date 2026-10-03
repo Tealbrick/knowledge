@@ -1,0 +1,49 @@
+{
+  "name": "@doppelganger/knowledge-program",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": "^22.13.0 || ^24.0.0 || >=26.0.0",
+    "pnpm": ">=9.15.4"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "dev:miniapp": "tsx watch src/index.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "build": "pnpm run build:web",
+    "build:web": "vite build --config web/vite.config.ts",
+    "typecheck": "pnpm run typecheck:program && pnpm run typecheck:web",
+    "typecheck:program": "tsc -p tsconfig.json --noEmit",
+    "typecheck:web": "tsc -p web/tsconfig.json --noEmit",
+    "test": "pnpm run test:program && pnpm run test:web",
+    "test:program": "vitest run --exclude 'web/**'",
+    "test:web": "vitest run --config web/vitest.config.ts",
+    "test:e2e": "pnpm run build:web && playwright test --config web/playwright.config.ts",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "fastify": "5.12.3",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@radix-ui/react-alert-dialog": "^1.1.15",
+    "@radix-ui/react-dialog": "^1.1.23",
+    "@radix-ui/react-tabs": "^1.1.21",
+    "@tanstack/react-query": "5.102.8",
+    "@types/node": "24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "6.1.1",
+    "lucide-react": "1.41.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2",
+    "vite": "8.2.2",
+    "vitest": "5.0.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,438 @@
+{
+  "id": "knowledge",
+  "version": "0.1.0",
+  "name": "Knowledge",
+  "kind": "full-on",
+  "system": {
+    "required": false,
+    "enabledByDefault": false,
+    "disableAllowed": true,
+    "systemRole": "knowledge-substrate"
+  },
+  "description": "First-party Doppelganger Knowledge Micro-app with Documents, Research, GBrain-powered Brain, Orchestrator, bindings, and primitive observer UI.",
+  "source": {
+    "type": "direct-port-plus-upstream-sidecar",
+    "repo": "Source snapshot documented in SOURCE_SNAPSHOT.md",
+    "paths": [
+      "product/apps/web/src/pages/Docs.tsx",
+      "product/apps/web/src/components/docs",
+      "product/apps/web/src/api/knowledge.ts",
+      "product/apps/web/src/api/knowledge-search.ts",
+      "product/apps/web/src/api/project-knowledge.ts",
+      "product/apps/web/src/api/issue-knowledge.ts",
+      "product/apps/web/src/api/goal-knowledge.ts",
+      "product/apps/web/src/api/knowledge-assets.ts",
+      "product/apps/work_ethic/src/resources.ts",
+      "product/apps/work_ethic/src/store.ts",
+      "product/apps/work_ethic/src/knowledge-source-adapters.ts",
+      "product/apps/web/src/pages/Research.tsx",
+      "product/apps/web/src/components/research",
+      "product/apps/web/src/api/research.ts",
+      "product/apps/control_plane/src/routes/research*.ts",
+      "product/apps/memory/src/models.py",
+      "product/apps/memory/src/crud/memory_entity.py",
+      "product/apps/memory/src/schemas/api.py",
+      "product/_tbd_own/memory-custom/src/backend/ingest.ts"
+    ],
+    "upstreams": [
+      {
+        "id": "gbrain",
+        "repo": "https://github.com/garrytan/gbrain",
+        "version": "0.48.2.0",
+        "commit": "5cfb84f1d3a809c70064c292c23db3d538d5c551",
+        "role": "first-grade Brain runtime and source-scoped intelligence substrate"
+      },
+      {
+        "id": "open-notebook",
+        "repo": "https://github.com/lfnovo/open-notebook",
+        "version": "1.14.0",
+        "commit": "30c7e2a63e43b7f270fc2c638f0b6246934a53f4",
+        "role": "Research engine foundation; server adapter contract baseline, not deployed-service proof"
+      }
+    ]
+  },
+  "program": {
+    "path": "program",
+    "workspace": "pnpm",
+    "servicePackage": "@doppelganger/knowledge-program",
+    "health": "/healthz",
+    "defaultHost": "127.0.0.1",
+    "defaultPort": 0,
+    "portStrategy": "dynamic-ephemeral",
+    "observerUi": "/",
+    "subapps": [
+      "documents",
+      "research",
+      "brain",
+      "orchestrator"
+    ],
+    "database": {
+      "kind": "sqlite",
+      "mode": "hidden-home-file",
+      "defaultPath": "~/.doppelganger-knowledge/knowledge.sqlite",
+      "owner": "program/src/persistence.ts"
+    },
+    "persistenceRoot": {
+      "defaultPath": "~/.doppelganger-knowledge",
+      "env": "KNOWLEDGE_DATA_DIR"
+    },
+    "canonicalSources": [
+      {
+        "provider": "native",
+        "authority": "knowledge-spine-db"
+      },
+      {
+        "provider": "forgejo_repo",
+        "authority": "configured-repository",
+        "tokenEnvPattern": "KNOWLEDGE_*_TOKEN",
+        "allowlistEnv": "KNOWLEDGE_FORGEJO_ALLOWED_BASE_URLS"
+      },
+      {
+        "provider": "github_repo",
+        "authority": "configured-repository",
+        "tokenEnvPattern": "KNOWLEDGE_*_TOKEN"
+      }
+    ]
+  },
+  "plugin": {
+    "path": "plugin/hermes",
+    "status": "installable-remote-plugin",
+    "remotePluginPath": "plugin/hermes/remote-plugin/knowledge",
+    "installScript": "plugin/hermes/install-remote-hermes-plugin.sh",
+    "remoteRuntimeContract": "plugin/hermes/remote-plugin/knowledge/remote-runtime.json",
+    "tools": [
+      "knowledge_health",
+      "knowledge_status",
+      "knowledge_docs_collections_list",
+      "knowledge_docs_collections_create",
+      "knowledge_docs_search",
+      "knowledge_docs_tree",
+      "knowledge_docs_create",
+      "knowledge_docs_read",
+      "knowledge_docs_update",
+      "knowledge_docs_revisions_list",
+      "knowledge_docs_access_get",
+      "knowledge_docs_access_update",
+      "knowledge_ingest_run",
+      "knowledge_research_notebooks_list",
+      "knowledge_research_notebooks_discover",
+      "knowledge_research_engine_get",
+      "knowledge_research_sources_list",
+      "knowledge_research_source_get",
+      "knowledge_research_notes_list",
+      "knowledge_research_note_get",
+      "knowledge_research_context_get",
+      "knowledge_research_source_create",
+      "knowledge_research_write_receipt_get",
+      "knowledge_research_chat_create",
+      "knowledge_research_chat_get",
+      "knowledge_research_chat_send",
+      "knowledge_research_chat_receipt_get",
+      "knowledge_bindings_create",
+      "knowledge_bindings_list",
+      "knowledge_bindings_remove",
+      "brain_context_for_task",
+      "brain_context_for_thread",
+      "brain_recall",
+      "brain_query",
+      "brain_think",
+      "knowledge_brain_tools",
+      "knowledge_brain_call",
+      "brain_entity_profile",
+      "brain_graph_traverse"
+    ]
+  },
+  "dependencies": [
+    "rules-approvals",
+    "work-ethic-kanban",
+    "local-runtime-bridge"
+  ],
+  "sidecars": {
+    "required": [
+      {
+        "id": "knowledge-program",
+        "kind": "fastify-program",
+        "mode": "packaged",
+        "env": [
+          "KNOWLEDGE_BASE_URL"
+        ]
+      },
+      {
+        "id": "knowledge-db",
+        "kind": "database",
+        "mode": "hidden-home-file",
+        "env": [
+          "KNOWLEDGE_DATA_DIR",
+          "KNOWLEDGE_DATABASE_PATH",
+          "KNOWLEDGE_DATABASE_URL"
+        ]
+      },
+      {
+        "id": "gbrain",
+        "kind": "brain-runtime",
+        "mode": "packaged-or-configured",
+        "path": "sidecars/gbrain",
+        "env": [
+          "GBRAIN_BASE_URL",
+          "GBRAIN_TOKEN",
+          "KNOWLEDGE_DATA_DIR",
+          "KNOWLEDGE_GBRAIN_HOME",
+          "KNOWLEDGE_GBRAIN_REPO_PATH",
+          "KNOWLEDGE_GBRAIN_AUTOSTART"
+        ]
+      },
+      {
+        "id": "knowledge-object-store",
+        "kind": "filesystem-object-store",
+        "mode": "hidden-home-directory",
+        "path": "~/.doppelganger-knowledge/knowledge-attachments"
+      }
+    ],
+    "optional": [
+      {
+        "id": "forgejo-docs-source",
+        "kind": "canonical-document-source",
+        "mode": "configured",
+        "env": [
+          "KNOWLEDGE_FORGEJO_ALLOWED_BASE_URLS",
+          "KNOWLEDGE_*_TOKEN",
+          "KNOWLEDGE_SECRET_*"
+        ]
+      },
+      {
+        "id": "embedding-provider",
+        "kind": "model-provider",
+        "mode": "configured",
+        "env": [
+          "OPENAI_API_KEY",
+          "GBRAIN_EMBEDDING_PROVIDER"
+        ]
+      }
+    ]
+  },
+  "doppelganger": {
+    "system": {
+      "required": false,
+      "enabledByDefault": false,
+      "disableAllowed": true,
+      "systemRole": "knowledge-substrate"
+    },
+    "dependencies": [
+      "rules-approvals",
+      "work-ethic-kanban",
+      "local-runtime-bridge"
+    ],
+    "permissions": [
+      "knowledge.read",
+      "knowledge.write",
+      "knowledge.bindings",
+      "knowledge.ingest",
+      "research.read",
+      "research.write",
+      "brain.read",
+      "brain.write",
+      "brain.context",
+      "rules.evaluate",
+      "local.scope.resolve",
+      "plugins.register"
+    ],
+    "dataTransports": [
+      {
+        "transportId": "knowledge-api",
+        "label": "Knowledge Program API",
+        "kind": "sidecar",
+        "sidecarId": "knowledge-program",
+        "permissions": [
+          "knowledge.read",
+          "knowledge.write",
+          "brain.read"
+        ],
+        "operations": [
+          {
+            "operationId": "knowledge.health",
+            "resource": "knowledge",
+            "action": "get",
+            "method": "GET",
+            "path": "/healthz",
+            "permissions": [
+              "knowledge.read"
+            ]
+          },
+          {
+            "operationId": "knowledge.status",
+            "resource": "knowledge.status",
+            "action": "get",
+            "method": "GET",
+            "path": "/api/status",
+            "permissions": [
+              "knowledge.read"
+            ]
+          },
+          {
+            "operationId": "knowledge.docs.collections.list",
+            "resource": "knowledge.collections",
+            "action": "list",
+            "method": "GET",
+            "path": "/api/knowledge/collections",
+            "permissions": [
+              "knowledge.read"
+            ]
+          },
+          {
+            "operationId": "knowledge.docs.collections.create",
+            "resource": "knowledge.collections",
+            "action": "create",
+            "method": "POST",
+            "path": "/api/companies/:companyId/knowledge/collections",
+            "permissions": [
+              "knowledge.write",
+              "rules.evaluate"
+            ]
+          },
+          {
+            "operationId": "knowledge.docs.search",
+            "resource": "knowledge.documents",
+            "action": "list",
+            "method": "GET",
+            "path": "/api/companies/:companyId/knowledge/search",
+            "permissions": [
+              "knowledge.read",
+              "rules.evaluate"
+            ]
+          },
+          {
+            "operationId": "knowledge.docs.tree",
+            "resource": "knowledge.collections",
+            "action": "get",
+            "method": "GET",
+            "path": "/api/knowledge/collections/:collectionId/tree",
+            "permissions": [
+              "knowledge.read",
+              "rules.evaluate"
+            ]
+          },
+          {
+            "operationId": "knowledge.docs.create",
+            "resource": "knowledge.documents",
+            "action": "create",
+            "method": "POST",
+            "path": "/api/knowledge/collections/:collectionId/documents",
+            "permissions": [
+              "knowledge.write",
+              "rules.evaluate"
+            ]
+          },
+          {
+            "operationId": "knowledge.docs.read",
+            "resource": "knowledge.documents",
+            "action": "get",
+            "method": "GET",
+            "path": "/api/knowledge/documents/:documentId",
+            "permissions": [
+              "knowledge.read",
+              "rules.evaluate"
+            ]
+          },
+          {
+            "operationId": "knowledge.docs.update",
+            "resource": "knowledge.documents",
+            "action": "update",
+            "method": "PATCH",
+            "path": "/api/knowledge/documents/:documentId",
+            "permissions": [
+              "knowledge.write",
+              "rules.evaluate"
+            ]
+          },
+          {
+            "operationId": "knowledge.docs.revisions.list",
+            "resource": "knowledge.document-revisions",
+            "action": "list",
+            "method": "GET",
+            "path": "/api/knowledge/documents/:documentId/revisions",
+            "permissions": [
+              "knowledge.read",
+              "rules.evaluate"
+            ]
+          },
+          {
+            "operationId": "knowledge.docs.access.get",
+            "resource": "knowledge.document-access",
+            "action": "get",
+            "method": "GET",
+            "path": "/api/knowledge/documents/:documentId/access",
+            "permissions": [
+              "knowledge.read",
+              "rules.evaluate"
+            ]
+          },
+          {
+            "operationId": "knowledge.docs.access.update",
+            "resource": "knowledge.document-access",
+            "action": "update",
+            "method": "PUT",
+            "path": "/api/knowledge/documents/:documentId/access",
+            "permissions": [
+              "knowledge.write",
+              "rules.evaluate"
+            ]
+          },
+          {
+            "operationId": "knowledge.research.notebooks.list",
+            "resource": "knowledge.research",
+            "action": "list",
+            "method": "GET",
+            "path": "/api/companies/:companyId/research/notebooks",
+            "permissions": [
+              "research.read",
+              "rules.evaluate"
+            ]
+          },
+          {
+            "operationId": "knowledge.bindings.create",
+            "resource": "knowledge.bindings",
+            "action": "create",
+            "method": "POST",
+            "path": "/api/bindings",
+            "permissions": [
+              "knowledge.bindings",
+              "rules.evaluate"
+            ]
+          },
+          {
+            "operationId": "knowledge.bindings.list",
+            "resource": "knowledge.bindings",
+            "action": "list",
+            "method": "GET",
+            "path": "/api/bindings",
+            "permissions": [
+              "knowledge.read"
+            ]
+          },
+          {
+            "operationId": "brain.context.for_task",
+            "resource": "brain.context",
+            "action": "invoke",
+            "method": "POST",
+            "path": "/api/brain/context",
+            "permissions": [
+              "brain.context",
+              "rules.evaluate"
+            ]
+          },
+          {
+            "operationId": "brain.recall",
+            "resource": "brain.recall",
+            "action": "invoke",
+            "method": "POST",
+            "path": "/api/brain/recall",
+            "permissions": [
+              "brain.read",
+              "rules.evaluate"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

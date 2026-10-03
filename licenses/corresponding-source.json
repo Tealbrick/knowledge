@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "artifacts": [
+    {
+      "component": "libheif-js",
+      "revision": "fe8e9c29440b839910be9dc32e8d2b826c8217ca",
+      "url": "https://codeload.github.com/catdad-experiments/libheif-js/tar.gz/fe8e9c29440b839910be9dc32e8d2b826c8217ca",
+      "file": "libheif-js-fe8e9c29440b839910be9dc32e8d2b826c8217ca.tar.gz",
+      "sha256": "20115bf5ac397bff5df7e2965a8941a849c6493de2efb2b0c61d1851665a7817",
+      "bytes": 10224
+    },
+    {
+      "component": "libheif-emscripten",
+      "revision": "v1.19.8",
+      "url": "https://codeload.github.com/catdad-experiments/libheif-emscripten/tar.gz/v1.19.8",
+      "file": "libheif-emscripten-v1.19.8.tar.gz",
+      "sha256": "f2a90f5fc1442c9ad6a488a0dc61afc4daee3cea26d3571c33873992a060a656",
+      "bytes": 3063,
+      "resolvedCommit": "a6c4a1b450f1dab0d68887a57b5ac3d69e618436"
+    },
+    {
+      "component": "libheif",
+      "revision": "5e9deb19fe6b3768af0bb8e9e5e8438b15171bf3",
+      "url": "https://codeload.github.com/strukturag/libheif/tar.gz/5e9deb19fe6b3768af0bb8e9e5e8438b15171bf3",
+      "file": "libheif-5e9deb19fe6b3768af0bb8e9e5e8438b15171bf3.tar.gz",
+      "sha256": "d73dfba9f023a49b6a47486265669fc0fca861fccb8df8c717fcc908853df866",
+      "bytes": 1690707
+    },
+    {
+      "component": "libde265",
+      "revision": "v1.0.15",
+      "url": "https://codeload.github.com/strukturag/libde265/tar.gz/v1.0.15",
+      "file": "libde265-v1.0.15.tar.gz",
+      "sha256": "d4e55706dfc5b2c5c9702940b675ce2d3e7511025c6894eaddcdbaf0b15fd3f3",
+      "bytes": 438453,
+      "resolvedCommit": "17bb8d9fcea62db8cdeb0fc7ef8d15dbd19a22e4"
+    },
+    {
+      "component": "lightningcss",
+      "revision": "1d680fa14e9a089c92dc0929f869d6757ae91c30",
+      "url": "https://codeload.github.com/parcel-bundler/lightningcss/tar.gz/1d680fa14e9a089c92dc0929f869d6757ae91c30",
+      "file": "lightningcss-1d680fa14e9a089c92dc0929f869d6757ae91c30.tar.gz",
+      "sha256": "ab377f42f5aa2f7f85058408ab45dbd03caa65fe6c00f4fdc32b9611c4e51bb4",
+      "bytes": 7575823
+    }
+  ],
+  "publicationRequirement": "Publish these exact archives alongside each binary release and retain hashes. These are verified source inputs, not proof of a reproduced build. See corresponding-source.md for scope and remaining requirements.",
+  "releaseStatus": "Reconcile these corresponding-source inputs against the final published image receipt before distribution."
+}

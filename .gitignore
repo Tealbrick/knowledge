@@ -1,0 +1,32 @@
+node_modules/
+dist/
+web-dist/
+.output/
+coverage/
+.cache/
+.turbo/
+.vite/
+.pnpm-store/
+playwright-report/
+test-results/
+output/
+.playwright-cli/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Local runtime, acceptance, and credential state.
+.work/
+.env
+.env.*
+!.env.example
+!.env.testing.example
+*.log
+*.sqlite
+*.sqlite3
+*.db
+
+# Local analysis/acceptance artifacts are never release source.
+.gitnexus/
+.docs-session/
+preview-dist/

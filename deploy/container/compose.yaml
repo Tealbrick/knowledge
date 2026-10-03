@@ -1,0 +1,58 @@
+services:
+  knowledge:
+    image: ${KNOWLEDGE_IMAGE:?Set a verified public Knowledge image digest}
+    restart: unless-stopped
+    ports: ["127.0.0.1:5310:5310"]
+    environment:
+      KNOWLEDGE_INSTANCE_TOKEN: ${KNOWLEDGE_INSTANCE_TOKEN:?Generate a distinct instance token}
+      KNOWLEDGE_OPEN_NOTEBOOK_BASE_URL: http://open-notebook:5055
+      KNOWLEDGE_OPEN_NOTEBOOK_TOKEN: ${OPEN_NOTEBOOK_PASSWORD:?Generate a distinct upstream password}
+      KNOWLEDGE_SERVICE_PRINCIPALS: ${KNOWLEDGE_SERVICE_PRINCIPALS:-[]}
+      KNOWLEDGE_OPEN_NOTEBOOK_BINDINGS: ${KNOWLEDGE_OPEN_NOTEBOOK_BINDINGS:-[]}
+      KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID: ${KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID:-}
+    volumes: ["knowledge-data:/data"]
+    depends_on:
+      open-notebook: { condition: service_healthy }
+  open-notebook:
+    image: lfnovo/open_notebook:1.14.0@sha256:6c5fb35b6c60549e4c2dc7617d1f07aaf0a67c4954564a73498d536b8186e879
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      OPEN_NOTEBOOK_PASSWORD: ${OPEN_NOTEBOOK_PASSWORD:?Generate an upstream password}
+      OPEN_NOTEBOOK_ENCRYPTION_KEY: ${OPEN_NOTEBOOK_ENCRYPTION_KEY:?Generate and back up encryption key}
+      SURREAL_URL: ws://surrealdb:8000/rpc
+      SURREAL_USER: knowledge
+      SURREAL_PASSWORD: ${SURREAL_PASSWORD:?Generate a database password}
+      SURREAL_NAMESPACE: knowledge
+      SURREAL_DATABASE: knowledge
+      OPEN_NOTEBOOK_ENABLE_DOCLING: "false"
+      OPEN_NOTEBOOK_ENABLE_CRAWL4AI: "false"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+    volumes: ["notebook-data:/app/data"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5055/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 5
+    depends_on:
+      surrealdb: { condition: service_healthy }
+  surrealdb:
+    image: surrealdb/surrealdb:v2.6.5@sha256:7db835aab6355b66e2b5779a3cddae811f201c417adadb4413310ae7f925110e
+    platform: linux/amd64
+    restart: unless-stopped
+    user: root
+    command: ["start", "--log", "info", "--user", "knowledge", "--pass", "${SURREAL_PASSWORD:?Generate a database password}", "rocksdb:/mydata/knowledge.db"]
+    volumes: ["surreal-data:/mydata"]
+    healthcheck:
+      test: ["CMD", "/surreal", "isready", "--endpoint", "http://127.0.0.1:8000"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
+volumes:
+  knowledge-data:
+  notebook-data:
+  surreal-data:

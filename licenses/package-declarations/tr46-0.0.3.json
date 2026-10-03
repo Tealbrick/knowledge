@@ -1,0 +1,19 @@
+{
+  "name": "tr46",
+  "version": "0.0.3",
+  "license": "MIT",
+  "author": {
+    "name": "Sebastian Mayr",
+    "email": "npm@smayr.name"
+  },
+  "contributors": null,
+  "repository": {
+    "url": "git+https://github.com/Sebmaster/tr46.js.git",
+    "type": "git"
+  },
+  "gitHead": "a8009f9ce80ff5dbe71dd71e203afe4e4c878d28",
+  "metadataUrl": "https://registry.npmjs.org/tr46/0.0.3",
+  "tarballUrl": "https://registry.npmjs.org/tr46/-/tr46-0.0.3.tgz",
+  "tarballSha256": "164ae1eb32cea353551bbc7f9358dcaae4ffabbe65ec37a92ca464a9570a2a0a",
+  "suppliedCopyrightFiles": []
+}

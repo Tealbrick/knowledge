@@ -1,0 +1,334 @@
+{
+  "schemaVersion": 1,
+  "sourceOfTruth": "public Knowledge deployment and distribution settings",
+  "publicImage": {
+    "repository": "ghcr.io/tealbrick/knowledge",
+    "reference": null,
+    "pullPolicy": "anonymous-public-pull",
+    "digestRequired": true,
+    "credentialsRequired": false
+  },
+  "recipe": {
+    "schemaVersion": 1,
+    "id": "tealbrick-knowledge",
+    "version": "0.1.0",
+    "distribution": "public-source-and-digest-pinned-image",
+    "sourceContext": "standalone-repository-root",
+    "dockerfile": "deploy/container/Dockerfile",
+    "image": null,
+    "imageStatus": "awaiting-public-image-digest",
+    "railwayBlueprint": "railway-blueprint.json",
+    "port": 5310,
+    "replicas": 1,
+    "volume": {
+      "mountPath": "/data",
+      "contents": [
+        "knowledge.sqlite",
+        "knowledge-attachments",
+        "model-settings.json",
+        "instance-claim-identity.json",
+        "authorization-audit.sqlite",
+        "brain-extractions.sqlite",
+        "brain-projections.sqlite",
+        "research-writes.sqlite",
+        "research-chat.sqlite",
+        "gbrain-home"
+      ]
+    },
+    "health": {
+      "path": "/healthz",
+      "authenticated": false,
+      "meaning": "program-liveness-only"
+    },
+    "readiness": {
+      "path": "/api/status",
+      "authenticated": true,
+      "check": "Inspect Brain and Research dependency posture separately; no all-features readiness promise"
+    },
+    "auth": {
+      "header": "X-Knowledge-Instance-Token",
+      "secretEnv": "KNOWLEDGE_INSTANCE_TOKEN",
+      "minimumLength": 32,
+      "scope": "entire-single-tenant-instance",
+      "purpose": "operator-recovery-and-deployment-validation-only",
+      "deliverToConnectedAgents": false,
+      "researchHeader": "Authorization: Bearer <independently configured Knowledge principal token>"
+    },
+    "mcp": {
+      "inImage": false,
+      "adapterPackage": "@tealbrick/knowledge-agent",
+        "adapterVersion": "0.1.0",
+      "protocol": "stdio",
+      "runsOn": "trusted customer agent host",
+      "supportedOperations": [
+        "knowledge_brain_tools",
+        "knowledge_brain_call"
+      ],
+      "endpointEnv": "KNOWLEDGE_BASE_URL",
+      "partitionEnv": "KNOWLEDGE_PARTITION_KEY",
+      "credentialEnv": "KNOWLEDGE_SERVICE_TOKEN",
+      "credentialType": "individually scoped Knowledge service-principal token",
+      "networkPath": "customer agent host directly to Knowledge HTTPS endpoint",
+      "sourceDocumentation": "../../adapters/agent/README.md"
+    },
+    "customerRuntimeAuth": {
+      "authorizationHeader": "Authorization: Bearer <Knowledge service-principal token>",
+      "principalConfigEnv": "KNOWLEDGE_SERVICE_PRINCIPALS",
+      "partitionPolicy": "principal capability ceiling intersected with matching partition grant",
+      "instanceTokenForAgents": false,
+      "portalIntrospection": false,
+      "revocation": "principal changes take effect at controlled Program restart",
+      "sourceDocumentation": "../../docs/customer-runtime-auth.md"
+    },
+    "attachmentAuth": {
+      "status": "legacy-optional",
+      "portalEnv": "TEALBRICK_PORTAL_URL",
+      "deploymentEnv": "TEALBRICK_DEPLOYMENT_ID",
+      "companyEnv": "KNOWLEDGE_COMPANY_ID",
+      "portalOrgEnv": "KNOWLEDGE_PORTAL_ORG_ID",
+      "attachmentHeader": "Authorization: Bearer <attachment>",
+      "agentHeader": "X-Tealbrick-Agent-Token",
+      "capabilities": [
+        "knowledge:documents:read",
+        "knowledge:documents:write",
+        "knowledge:brain:read"
+      ],
+      "revocation": "live portal introspection every operation",
+      "tenantBoundary": "dedicated instance per workspace"
+    },
+    "agentTransport": "REST over HTTPS from trusted customer MCP or Eve adapter",
+    "requiredEnv": [
+      "KNOWLEDGE_INSTANCE_TOKEN"
+    ],
+    "environment": {
+      "HOST": "0.0.0.0",
+      "PORT": "5310",
+      "NODE_ENV": "production",
+      "KNOWLEDGE_DATA_DIR": "/data",
+      "KNOWLEDGE_GBRAIN_HOME": "/data/gbrain-home",
+      "KNOWLEDGE_GBRAIN_AUTOSTART": "true"
+    },
+    "researchRequiredEnv": [
+      "KNOWLEDGE_OPEN_NOTEBOOK_BASE_URL",
+      "KNOWLEDGE_OPEN_NOTEBOOK_TOKEN",
+      "KNOWLEDGE_SERVICE_PRINCIPALS",
+      "KNOWLEDGE_OPEN_NOTEBOOK_BINDINGS"
+    ],
+    "chatRequiredEnv": [
+      "KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID"
+    ],
+    "dependencies": [
+      {
+        "id": "gbrain",
+        "version": "0.48.2.0",
+        "commit": "5cfb84f1d3a809c70064c292c23db3d538d5c551",
+        "mode": "bundled-bun-child-pglite",
+        "public": false
+      },
+      {
+        "id": "open-notebook",
+        "image": "lfnovo/open_notebook:1.14.0@sha256:6c5fb35b6c60549e4c2dc7617d1f07aaf0a67c4954564a73498d536b8186e879",
+        "platform": "linux/amd64",
+        "port": 5055,
+        "volume": "/app/data",
+        "public": false
+      },
+      {
+        "id": "surrealdb",
+        "image": "surrealdb/surrealdb:v2.6.5@sha256:7db835aab6355b66e2b5779a3cddae811f201c417adadb4413310ae7f925110e",
+        "platform": "linux/amd64",
+        "port": 8000,
+        "volume": "/mydata",
+        "public": false
+      }
+    ],
+    "limitations": [
+      "The instance recovery secret is not agent authorization; direct agent requests are still partition- and capability-scoped",
+      "Portal owner browser launch requires a live deployment binding; Research UI session grants remain separate",
+      "Model provider credentials and models require separate provisioning",
+      "No automatic notebook mapping provisioning",
+      "No marketplace license enforcement inside image"
+    ],
+    "imageRegistry": "ghcr.io/tealbrick/knowledge",
+    "imagePullPolicy": "anonymous-public-pull",
+    "registryAuth": "none",
+    "buildContext": {
+      "kind": "standalone-repository-root-or-allowlisted-export",
+      "root": "repository root or disposable export directory",
+      "exportCommand": "KNOWLEDGE_EXPORT_ONLY=1 sh deploy/container/build-local.sh",
+      "contents": [
+        "program/",
+        "sidecars/gbrain/",
+        "deploy/container/",
+        "LICENSE",
+        "THIRD_PARTY_NOTICES.md",
+        "licenses/",
+        ".sdk/"
+      ]
+    }
+  },
+  "blueprint": {
+    "format": "tealbrick.railway-blueprint.v1",
+    "providerImportFormat": false,
+    "status": "authored-not-created-or-published-on-railway",
+    "name": "Teal Brick Knowledge \u2014 isolated workspace",
+    "architecture": "linux/amd64",
+    "projectPolicy": "one customer workspace per dedicated project environment and three volumes",
+    "requiredInputs": {
+      "knowledgeImage": "Public GHCR image reference pinned by sha256 digest; no registry credentials",
+      "TEALBRICK_PORTAL_URL": "Exact trusted Portal HTTPS origin",
+      "TEALBRICK_DEPLOYMENT_ID": "Existing server-issued Teal Brick deployment ID, not RAILWAY_DEPLOYMENT_ID",
+      "KNOWLEDGE_COMPANY_ID": "Existing server-bound workspace ID; never generated from browser labels",
+      "KNOWLEDGE_PORTAL_ORG_ID": "Existing server-attested Portal organization ID; never generated from browser labels"
+    },
+    "services": [
+      {
+        "name": "SurrealDB",
+        "source": {
+          "image": "surrealdb/surrealdb:v2.6.5@sha256:7db835aab6355b66e2b5779a3cddae811f201c417adadb4413310ae7f925110e"
+        },
+        "publicNetworking": false,
+        "tcpProxy": false,
+        "port": 8000,
+        "replicas": 1,
+        "volume": {
+          "name": "surreal-data",
+          "mountPath": "/mydata"
+        },
+        "startCommand": "/surreal start --log info --bind 0.0.0.0:8000 rocksdb:/mydata/knowledge.db",
+        "healthcheckPath": "/health",
+        "healthcheckTimeout": 300,
+        "variables": {
+          "PORT": "8000",
+          "RAILWAY_RUN_UID": "0",
+          "SURREAL_USER": "knowledge",
+          "SURREAL_PASS": "${{secret(64, \"abcdef0123456789\")}}",
+          "SURREAL_NAMESPACE": "knowledge",
+          "SURREAL_DATABASE": "knowledge",
+          "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS": "0",
+          "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": "30"
+        }
+      },
+      {
+        "name": "OpenNotebook",
+        "source": {
+          "image": "lfnovo/open_notebook:1.14.0@sha256:6c5fb35b6c60549e4c2dc7617d1f07aaf0a67c4954564a73498d536b8186e879"
+        },
+        "publicNetworking": false,
+        "tcpProxy": false,
+        "port": 5055,
+        "replicas": 1,
+        "volume": {
+          "name": "notebook-data",
+          "mountPath": "/app/data"
+        },
+        "startCommand": null,
+        "startCommandPolicy": "Keep official image entrypoint: API plus background worker",
+        "healthcheckPath": "/health",
+        "healthcheckTimeout": 300,
+        "variables": {
+          "PORT": "5055",
+          "OPEN_NOTEBOOK_PASSWORD": "${{secret(64, \"abcdef0123456789\")}}",
+          "OPEN_NOTEBOOK_ENCRYPTION_KEY": "${{secret(64, \"abcdef0123456789\")}}",
+          "SURREAL_URL": "ws://${{SurrealDB.RAILWAY_PRIVATE_DOMAIN}}:8000/rpc",
+          "SURREAL_USER": "${{SurrealDB.SURREAL_USER}}",
+          "SURREAL_PASSWORD": "${{SurrealDB.SURREAL_PASS}}",
+          "SURREAL_NAMESPACE": "${{SurrealDB.SURREAL_NAMESPACE}}",
+          "SURREAL_DATABASE": "${{SurrealDB.SURREAL_DATABASE}}",
+          "OPEN_NOTEBOOK_ENABLE_DOCLING": "false",
+          "OPEN_NOTEBOOK_ENABLE_CRAWL4AI": "false",
+          "OPEN_NOTEBOOK_WORKER_MAX_TASKS": "1",
+          "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS": "0",
+          "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": "30"
+        },
+        "optionalProviderSecretVariables": [
+          "OPENAI_API_KEY",
+          "ANTHROPIC_API_KEY",
+          "GOOGLE_API_KEY"
+        ]
+      },
+      {
+        "name": "Knowledge",
+        "source": {
+          "image": null,
+          "requiredInput": "knowledgeImage",
+          "visibility": "public"
+        },
+        "publicNetworking": true,
+        "publicTargetPort": 5310,
+        "tcpProxy": false,
+        "port": 5310,
+        "replicas": 1,
+        "volume": {
+          "name": "knowledge-data",
+          "mountPath": "/data"
+        },
+        "startCommand": null,
+        "startCommandPolicy": "Keep authenticated image entrypoint; never launch program/src/index.ts directly",
+        "healthcheckPath": "/healthz",
+        "healthcheckTimeout": 300,
+        "provisionalMemoryMiB": 1536,
+        "variables": {
+          "HOST": "0.0.0.0",
+          "PORT": "5310",
+          "NODE_ENV": "production",
+          "RAILWAY_RUN_UID": "0",
+          "KNOWLEDGE_DATA_DIR": "/data",
+          "KNOWLEDGE_GBRAIN_HOME": "/data/gbrain-home",
+          "KNOWLEDGE_GBRAIN_AUTOSTART": "true",
+          "KNOWLEDGE_INSTANCE_TOKEN": "${{secret(64, \"abcdef0123456789\")}}",
+          "KNOWLEDGE_OPEN_NOTEBOOK_BASE_URL": "http://${{OpenNotebook.RAILWAY_PRIVATE_DOMAIN}}:5055",
+          "KNOWLEDGE_OPEN_NOTEBOOK_TOKEN": "${{OpenNotebook.OPEN_NOTEBOOK_PASSWORD}}",
+          "KNOWLEDGE_SERVICE_PRINCIPALS": "[]",
+          "KNOWLEDGE_OPEN_NOTEBOOK_BINDINGS": "[]",
+          "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS": "0",
+          "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": "30"
+        },
+        "requiredOperatorVariables": [
+          "TEALBRICK_PORTAL_URL",
+          "TEALBRICK_DEPLOYMENT_ID",
+          "KNOWLEDGE_COMPANY_ID",
+          "KNOWLEDGE_PORTAL_ORG_ID"
+        ],
+        "optionalAfterProvisioning": [
+          "KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID"
+        ],
+        "forbiddenSharedEngineOverrides": [
+          "GBRAIN_BASE_URL",
+          "GBRAIN_TOKEN",
+          "KNOWLEDGE_GBRAIN_REPO_PATH"
+        ],
+        "credentialPolicy": "Instance token is operator recovery only; customer agents use scoped Knowledge principal bearer through a trusted adapter"
+      }
+    ],
+    "manualBootstrapOrder": [
+      "SurrealDB",
+      "OpenNotebook",
+      "Knowledge"
+    ],
+    "continuousMonitorRequired": true,
+    "templateUrl": null,
+    "remainingGates": [
+      "public Knowledge image build and anonymous pull verification with immutable digest",
+      "trusted Portal deployment/workspace binding",
+      "actual three-service Railway deployment and volume persistence",
+      "Research principal/notebook/provider/model provisioning and acceptance",
+      "template creation and separately authorized publication"
+    ],
+    "distribution": "public-source-and-digest-pinned-image",
+    "registryAuth": "none"
+  },
+  "railway": {
+    "$schema": "https://railway.com/railway.schema.json",
+    "build": {
+      "builder": "DOCKERFILE",
+      "dockerfilePath": "deploy/container/Dockerfile"
+    },
+    "deploy": {
+      "healthcheckPath": "/healthz",
+      "healthcheckTimeout": 300,
+      "restartPolicyType": "ON_FAILURE",
+      "restartPolicyMaxRetries": 5
+    }
+  }
+}

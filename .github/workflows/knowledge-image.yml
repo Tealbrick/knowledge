@@ -22,10 +22,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30deaf803 # v6
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
       - name: Validate source and generated deployment artifacts
         run: |
           node deploy/container/generate-public-deployment.mjs --check
@@ -65,15 +65,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30deaf803 # v6
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - name: Resolve public digest without repository credentials
+      - name: Pull public image without repository credentials
         id: image
         run: |
-          digest="$(curl --fail --silent --show-error -H 'Accept: application/vnd.oci.image.index.v1+json' "https://ghcr.io/v2/tealbrick/knowledge/manifests/$VERSION" | node -pe 'JSON.parse(fs.readFileSync(0,"utf8")).manifests.find(m => m.platform?.architecture === "amd64" && m.platform?.os === "linux")?.digest || ""')"
-          case "$digest" in sha256:[a-f0-9][a-f0-9]*) ;; *) echo "Anonymous manifest lookup failed" >&2; exit 1 ;; esac
-          echo "reference=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
+          docker pull "$IMAGE:$VERSION"
+          reference="$(docker image inspect "$IMAGE:$VERSION" --format '{{index .RepoDigests 0}}')"
+          case "$reference" in "$IMAGE@sha256:"*) ;; *) echo "Anonymous digest lookup failed: $reference" >&2; exit 1 ;; esac
+          echo "reference=$reference" >> "$GITHUB_OUTPUT"
       - name: Pull image anonymously and run agent-first acceptance
         env:
           KNOWLEDGE_IMAGE: ${{ steps.image.outputs.reference }}

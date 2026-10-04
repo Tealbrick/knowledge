@@ -7,7 +7,7 @@ import { bearerToken, normalizeKnowledgePartitionKey } from "../../program/src/p
 import { customerRuntimeRoute } from "../../program/src/customer-runtime-access.js";
 import { KnowledgeInstanceClaim } from "../../program/src/instance-claim.js";
 import { attachmentConfig, attachmentRoute, introspectAttachment } from "./attachment-auth.mjs";
-import { browserConfig, browserAccess } from "./browser-auth.mjs";
+import { browserConfig, browserAccess, sendSessionEnded, wantsSessionPage } from "./browser-auth.mjs";
 
 // One instance is one trust boundary. This edge does not grant tenant isolation.
 const token = process.env.KNOWLEDGE_INSTANCE_TOKEN ?? "";
@@ -138,6 +138,9 @@ const server = createServer(async (req, res) => {
     if (!freshBrowser.authorized || freshBrowser.grant.userId !== browserResult.grant.userId) throw new Error('browser authorization changed');
   }
   if (!publicHealth && !instanceAuthorized && !runtimeAuthorized && !attachmentAuthorized && !browserResult.authorized) {
+    // A person opening the app without (or after) a Portal session gets a
+    // readable relaunch page; API and agent callers keep the JSON contract.
+    if (!runtimePrincipal && wantsSessionPage(req)) { sendSessionEnded(req, res, browser?.portal ?? attachment?.portal); return; }
     res.writeHead(runtimePrincipal ? 403 : 401, { "content-type": "application/json", "cache-control": "no-store" });
     res.end(JSON.stringify({ ok: false, error: runtimePrincipal ? "runtime_route_denied" : "instance_auth_required" }));
     return;
@@ -176,6 +179,7 @@ const server = createServer(async (req, res) => {
   if(replacementBody!==undefined) upstream.end(replacementBody);
   else req.pipe(upstream);
   } catch {
+    if (!res.headersSent && wantsSessionPage(req)) { sendSessionEnded(req, res, browser?.portal ?? attachment?.portal); return; }
     if (!res.headersSent) res.writeHead(401, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end('{"ok":false,"error":"request_denied"}');
   }

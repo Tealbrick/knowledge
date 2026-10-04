@@ -1778,3 +1778,7 @@ textarea {
     animation: none;
   }
 }
+.session-ended-banner {
+  flex: none;
+  align-items: center;
+}

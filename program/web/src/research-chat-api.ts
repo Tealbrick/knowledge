@@ -1,4 +1,6 @@
 /** Same-origin Research transport. No service or upstream credential belongs here. */
+import { isSessionEndedResponse, markSessionEnded } from "./api";
+
 export type BrowserResearchSession = {
   enabled: boolean;
   authenticated: boolean;
@@ -83,6 +85,7 @@ async function request(
   finally { if (reader) { await reader.cancel().catch(() => undefined); reader.releaseLock(); } }
   // Do not reflect arbitrary upstream/server errors into the UI or retain their bodies.
   if (!response.ok) {
+    if (isSessionEndedResponse(response.status, value)) markSessionEnded();
     const code = object(value) && typeof value.error === "string" && /^[a-z_]{1,80}$/.test(value.error)
       ? value.error : "research_request_failed";
     if (allowHttpErrors) return { status: response.status, body: value } satisfies ResearchHttpResult;

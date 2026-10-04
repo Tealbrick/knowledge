@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpen, Settings } from "lucide-react";
 import { BrandMark, Button, Feedback, IconButton, Sidebar, Tag } from "@doppelganger/ui";
-import { getBootstrap } from "./api";
+import { getBootstrap, getSessionEnded, subscribeSessionEnded } from "./api";
+import { SessionEndedBanner, SessionEndedSplash } from "./SessionNotice";
 import type { Section } from "./types";
 import { ActivityView } from "./ActivityView";
 import { BrainView } from "./BrainView";
@@ -54,6 +55,8 @@ export function App() {
     queryKey: ["knowledge-bootstrap"],
     queryFn: getBootstrap,
   });
+  const sessionEnded = useSyncExternalStore(subscribeSessionEnded, getSessionEnded, getSessionEnded);
+  const reload = () => window.location.reload();
   const companyId = route.companyId;
   useEffect(() => {
     const discovered = bootstrap.data?.scope.defaultCompanyId?.trim();
@@ -72,6 +75,7 @@ export function App() {
     window.history[replace ? "replaceState" : "pushState"]({}, "", routeHref(next));
     setRoute(next);
   };
+  if (sessionEnded && !bootstrap.data) return <SessionEndedSplash onReload={reload} />;
   if (bootstrap.isLoading)
     return <div className="splash"><Feedback state="loading" title="Opening Knowledge">Loading the Program-owned surface.</Feedback></div>;
   if (bootstrap.error)
@@ -127,6 +131,7 @@ export function App() {
         </>}
       />
       <section className="application-frame">
+        {sessionEnded && <SessionEndedBanner onReload={reload} />}
         <header className="topbar">
           <div>
             <strong>{route.kind === "settings" ? "Settings" : nav.find((entry) => entry.id === route.section)?.label}</strong>

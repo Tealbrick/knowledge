@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
-import { browserAccess } from './browser-auth.mjs';
+import { browserAccess, sessionEndedPage, wantsSessionPage } from './browser-auth.mjs';
 const config = { portal: 'https://portal.fixture.invalid', deploymentId: 'deployment', companyId: 'workspace', portalOrgId: 'org', instanceToken: 'server-only-secret' };
 const session = 's'.repeat(43), ticket = 't'.repeat(43);
 const validGrant = { schema: 1, authorized: true, product: 'knowledge', deploymentId: 'deployment', workspaceId: 'workspace', companyId: 'workspace', userId: 'owner', orgId: 'org', instanceProofAudience: 'tealbrick/knowledge/deployment', endpoint: 'https://knowledge.fixture.invalid', expiresAt: Date.now() + 3600000, session };
@@ -62,4 +62,31 @@ test('browser grants fail closed on contract, workspace, organization or audienc
     assert.equal((await browserAccess(config, f.req, f.res, f.transport)).authorized, false);
     assert.equal(f.res.status, 401);
   }
+});
+
+test('only HTML page navigations get the session-ended page; API and JSON keep machine-readable 401s', async () => {
+  const html = 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8';
+  const req = (method, url, accept) => ({ method, url, headers: accept ? { accept } : {} });
+  assert.equal(wantsSessionPage(req('GET', '/', html)), true);
+  assert.equal(wantsSessionPage(req('GET', '/embed?view=library', html)), true);
+  assert.equal(wantsSessionPage(req('HEAD', '/', html)), true);
+  assert.equal(wantsSessionPage(req('POST', '/auth/launch', html)), true);
+  assert.equal(wantsSessionPage(req('POST', '/', html)), false);
+  assert.equal(wantsSessionPage(req('GET', '/', '*/*')), false);
+  assert.equal(wantsSessionPage(req('GET', '/', 'application/json')), false);
+  assert.equal(wantsSessionPage(req('GET', '/api/status', html)), false);
+  assert.equal(wantsSessionPage(req('GET', '/bootstrap.json', html)), false);
+  const expired = fixture('GET', '/', { accept: html, cookie: `knowledge_browser=${session}` }, '', { authorized: false });
+  assert.deepEqual(await browserAccess(config, expired.req, expired.res, expired.transport), { handled: true, authorized: false });
+  assert.equal(expired.res.status, 401); assert.match(expired.res.headers['content-type'], /^text\/html/);
+  assert.match(expired.res.body, /Your session ended/); assert.doesNotMatch(expired.res.body, /server-only-secret|<script/);
+  const api = fixture('GET', '/api/status', { accept: html, cookie: `knowledge_browser=${session}` }, '', { authorized: false });
+  await browserAccess(config, api.req, api.res, api.transport);
+  assert.equal(api.res.body, '{"error":"browser_session_required"}');
+});
+test('session-ended page links only to the configured Portal origin and escapes it', () => {
+  assert.match(sessionEndedPage('https://portal.example/'), /href="https:\/\/portal\.example\/" target="_top"/);
+  assert.doesNotMatch(sessionEndedPage('javascript:alert(1)'), /href=/);
+  assert.doesNotMatch(sessionEndedPage(undefined), /href=/);
+  assert.doesNotMatch(sessionEndedPage('https://portal.example/"><script>'), /<script>/);
 });

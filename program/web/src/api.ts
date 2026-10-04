@@ -33,6 +33,42 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Error codes the instance edge returns when the Portal browser session is
+ * missing, expired or revoked. Research sign-in and agent authorization use
+ * different codes and must not trigger a Portal relaunch prompt.
+ */
+const SESSION_ENDED_CODES = new Set([
+  "browser_session_required",
+  "instance_auth_required",
+  "request_denied",
+]);
+
+let sessionEnded = false;
+const sessionListeners = new Set<() => void>();
+
+export function isSessionEndedResponse(status: number, body: unknown) {
+  if (status !== 401 || !body || typeof body !== "object") return false;
+  const code = (body as Record<string, unknown>).error;
+  return typeof code === "string" && SESSION_ENDED_CODES.has(code);
+}
+export function markSessionEnded() {
+  if (sessionEnded) return;
+  sessionEnded = true;
+  for (const listener of sessionListeners) listener();
+}
+export const getSessionEnded = () => sessionEnded;
+export function subscribeSessionEnded(listener: () => void) {
+  sessionListeners.add(listener);
+  return () => {
+    sessionListeners.delete(listener);
+  };
+}
+/** Test hook: a new page load starts with a live session. */
+export function resetSessionEndedForTests() {
+  sessionEnded = false;
+}
+
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const isForm = init?.body instanceof FormData;
   const response = await fetch(url, {
@@ -50,6 +86,7 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
         ? await response.json().catch(() => null)
         : await response.text().catch(() => null);
   if (!response.ok) {
+    if (isSessionEndedResponse(response.status, body)) markSessionEnded();
     const record =
       body && typeof body === "object"
         ? (body as Record<string, unknown>)

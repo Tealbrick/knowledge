@@ -41,12 +41,13 @@ export class ApiError extends Error {
 /**
  * Error codes the instance edge returns when the Portal browser session is
  * missing, expired or revoked. Research sign-in and agent authorization use
- * different codes and must not trigger a Portal relaunch prompt.
+ * different codes and must not trigger a Portal relaunch prompt. The edge's
+ * generic `request_denied` also covers failures unrelated to the session, so
+ * it is reported in place rather than as a forced relaunch.
  */
 const SESSION_ENDED_CODES = new Set([
   "browser_session_required",
   "instance_auth_required",
-  "request_denied",
 ]);
 
 let sessionEnded = false;

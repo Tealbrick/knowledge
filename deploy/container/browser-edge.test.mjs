@@ -62,6 +62,9 @@ test('actual Knowledge edge launches an owner browser, admits local document con
   assert.equal((await fetch(base+path,{method:'POST',headers:{cookie,origin:'https://evil.invalid','content-type':'application/json'},body:'{"name":"Denied"}'})).status,401);
   assert.equal((await fetch(base+path,{method:'POST',headers:{cookie,origin:base,'content-type':'application/json'},body:'{"name":"Browser sample"}'})).status,201);
   assert.equal((await(await fetch(base+path,{headers:{cookie}})).json())[0].name,'Browser sample');
+  // An oversized write is a 413, not a 401 that the app would read as an ended session.
+  const oversized=await fetch(base+path,{method:'POST',headers:{cookie,origin:base,'content-type':'application/json'},body:JSON.stringify({name:'x'.repeat(1_100_000)})});
+  assert.equal(oversized.status,413);assert.deepEqual(await oversized.json(),{ok:false,error:'request_too_large'});
   assert.equal((await fetch(base+'/api/research/engine/notebooks',{headers:{cookie}})).status,503,'unconfigured Research remains unavailable; owner session does not invent its configuration');
   assert.equal((await fetch(base+'/',{headers:{...html,cookie}})).status,200,'a live session still opens the app shell');
   revoked=true;

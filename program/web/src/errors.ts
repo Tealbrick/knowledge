@@ -7,7 +7,8 @@ const MESSAGES: Record<string, string> = {
   // Session and access
   browser_session_required: "Your session ended. Reopen Knowledge from Teal Brick Portal to continue.",
   instance_auth_required: "Your session ended. Reopen Knowledge from Teal Brick Portal to continue.",
-  request_denied: "Your session ended. Reopen Knowledge from Teal Brick Portal to continue.",
+  request_denied: "Knowledge refused that request. Try again, or reopen Knowledge from Teal Brick Portal if it keeps happening.",
+  request_too_large: "That is too large to upload.",
   authentication_required: "Sign in again to continue.",
   runtime_route_denied: "This credential is not allowed to do that.",
   forbidden: "You don't have permission to do that.",

@@ -24,7 +24,9 @@ describe("Portal session ended mid-use", () => {
   it("classifies only edge session codes on 401 as a relaunch condition", () => {
     expect(isSessionEndedResponse(401, { error: "browser_session_required" })).toBe(true);
     expect(isSessionEndedResponse(401, { ok: false, error: "instance_auth_required" })).toBe(true);
-    expect(isSessionEndedResponse(401, { ok: false, error: "request_denied" })).toBe(true);
+    // The edge's generic denial also covers oversized bodies and other non-session failures.
+    expect(isSessionEndedResponse(401, { ok: false, error: "request_denied" })).toBe(false);
+    expect(isSessionEndedResponse(413, { ok: false, error: "request_too_large" })).toBe(false);
     // Research sign-in, partition authorization and forbidden responses are not a Portal session loss.
     expect(isSessionEndedResponse(401, { error: "browser_session_invalid" })).toBe(false);
     expect(isSessionEndedResponse(401, { ok: false, error: "authentication_required" })).toBe(false);

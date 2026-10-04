@@ -1,6 +1,6 @@
 # Bundled UI provenance
 
-Updated 2026-09-06 from the reviewed LABS `.sdk/doppelganger-ui` source.
+Updated 2026-09-06 from the reviewed LABS `.sdk/doppelganger-ui` source (renamed to `.sdk/tealbrick-ui` 2026-10-05).
 Shared-support source commit: `1c2a828269af9b44776200ad0370e4ff8e2e93e4`.
 That local source history is preserved in LABS's verified
 `report/evidence/shared-dialog-close-race.bundle`; it is not a published

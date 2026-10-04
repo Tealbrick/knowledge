@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Button, EmptyState, Feedback } from "@doppelganger/ui";
+import { Button, EmptyState, Feedback } from "@tealbrick/ui";
 import { BookOpen } from "lucide-react";
 import { ResearchRequestError } from "./research-chat-api";
 import { listResearchNotebooks, RESEARCH_NOTEBOOK_PAGE_LIMIT, RESEARCH_NOTEBOOK_MAX_MAPPINGS, type ResearchNotebookPage } from "./research-notebooks-api";

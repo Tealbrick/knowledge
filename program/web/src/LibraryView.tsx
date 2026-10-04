@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Tabs from "@radix-ui/react-tabs";
 import { AlertTriangle, Archive, ChevronRight, FileClock, FileText, FolderPlus, Link2, MessageSquareText, Paperclip, Plus, RefreshCw, Search, ShieldCheck, Trash2, Upload } from "lucide-react";
-import { Button, EmptyState, Tag } from "@doppelganger/ui";
+import { Button, EmptyState, Tag } from "@tealbrick/ui";
 import { addComment, ApiError, getAccess, getAttachments, getCollections, getComments, getDocument, getLinks, getRevisions, searchDocuments } from "./api";
 import type { KnowledgeDocument, KnowledgeSearchResult } from "./types";
 import { CollectionDialog, DeleteCollectionDialog, DocumentDialog, IngestDialog } from "./LibraryDialogs";

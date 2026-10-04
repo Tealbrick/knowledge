@@ -38,4 +38,4 @@ publication.
 
 ## Bundled fonts
 
-The public Knowledge candidate uses Inter, Cormorant Garamond and JetBrains Mono under SIL Open Font License 1.1. Their copyright and complete licence texts are included in `.sdk/doppelganger-ui/assets/fonts/licenses/`. Font files retain their original embedded ownership metadata. Switzer has been removed from this candidate; its proprietary terms are not covered by the first-party MIT licence.
+The public Knowledge candidate uses Inter, Cormorant Garamond and JetBrains Mono under SIL Open Font License 1.1. Their copyright and complete licence texts are included in `.sdk/tealbrick-ui/assets/fonts/licenses/`. Font files retain their original embedded ownership metadata. Switzer has been removed from this candidate; its proprietary terms are not covered by the first-party MIT licence.

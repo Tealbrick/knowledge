@@ -26,10 +26,10 @@ RUN cd /app/knowledge/sidecars/gbrain/admin && bun install --frozen-lockfile --i
     && bun -e 'await import("./src/admin-embedded.ts"); console.log("Embedded admin assets verified")'
 COPY program/src ./src
 COPY program/web ./web
-COPY .sdk/doppelganger-ui /app/.sdk/doppelganger-ui
+COPY .sdk/tealbrick-ui /app/.sdk/tealbrick-ui
 RUN pnpm build:web \
     && cp -R /app/knowledge/licenses ./web-dist/licenses \
-    && cp -R /app/.sdk/doppelganger-ui/assets/fonts/licenses ./web-dist/licenses/fonts
+    && cp -R /app/.sdk/tealbrick-ui/assets/fonts/licenses ./web-dist/licenses/fonts
 COPY deploy/container/server.ts deploy/container/entrypoint.mjs deploy/container/attachment-auth.mjs deploy/container/browser-auth.mjs deploy/container/package.json deploy/container/LICENSE /app/knowledge/deploy/container/
 RUN rm -rf /app/knowledge/sidecars/gbrain/node_modules /app/knowledge/sidecars/gbrain/admin/node_modules \
     && cd /app/knowledge/sidecars/gbrain \

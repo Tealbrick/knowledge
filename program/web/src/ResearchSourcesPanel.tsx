@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, EmptyState, Feedback, Tag } from "@doppelganger/ui";
+import { Button, EmptyState, Feedback, Tag } from "@tealbrick/ui";
 import { ChevronLeft, ChevronRight, FileText, RefreshCw } from "lucide-react";
 import {
   getResearchSource,

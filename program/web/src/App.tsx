@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpen, Settings } from "lucide-react";
-import { Button, Feedback, IconButton, Sidebar, Tag } from "@doppelganger/ui";
+import { Button, Feedback, IconButton, Sidebar, Tag } from "@tealbrick/ui";
 import tealBrickMark from "./assets/teal-brick.svg";
 import { getBootstrap, getSessionEnded, subscribeSessionEnded } from "./api";
 import { SessionEndedBanner, SessionEndedSplash } from "./SessionNotice";

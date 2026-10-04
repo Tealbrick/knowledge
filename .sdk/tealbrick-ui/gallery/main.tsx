@@ -40,7 +40,7 @@ function Gallery() {
     if (dirty && href?.startsWith("#/") && href !== route) { event.preventDefault(); setPendingRoute(href); }
   }}>
     <a className="gallery-skip" href="#main-content">Skip to content</a>
-    <Sidebar label="Interface system" brand={<><BrandMark /><span>Doppelganger<small>Interface system / 01</small></span></>} items={[
+    <Sidebar label="Interface system" brand={<><BrandMark /><span>Teal Brick<small>Interface system / 01</small></span></>} items={[
       { id: "components", label: "Components", href: "#/components", current: route === "#/components" },
       { id: "states", label: "System states", href: "#/states", current: route === "#/states" },
       { id: "settings", label: "Settings", href: "#/settings", current: route === "#/settings" },

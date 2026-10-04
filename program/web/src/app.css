@@ -1782,3 +1782,18 @@ textarea {
   flex: none;
   align-items: center;
 }
+.collection-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 12px 8px;
+  color: var(--dg-text-muted);
+  font-size: 11px;
+}
+.collection-actions > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

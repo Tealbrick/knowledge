@@ -1813,3 +1813,32 @@ textarea {
   margin: 0;
   color: var(--dg-text-muted);
 }
+.service-next-step {
+  color: var(--dg-text);
+}
+.service-next-step span {
+  font-weight: 600;
+}
+.dependency-list article .dg-button {
+  margin-top: 6px;
+}
+.settings-subheading {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.capability-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.capability-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--dg-line);
+  border-radius: var(--dg-radius-sm);
+}

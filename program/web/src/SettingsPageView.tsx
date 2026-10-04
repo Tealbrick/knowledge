@@ -5,8 +5,18 @@ import { Button, Feedback, SettingsPage, Tag, TextField, SectionNavigation } fro
 import { getOpenApi } from "./api";
 import type { FrontendBootstrap } from "./types";
 import { ModelSettingsPanel } from "./ModelSettingsPanel";
+import { describeCapabilities, describeDependency, describeFeature, describeMemory, type ServiceView } from "./service-status";
 
 export type SettingsSection = "models" | "runtime" | "connections" | "developer";
+
+/** The one section every "Settings" entry point opens. Models is the first-run setup step. */
+export const DEFAULT_SETTINGS_SECTION: SettingsSection = "models";
+
+export function parseSettingsSection(value: string | null): SettingsSection {
+  // "version-control" links from earlier releases now open the Developer section.
+  if (value === "version-control") return "developer";
+  return value === "runtime" || value === "models" || value === "connections" || value === "developer" ? value : DEFAULT_SETTINGS_SECTION;
+}
 
 const settingsSections: Array<{ id: SettingsSection; label: string; icon: typeof Database }> = [
   { id: "models", label: "Models", icon: ServerCog },
@@ -68,7 +78,27 @@ function RuntimeSettings({ bootstrap, companyId, scope, onScopeChange, onApply }
   );
 }
 
-function DependenciesSettings({ bootstrap }: { bootstrap: FrontendBootstrap }) {
+function ServiceRow({ service, onAction }: { service: ServiceView; onAction: (section: SettingsSection) => void }) {
+  return (
+    <article>
+      <span className={`status-light ${service.tone === "warning" ? "is-warning" : ""}`} />
+      <div>
+        <strong>{service.name}</strong>
+        <p>{service.detail}</p>
+        {service.nextStep && <p className="service-next-step"><span>Next step:</span> {service.nextStep}</p>}
+        {service.action && <Button size="small" onClick={() => onAction(service.action!.section)}>{service.action.label}</Button>}
+      </div>
+      <Tag tone={service.tone}>{service.state}</Tag>
+    </article>
+  );
+}
+
+function DependenciesSettings({ bootstrap, onSectionChange }: { bootstrap: FrontendBootstrap; onSectionChange: (section: SettingsSection) => void }) {
+  const memory = describeMemory(bootstrap.dependencies.gbrain);
+  const services = Object.entries(bootstrap.dependencies).map(([id, dependency]) => describeDependency(id, dependency));
+  const features = Object.entries(bootstrap.subapps ?? {}).map(([id, subapp]) => describeFeature(id, subapp, memory));
+  const capabilities = describeCapabilities(bootstrap.capabilities ?? {});
+  const attention = [...services, ...features].filter((entry) => entry.tone === "warning").length;
   return (
     <div className="settings-stack">
       <div className="settings-intro">
@@ -76,20 +106,28 @@ function DependenciesSettings({ bootstrap }: { bootstrap: FrontendBootstrap }) {
           <h3>Services</h3>
           <p>The services Knowledge relies on, as reported by this installation.</p>
         </div>
-        <ServerCog />
+        <Tag tone={attention ? "warning" : "success"}>{attention ? `${attention} need${attention === 1 ? "s" : ""} attention` : "All working"}</Tag>
       </div>
-      <div className="dependency-list">
-        {Object.entries(bootstrap.dependencies).map(([id, dependency]) => (
-          <article key={id}>
-            <span className={`status-light ${dependency.status === "online" || dependency.status === "configured" ? "" : "is-warning"}`} />
-            <div>
-              <strong>{id}</strong>
-              <p>{dependency.detail || (dependency.configured ? "Set up on this installation." : "No further detail reported.")}</p>
-            </div>
-            <Tag tone={dependency.status === "online" || dependency.status === "configured" ? "success" : "warning"}>{dependency.status}</Tag>
-          </article>
-        ))}
+      <div className="dependency-list" aria-label="Services">
+        {services.map((service) => <ServiceRow key={service.id} service={service} onAction={onSectionChange} />)}
       </div>
+      {features.length > 0 && <>
+        <h4 className="settings-subheading">Features</h4>
+        <div className="dependency-list" aria-label="Features">
+          {features.map((feature) => <ServiceRow key={feature.id} service={feature} onAction={onSectionChange} />)}
+        </div>
+      </>}
+      {capabilities.length > 0 && <>
+        <h4 className="settings-subheading">Included in this installation</h4>
+        <ul className="capability-list" aria-label="Included in this installation">
+          {capabilities.map((capability) => (
+            <li key={capability.id}>
+              <span>{capability.name}</span>
+              <Tag tone={capability.available ? "success" : "default"}>{capability.available ? "Included" : "Not available"}</Tag>
+            </li>
+          ))}
+        </ul>
+      </>}
     </div>
   );
 }
@@ -161,7 +199,7 @@ export function SettingsPageView({ bootstrap, companyId, section, onCompanyId, o
   const content = section === "models" ? <ModelSettingsPanel /> : section === "runtime"
     ? <RuntimeSettings bootstrap={bootstrap} companyId={companyId} scope={scope} onScopeChange={setScope} onApply={() => onCompanyId(scope.trim())} />
     : section === "connections"
-      ? <DependenciesSettings bootstrap={bootstrap} />
+      ? <DependenciesSettings bootstrap={bootstrap} onSectionChange={onSectionChange} />
       : <DeveloperSettings />;
   return (
     <SettingsPage title="Settings" description="Models, workspace, services, and developer tools." actions={null}>

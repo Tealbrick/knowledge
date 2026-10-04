@@ -55,7 +55,9 @@ const bootstrap: FrontendBootstrap = {
     orchestrator: { status: "online" },
   },
   dependencies: {
-    gbrain: { status: "disabled", required: true, configured: false, tokenConfigured: false, detail: null },
+    gbrain: { status: "disabled", required: true, configured: false, tokenConfigured: false, detail: "GBrain autostart disabled" },
+    rules: { status: "local", detail: "No central Rules binding is configured; standalone Knowledge-owned operations use local app authority." },
+    workEthic: { status: "contract-only", detail: "Owner and generic binding contracts are available; remote Work Ethic reachability is not exposed." },
     knowledgeDb: { status: "configured", required: true },
     objectStore: { status: "configured", required: true },
   },
@@ -100,7 +102,9 @@ describe("customer-facing copy guard", () => {
   it.each<SettingsSection>(["models", "runtime", "connections", "developer"])("rendered %s settings use customer wording", (section) => {
     const html = renderToStaticMarkup(createElement(QueryClientProvider, { client: client() },
       createElement(SettingsPageView, { bootstrap, companyId: "default", section, onCompanyId: () => undefined, onSectionChange: () => undefined, onNavigateLibrary: () => undefined })));
-    expectCustomerCopy(visibleText(html), `settings/${section}`);
+    const text = visibleText(html);
+    expectCustomerCopy(text, `settings/${section}`);
+    expect(text, "internal dependency ids are not shown").not.toMatch(/\b(?:gbrain|knowledgeDb|objectStore|workEthic|orchestrator)\b/u);
   });
 
   it("developer settings carry the version-control and server-managed connection notes", () => {

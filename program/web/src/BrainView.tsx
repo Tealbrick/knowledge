@@ -36,6 +36,7 @@ import type {
   FrontendBootstrap,
 } from "./types";
 import { errorTitle } from "./errors";
+import { describeMemory } from "./service-status";
 
 function ErrorNotice({ error, retry }: { error: Error; retry?: () => void }) {
   const status = error instanceof ApiError ? error.status : 0;
@@ -696,8 +697,7 @@ export function BrainView({ bootstrap }: { bootstrap: FrontendBootstrap }) {
           <p>
             {engineReachable
               ? "Entity pages, extraction, and semantic search report their own availability below."
-              : (typeof gbrain.detail === "string" && gbrain.detail) ||
-                "Documents and Research remain usable while memory is unavailable."}
+              : [describeMemory(gbrain).detail, describeMemory(gbrain).nextStep].filter(Boolean).join(" ")}
           </p>
         </div>
         <Tag tone={engineReachable ? "success" : "warning"}>

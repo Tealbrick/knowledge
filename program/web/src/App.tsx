@@ -10,7 +10,8 @@ import { ActivityView } from "./ActivityView";
 import { BrainView } from "./BrainView";
 import { LibraryView } from "./LibraryView";
 import { ResearchView } from "./ResearchView";
-import { SettingsPageView, type SettingsSection } from "./SettingsPageView";
+import { DEFAULT_SETTINGS_SECTION, parseSettingsSection, SettingsPageView, type SettingsSection } from "./SettingsPageView";
+import { describeMemory } from "./service-status";
 
 const nav: Array<{ id: Section; label: string }> = [
   { id: "library", label: "Library" },
@@ -25,6 +26,10 @@ type AppRoute =
 
 const defaultCompanyId = "default";
 
+function capabilityFor(section: Section): string | undefined {
+  return section === "library" ? "documents" : section === "brain" ? "brain" : section === "research" ? "research" : section === "activity" ? "bindings" : undefined;
+}
+
 /** Plain status wording for the memory engine badge. */
 export function memoryLabel(status: string | undefined) {
   if (status === "online") return "Memory ready";
@@ -38,14 +43,7 @@ function readRoute(): AppRoute {
   const companyId = query.get("companyId")?.trim() || defaultCompanyId;
   const view = query.get("view");
   if (view === "settings") {
-    const section = query.get("section");
-    // "version-control" links from earlier releases now open the Developer section.
-    const settingsSection: SettingsSection = section === "version-control"
-      ? "developer"
-      : section === "runtime" || section === "models" || section === "connections" || section === "developer"
-        ? section
-        : "models";
-    return { kind: "settings", section: settingsSection, companyId };
+    return { kind: "settings", section: parseSettingsSection(query.get("section")), companyId };
   }
   const section = view === "research" || view === "brain" || view === "activity" ? view : "library";
   return { kind: "section", section, companyId };
@@ -95,20 +93,25 @@ export function App() {
   if (!bootstrap.data) return null;
   const connected = bootstrap.data.program.status === "online";
   const currentSection = route.kind === "section" ? route.section : null;
+  const memory = describeMemory(bootstrap.data.dependencies.gbrain);
+  const capabilities = bootstrap.data.capabilities ?? {};
   const sidebarItems = [...nav.map((entry) => ({
     id: entry.id,
     label: entry.label,
     href: routeHref({ kind: "section", section: entry.id, companyId }),
     current: currentSection === entry.id,
+    // A feature the installation reports as not included cannot be opened.
+    unavailable: capabilityFor(entry.id) !== undefined && capabilities[capabilityFor(entry.id)!] === false,
+    badge: entry.id === "brain" && memory.state !== "Running" ? memory.state : undefined,
   })), {
     id: "settings",
     label: "Settings",
-    href: routeHref({ kind: "settings", section: "runtime", companyId }),
+    href: routeHref({ kind: "settings", section: DEFAULT_SETTINGS_SECTION, companyId }),
     current: route.kind === "settings",
   }];
   const settingsToggle = route.kind === "settings"
     ? { kind: "section" as const, section: "library" as const, companyId }
-    : { kind: "settings" as const, section: "runtime" as const, companyId };
+    : { kind: "settings" as const, section: DEFAULT_SETTINGS_SECTION, companyId };
   return (
     <main className="app-shell">
       <Sidebar

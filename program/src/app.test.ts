@@ -1224,6 +1224,29 @@ describe("Knowledge Program", () => {
       createdByUserId: "app:operator-1",
     });
 
+    const agentCreateResponse = await app.inject({
+      method: "POST",
+      url: `/api/knowledge/collections/${collection.id}/documents`,
+      payload: {
+        title: "Agent observation",
+        body: "Created by the agent.",
+        actor: { kind: "agent", id: "hermes-session-1" },
+      },
+    });
+    expect(agentCreateResponse.statusCode).toBe(201);
+    const agentDocument = agentCreateResponse.json() as { id: string };
+    expect(agentCreateResponse.json()).toMatchObject({
+      createdByAgentId: "hermes-session-1",
+      createdByUserId: null,
+    });
+    const agentRevisions = await app.inject({
+      method: "GET",
+      url: `/api/knowledge/documents/${agentDocument.id}/revisions`,
+    });
+    expect(agentRevisions.json()).toMatchObject([
+      { version: 1, createdByAgentId: "hermes-session-1", createdByUserId: null },
+    ]);
+
     const updateResponse = await app.inject({
       method: "PATCH",
       url: `/api/knowledge/documents/${document.id}`,

@@ -548,7 +548,10 @@ export class KnowledgeStore {
       status: input.status?.trim() || "draft",
       source,
       createdByAgentId: input.createdByAgentId?.trim() || null,
-      createdByUserId: input.createdByUserId?.trim() || "operator",
+      // Agent-created records must not acquire an operator identity merely
+      // because the user-side provenance field is intentionally null.
+      createdByUserId: input.createdByUserId?.trim() ||
+        (input.createdByAgentId?.trim() ? null : "operator"),
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -1590,7 +1593,7 @@ export class KnowledgeStore {
       createdByUserId:
         actor.createdByUserId !== undefined
           ? actor.createdByUserId?.trim() || null
-          : document.createdByUserId ?? "operator",
+          : document.createdByUserId ?? (document.createdByAgentId ? null : "operator"),
       createdAt,
     });
   }

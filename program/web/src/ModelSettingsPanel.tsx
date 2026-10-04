@@ -22,7 +22,7 @@ export function ModelSettingsPanel() {
     onSuccess: () => { setKey(""); setEmbedKey(""); void status.refetch(); },
   });
   return <div className="settings-stack">
-    <div className="settings-intro"><div><h3>Connect your models</h3><p>One key enables extraction and semantic memory. Knowledge manages its internal Brain automatically. Your keys stay on this installation, not in Portal or your agent.</p></div><Tag>{status.data?.brain.status ?? "Owner access required"}</Tag></div>
+    <div className="settings-intro"><div><h3>Connect your models</h3><p>One key enables extraction and semantic memory. Knowledge runs its memory engine for you. Your keys stay on this installation, not in Portal or your agent.</p></div><Tag>{status.data?.brain.status ?? "Owner access required"}</Tag></div>
     {status.error && <div className="notice" role="alert">Open Knowledge as its owner from Portal. For standalone administration, use the instance-authorized settings endpoint. Agent credentials cannot change model keys.</div>}
     {status.data?.configured && <p>Model settings are saved. Keys are never returned to this page. Enter replacement keys only when changing configuration.</p>}
     <TextField label="API key" type="password" autoComplete="off" value={key} onChange={event => setKey(event.target.value)} />

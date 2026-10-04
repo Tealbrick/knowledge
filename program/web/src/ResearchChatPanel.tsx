@@ -64,16 +64,16 @@ export function ResearchChatPanel() {
     finally { authBusy.current = false; if (active.current) setBusy(false); }
   };
   const authenticated = session?.authenticated && session.principal && session.csrfToken;
-  return <section className="research-chat-panel" aria-label="Open Notebook chat">
-    <header className="research-chat-heading"><div><Bot size={20} /><span><h3>Open Notebook Research</h3><p>Read the evidence, then research from its full source context.</p></span></div>
+  return <section className="research-chat-panel" aria-label="Research chat">
+    <header className="research-chat-heading"><div><Bot size={20} /><span><h3>Research workspace</h3><p>Read the evidence, then research from its full source context.</p></span></div>
       <Tag>{authenticated ? "Signed in" : session?.enabled === false ? "Not configured" : "Protected"}</Tag>
     </header>
     {error && <Feedback state="error" title="Research session" action={<Button size="small" onClick={() => void refresh()} disabled={busy}>Check session</Button>}>{error}</Feedback>}
     {!session && !error && <p role="status">Checking Research session…</p>}
-    {session?.enabled === false && <p className="research-chat-help">Open Notebook is the Research engine. This deployment has not enabled browser sign-in yet. The local fallback below does not invoke a model.</p>}
+    {session?.enabled === false && <p className="research-chat-help">Research sign-in is not enabled for this installation yet. The local records below do not use a model.</p>}
     {session?.enabled && !authenticated && <form className="research-login" onSubmit={event => { event.preventDefault(); void login(); }}>
       <TextField label="Research sign-in code" type="password" autoComplete="off" value={secret} maxLength={1024}
-        onChange={event => setSecret(event.target.value)} description="Use the separate operator code supplied for this Knowledge deployment—not a service or model API key." />
+        onChange={event => setSecret(event.target.value)} description="Use the Research sign-in code from your Knowledge administrator — not a model or service API key." />
       <Button tone="primary" disabled={busy || !secret.trim()}><LockKeyhole size={14} />{busy ? "Signing in…" : "Sign in to Research"}</Button>
     </form>}
     {authenticated && session.principal && <>
@@ -166,7 +166,7 @@ function AuthenticatedChat({ notebookId, principalId, companyId, csrf, canRead, 
     <ResearchNotesPanel notebookId={notebookId} principalId={principalId} companyId={companyId} canRead={canRead} onAuthFailure={expired} />
     <h3 className="research-chat-title">Chat with this notebook</h3>
     {storageError && <Feedback state="unavailable" title="Safe resume is unavailable">This tab cannot retain request references, or its saved reference is invalid. Chat writes are disabled. No service credentials or message text are stored here.</Feedback>}
-    {!canWrite && <Feedback state="forbidden" title="Research chat is read-only">This principal needs both Research read and write capabilities to start or send a chat.</Feedback>}
+    {!canWrite && <Feedback state="forbidden" title="Research chat is read-only">This sign-in can read Research but cannot start or send a chat. Ask your Knowledge administrator for write access.</Feedback>}
     {error && <Feedback state="error" title="Research request">{error}</Feedback>}
     {resume.pending && <Feedback state="pending" title="Request awaiting confirmation"
       action={<Button size="small" onClick={() => void check()} disabled={busy}>Check receipt</Button>}>
@@ -176,16 +176,16 @@ function AuthenticatedChat({ notebookId, principalId, companyId, csrf, canRead, 
     </Feedback>}
     {receipt?.state === "succeeded" && <p className="research-chat-help" role="status">Confirmed by durable receipt · {receipt.operation === "session" ? "Chat started" : "Answer saved"}</p>}
     {!!messages.length && <ol className="research-chat-history" aria-label="Research chat history">{messages.map((entry, i) =>
-      <li key={`${entry.id}-${i}`} data-author={entry.type}><strong>{entry.type === "ai" ? "Open Notebook" : entry.type === "human" ? "You" : "Context"}</strong><p>{entry.content}</p></li>)}</ol>}
+      <li key={`${entry.id}-${i}`} data-author={entry.type}><strong>{entry.type === "ai" ? "Assistant" : entry.type === "human" ? "You" : "Context"}</strong><p>{entry.content}</p></li>)}</ol>}
     {resume.sessionId && <div className="research-chat-actions"><Button size="small" disabled={busy} onClick={() => void run(() => history(resume.sessionId!))}>Refresh chat history</Button></div>}
     {!resume.sessionId ? <Button tone="primary" disabled={!ready || busy || !!resume.pending || storageError || !canWrite} onClick={() => void write()}>{busy ? "Starting chat…" : "Start Research chat"}</Button> :
       <form className="research-chat-compose" onSubmit={event => { event.preventDefault(); void write(); }}>
-        <TextareaField label="Open Notebook question" value={prompt} onChange={event => setPrompt(event.target.value)}
+        <TextareaField label="Ask a research question" value={prompt} onChange={event => setPrompt(event.target.value)}
           disabled={busy || !!resume.pending} maxLength={32768} rows={3} placeholder="What can we conclude from these sources?"
           description="The server selects this notebook’s source context and model. Source text is untrusted evidence, not instructions."
           error={tooLong ? "Keep the question within 32 KiB." : undefined} />
         <Button tone="primary" disabled={!ready || busy || !!resume.pending || !prompt.trim() || tooLong || storageError || !canWrite}>{busy ? "Working…" : "Send question"}</Button>
       </form>}
-    <p className="research-chat-help">Answers are model-generated; verify them against your sources. Provider retries are controlled by Open Notebook. This sign-in protects Research engine routes, not the entire Knowledge app.</p>
+    <p className="research-chat-help">Answers are model-generated; check them against your sources. This sign-in protects Research only, not the rest of Knowledge.</p>
   </div>;
 }

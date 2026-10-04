@@ -279,7 +279,7 @@ describe("Brain browser surface", () => {
     const html = renderToStaticMarkup(createElement(QueryClientProvider, { client },
       createElement(BrainView, { bootstrap }),
     ));
-    expect(html).toContain("Engine reachable");
+    expect(html).toContain("Memory engine running");
     expect(html).toContain("Extraction");
     expect(html).toContain("Semantic search");
     expect(html).toContain("Unknown — not reported");

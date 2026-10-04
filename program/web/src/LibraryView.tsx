@@ -6,6 +6,7 @@ import { Button, EmptyState, Tag } from "@doppelganger/ui";
 import { addComment, ApiError, getAccess, getAttachments, getCollections, getComments, getDocument, getLinks, getRevisions, searchDocuments } from "./api";
 import type { KnowledgeDocument, KnowledgeSearchResult } from "./types";
 import { DocumentDialog, IngestDialog } from "./LibraryDialogs";
+import { errorTitle } from "./errors";
 
 function date(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : "—";
@@ -19,16 +20,7 @@ function bytes(value: number) {
 
 function ErrorNotice({ error, retry }: { error: Error; retry?: () => void }) {
   const status = error instanceof ApiError ? error.status : 0;
-  const title =
-    status === 401
-      ? "Authentication required"
-      : status === 403
-        ? "This operation is forbidden"
-        : status === 409
-          ? "The record changed"
-          : status === 503
-            ? "Dependency unavailable"
-            : "Knowledge request failed";
+  const title = errorTitle(status);
   return (
     <div className="notice" role="alert">
       <AlertTriangle size={17} />
@@ -182,7 +174,7 @@ function DocumentWorkspace({
     <article className="document-workspace">
       <header className="document-title">
         <div>
-          <p className="eyebrow">Canonical document · {document.bodyFormat}</p>
+          <p className="eyebrow">Document · {document.bodyFormat}</p>
           <h2>{document.title}</h2>
           <div className="tag-row">
             <Tag
@@ -258,7 +250,7 @@ function DocumentWorkspace({
                 <dd>{date(document.source.syncedAt)}</dd>
               </dl>
             ) : (
-              <p>Program-owned native document.</p>
+              <p>Created in Knowledge.</p>
             )}
           </section>
         </aside>
@@ -311,8 +303,7 @@ function DocumentWorkspace({
               </div>
             ) : (
               <p className="muted-row">
-                No immutable revisions have been recorded. This Program has no
-                revision-restore contract.
+                No earlier versions have been recorded yet.
               </p>
             )}
           </Tabs.Content>
@@ -326,7 +317,7 @@ function DocumentWorkspace({
             >
               <textarea
                 aria-label="Add a document comment"
-                placeholder="Add context for operators and agents…"
+                placeholder="Add context for your team and agents…"
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
               />
@@ -486,7 +477,7 @@ export function LibraryView({ companyId }: { companyId: string }) {
       <aside className="library-index">
         <div className="index-heading">
           <div>
-            <p className="eyebrow">Canonical record</p>
+            <p className="eyebrow">Documents</p>
             <h2>Library</h2>
           </div>
           <Button
@@ -548,7 +539,7 @@ export function LibraryView({ companyId }: { companyId: string }) {
             <ErrorNotice error={detail.error} retry={() => detail.refetch()} />
           </div>
         ) : detail.isLoading ? (
-          <Loading label="Opening canonical document…" />
+          <Loading label="Opening document…" />
         ) : detail.data ? (
           <DocumentWorkspace
             document={detail.data}
@@ -562,8 +553,8 @@ export function LibraryView({ companyId }: { companyId: string }) {
         ) : (
           <div className="workspace-state">
             <EmptyState title="Select a document">
-              The canonical body, revision record, access policy, links, and
-              attachments will appear here.
+              Its content, history, discussion, links, attachments, and access
+              will appear here.
             </EmptyState>
           </div>
         )}

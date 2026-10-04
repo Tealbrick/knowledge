@@ -5,19 +5,11 @@ import { Button, EmptyState, Tag } from "@doppelganger/ui";
 import { ApiError, askResearch, getNotebooks, getResearchSummary, getResearchWorkspace } from "./api";
 import type { ResearchAnswer } from "./types";
 import { ResearchChatPanel } from "./ResearchChatPanel";
+import { errorTitle } from "./errors";
 
 function ErrorNotice({ error, retry }: { error: Error; retry?: () => void }) {
   const status = error instanceof ApiError ? error.status : 0;
-  const title =
-    status === 401
-      ? "Authentication required"
-      : status === 403
-        ? "This operation is forbidden"
-        : status === 409
-          ? "The record changed"
-          : status === 503
-            ? "Dependency unavailable"
-            : "Knowledge request failed";
+  const title = errorTitle(status);
   return (
     <div className="notice" role="alert">
       <AlertTriangle size={17} />
@@ -69,13 +61,13 @@ function SectionHeader({
 export function ResearchView({ companyId }: { companyId: string }) {
   const [showLocal, setShowLocal] = useState(false);
   return <section className="section-scroll">
-    <SectionHeader eyebrow="Grounded inquiry" title="Research">
-      Work with Open Notebook sources and research chat. Your Research session determines which notebooks you can access.
+    <SectionHeader eyebrow="Research" title="Research">
+      Collect sources and ask grounded questions in your Research workspace. Your Research sign-in decides which notebooks you can open.
     </SectionHeader>
     <ResearchChatPanel />
     <details className="research-local-fallback" onToggle={event => setShowLocal(event.currentTarget.open)}>
-      <summary>Local records and evidence fallback · separate from Open Notebook</summary>
-      <p className="research-chat-help">These older local records use the app workspace selector, not your protected Research session. Opening this section does not connect them to Open Notebook.</p>
+      <summary>Older local research records</summary>
+      <p className="research-chat-help">These records were saved locally before the Research workspace was connected. They follow the workspace selected in Settings, not your Research sign-in.</p>
       {showLocal && <LocalResearchView key={companyId} companyId={companyId} />}
     </details>
   </section>;
@@ -263,7 +255,7 @@ function LocalResearchView({ companyId }: { companyId: string }) {
                 <section>
                   <div className="subheading">
                     <h3>Local sources</h3>
-                    <Button size="small" disabled title="Use the authenticated Research source API to add Open Notebook sources.">
+                    <Button size="small" disabled title="Add new sources in the Research workspace above.">
                       <Upload size={13} />
                       Import
                     </Button>
@@ -283,7 +275,7 @@ function LocalResearchView({ companyId }: { companyId: string }) {
                       ))}
                     </div>
                   ) : (
-                    <p className="muted-row">No locally indexed sources. Open Notebook sources are managed by the Research engine.</p>
+                    <p className="muted-row">No local sources. Add new sources in the Research workspace above.</p>
                   )}
                 </section>
                 <section>

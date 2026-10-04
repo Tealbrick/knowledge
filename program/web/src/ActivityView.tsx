@@ -3,22 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Network, Plus, RefreshCw } from "lucide-react";
 import { Button, EmptyState, Tag } from "@doppelganger/ui";
 import { ApiError, getBindings, getEvents } from "./api";
+import { errorTitle } from "./errors";
 
 function date(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : "—";
 }
 function ErrorNotice({ error, retry }: { error: Error; retry?: () => void }) {
   const status = error instanceof ApiError ? error.status : 0;
-  const title =
-    status === 401
-      ? "Authentication required"
-      : status === 403
-        ? "This operation is forbidden"
-        : status === 409
-          ? "The record changed"
-          : status === 503
-            ? "Dependency unavailable"
-            : "Knowledge request failed";
+  const title = errorTitle(status);
   return (
     <div className="notice" role="alert">
       <AlertTriangle size={17} />
@@ -81,8 +73,8 @@ export function ActivityView() {
   return (
     <section className="section-scroll">
       <SectionHeader
-        eyebrow="Orchestration record"
-        title="Bindings & activity"
+        eyebrow="History"
+        title="Activity"
         actions={
           <Button size="small">
             <Plus size={14} />
@@ -90,15 +82,15 @@ export function ActivityView() {
           </Button>
         }
       >
-        Cross-application relationships and recent Program-side events, without
-        claiming remote dependency health.
+        Links between Knowledge records and other apps, and recent activity on
+        this installation.
       </SectionHeader>
       <div className="activity-layout">
         <section>
           <div className="subheading">
             <div>
-              <p className="eyebrow">Durable relationships</p>
-              <h2>Bindings</h2>
+              <p className="eyebrow">Saved links</p>
+              <h2>Linked records</h2>
             </div>
             <Tag>{bindings.data?.length ?? 0}</Tag>
           </div>
@@ -122,7 +114,7 @@ export function ActivityView() {
                       {binding.artifactId}
                     </p>
                     <small>
-                      {binding.summary || "No binding summary"} ·{" "}
+                      {binding.summary || "No description"} ·{" "}
                       {date(binding.createdAt)}
                     </small>
                   </div>
@@ -131,16 +123,15 @@ export function ActivityView() {
               ))}
             </div>
           ) : (
-            <EmptyState title="No bindings">
-              Knowledge has not recorded any generic cross-application
-              relationships.
+            <EmptyState title="No linked records">
+              No other app has linked a record to Knowledge yet.
             </EmptyState>
           )}
         </section>
         <section>
           <div className="subheading">
             <div>
-              <p className="eyebrow">Volatile ledger</p>
+              <p className="eyebrow">Since last restart</p>
               <h2>Recent events</h2>
             </div>
             <Tag>{events.data?.events.length ?? 0}</Tag>
@@ -162,7 +153,7 @@ export function ActivityView() {
             </div>
           ) : (
             <EmptyState title="No recent events">
-              This in-memory event ledger resets when the Program restarts.
+              Recent activity is kept in memory and clears when Knowledge restarts.
             </EmptyState>
           )}
         </section>

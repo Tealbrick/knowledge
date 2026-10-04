@@ -21,8 +21,11 @@ import type {
   ResearchSummary,
   ResearchWorkspace,
 } from "./types";
+import { describeErrorCode, isErrorCode } from "./errors";
 
 export class ApiError extends Error {
+  /** Machine code from the response body (for example `invalid_model_settings`), if any. */
+  readonly code: string | null;
   constructor(
     readonly status: number,
     message: string,
@@ -30,6 +33,8 @@ export class ApiError extends Error {
   ) {
     super(message);
     this.name = "ApiError";
+    const code = body && typeof body === "object" ? (body as Record<string, unknown>).error : null;
+    this.code = typeof code === "string" ? code : null;
   }
 }
 
@@ -91,12 +96,16 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
       body && typeof body === "object"
         ? (body as Record<string, unknown>)
         : null;
+    // Prefer a human sentence from the server; never show a bare machine code.
     const message =
-      typeof record?.message === "string"
+      typeof record?.message === "string" && !isErrorCode(record.message)
         ? record.message
-        : typeof record?.error === "string"
+        : typeof record?.error === "string" && !isErrorCode(record.error)
           ? record.error
-          : `Knowledge request failed (${response.status}).`;
+          : describeErrorCode(
+              typeof record?.error === "string" ? record.error : typeof record?.message === "string" ? record.message : null,
+              response.status,
+            );
     throw new ApiError(response.status, message, body);
   }
   return body as T;

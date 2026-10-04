@@ -26,21 +26,22 @@ test("standalone library reads the isolated canonical fixture and developer cont
   await expect(page).toHaveURL(/\?view=settings&companyId=default&section=runtime/);
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   const settings = page.locator(".dg-settings-page");
-  await settings.getByLabel("Company ID").fill("team-alpha");
-  await settings.getByRole("button", { name: "Apply scope" }).click();
+  await settings.getByLabel("Workspace ID").fill("team-alpha");
+  await settings.getByRole("button", { name: "Switch workspace" }).click();
   await expect(page).toHaveURL(/view=settings.*companyId=team-alpha/);
   await page.getByRole("button", { name: "Library", exact: true }).click();
   await expect(page).toHaveURL(/view=library&companyId=team-alpha/);
   await page.getByRole("button", { name: "Open settings" }).click();
-  await expect(page.getByLabel("Company ID")).toHaveValue("team-alpha");
+  await expect(page.getByLabel("Workspace ID")).toHaveValue("team-alpha");
   await page.reload();
-  await expect(page.getByLabel("Company ID")).toHaveValue("team-alpha");
+  await expect(page.getByLabel("Workspace ID")).toHaveValue("team-alpha");
   await settings.getByRole("button", { name: "Developer" }).click();
   await expect(settings.getByText("/api/companies/{companyId}/knowledge/search", { exact: true })).toBeVisible();
+  await expect(settings.getByText("Connections are managed on the server")).toBeVisible();
+  await expect(settings.getByText("Version control", { exact: true })).toBeVisible();
+  await expect(settings.getByRole("button", { name: "Version control" })).toHaveCount(0);
   await settings.getByRole("button", { name: "Dependencies" }).click();
-  await expect(settings.getByText("No browser pairing contract")).toBeVisible();
-  await settings.getByRole("button", { name: "Version control" }).click();
-  await expect(settings.getByRole("heading", { name: "No version-control endpoint" })).toBeVisible();
+  await expect(settings.getByRole("heading", { name: "Services" })).toBeVisible();
 });
 
 test("settings deep links preserve a non-default scope through sections, reload, and history", async ({ page }) => {
@@ -49,7 +50,7 @@ test("settings deep links preserve a non-default scope through sections, reload,
   await expect(page).toHaveURL(/view=settings/);
   expect(new URL(page.url()).searchParams.get("companyId")).toBe("team-alpha");
   expect(new URL(page.url()).searchParams.get("section")).toBe("developer");
-  await expect(page.getByRole("heading", { name: "Developer contract" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "API reference" })).toBeVisible();
   await expect(page.getByText("team-alpha", { exact: true }).first()).toBeVisible();
 
   await page.getByRole("link", { name: "Research", exact: true }).click();
@@ -57,12 +58,12 @@ test("settings deep links preserve a non-default scope through sections, reload,
   await page.getByRole("button", { name: "Open settings" }).click();
   await expect(page).toHaveURL(/\?view=settings&companyId=team-alpha&section=runtime/);
   await page.reload();
-  await expect(page.getByLabel("Company ID")).toHaveValue("team-alpha");
+  await expect(page.getByLabel("Workspace ID")).toHaveValue("team-alpha");
   await page.goBack();
   await expect(page).toHaveURL(/\?view=research&companyId=team-alpha/);
   await page.goForward();
   await expect(page).toHaveURL(/\?view=settings&companyId=team-alpha&section=runtime/);
-  await expect(page.getByLabel("Company ID")).toHaveValue("team-alpha");
+  await expect(page.getByLabel("Workspace ID")).toHaveValue("team-alpha");
 });
 
 test("an explicit default scope is not replaced by discovered bootstrap scope", async ({ page }) => {
@@ -143,7 +144,7 @@ for (const viewport of [
     await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible();
     await expectContained(settings, settings.getByRole("button", { name: "← Library" }));
     await settings.getByRole("button", { name: "Developer" }).click();
-    await expect(settings.getByRole("heading", { name: "Developer contract" })).toBeVisible();
+    await expect(settings.getByRole("heading", { name: "API reference" })).toBeVisible();
     await expectNoDocumentOverflow(page);
   });
 }

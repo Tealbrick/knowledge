@@ -1163,7 +1163,8 @@ export async function buildKnowledgeApp(
   if (config.knowledgeServicePrincipals.length > 0 && !researchPrincipals.configured) {
     throw new Error("Invalid Knowledge service principal configuration");
   }
-  if (config.partitionAuthorizationRequired && !researchPrincipals.configured) {
+  const portalPrincipals = options.portalPrincipals ?? null;
+  if (config.partitionAuthorizationRequired && !researchPrincipals.configured && !portalPrincipals) {
     throw new Error("Knowledge partition authorization requires configured service principals");
   }
   const browserSessionConfigured = [config.browserOperatorSecret, config.browserPrincipalId, config.browserOrigin].some((value) => value !== null);
@@ -1643,7 +1644,9 @@ export async function buildKnowledgeApp(
     // Use the route Fastify actually matched for authorization policy. A raw
     // URL can encode static path bytes and still dispatch to this same route.
     const policyPathname = request.routeOptions.url ?? pathname;
-    const requestPrincipal = request.knowledgePrincipal ?? researchPrincipals.resolve(bearerToken(request));
+    const suppliedBearer = bearerToken(request);
+    const requestPrincipal = request.knowledgePrincipal ?? researchPrincipals.resolve(suppliedBearer) ??
+      (portalPrincipals ? await portalPrincipals.resolve(suppliedBearer) : null);
     if (requestPrincipal) request.knowledgePrincipal = requestPrincipal;
     const partitionProtected = partitionProtectedPath(policyPathname);
     // Engine routes own their existing bearer/browser/provider and mapping checks.

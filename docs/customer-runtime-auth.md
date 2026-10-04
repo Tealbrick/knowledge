@@ -3,6 +3,41 @@
 Implemented source contract, 17 September 2026. This document does not assert a
 deployment, licence purchase, real agent acceptance, or human UAT.
 
+## Portal-validated runtime principals (default for Portal-provisioned instances)
+
+Implemented source contract, 4 October 2026 (Tealbrick runtime-principal-v1).
+When `TEALBRICK_PORTAL_URL`, `KNOWLEDGE_COMPANY_ID` and
+`KNOWLEDGE_PORTAL_ORG_ID` are set (Portal sets them at provisioning), the edge
+and Program also accept `Authorization: Bearer tbkg_<43 chars>`: a 15-minute,
+instance-bound grant that Portal mints for an agent whose saved canvas tether to
+this Knowledge node carries CRUD actions. No per-agent environment variable or
+redeploy is involved.
+
+- Only bearers matching `tbkg_` are ever sent to Portal; static service tokens
+  and unknown bearers never leave the instance.
+- On a cache miss the instance POSTs `{token, instanceId, companyId, proof}` to
+  `<portal>/api/runtime/knowledge-principal/introspect`. `proof` is a 60-second
+  EdDSA JWT signed by this instance's claim key (`instance-claim-identity.json`),
+  bound to the Portal audience, instance, company and the grant's SHA-256 digest.
+  Portal verifies it with the public key registered when the app was claimed.
+- Portal recomputes the answer from live state on every introspection: saved
+  canvas wire, licence, agent, app registration, runtime connection and runtime
+  credential. Canvas CRUD maps one-to-one onto `knowledge:create|read|update|delete`;
+  read also grants `brain:read`. `brain:write` and `research:*` are never derived.
+- The answer must name this instance, company and Portal organization, and carry
+  exactly one `exact`, depth-0 grant on this instance's partition no wider than
+  the principal; anything else is rejected. Positive answers are cached for at
+  most 30 seconds (or Portal's shorter `expiresAt`), denials for 5 seconds, and
+  Portal outages are not cached. Revocation therefore takes effect within 30 s.
+- The resolved principal (`tealbrick-agent:<agentId>`) is an ordinary service
+  principal: route admission, partition authorization, per-operation capability
+  checks and actor provenance are unchanged.
+- `KNOWLEDGE_PORTAL_PRINCIPALS=off` disables this path; `on` makes the missing
+  Portal binding a startup error. `KNOWLEDGE_SERVICE_PRINCIPALS` remains for
+  operator-managed service credentials.
+- A Portal-bound instance can be claimed for its bound company before any static
+  principal or data exists.
+
 ## Direct admission and grants
 
 The container admits `Authorization: Bearer <Knowledge service-principal token>`

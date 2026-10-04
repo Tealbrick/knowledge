@@ -1,4 +1,4 @@
-"""Doppelganger Knowledge Hermes plugin."""
+"""Teal Brick Knowledge Hermes plugin."""
 
 from __future__ import annotations
 

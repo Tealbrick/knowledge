@@ -2,7 +2,7 @@ manifest_version: 1
 name: knowledge
 version: 0.2.0
 description: "Knowledge, Docs, and Brain tools backed by the installed Knowledge Program API."
-author: Doppelganger
+author: Teal Brick
 kind: standalone
 remote_runtime_contract: remote-runtime.json
 provides_tools:

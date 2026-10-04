@@ -3,9 +3,9 @@
   "sourceOfTruth": "public Knowledge deployment and distribution settings",
   "sourceBuild": {
     "repository": "https://github.com/Tealbrick/knowledge",
-    "ref": "v0.1.0",
+    "ref": "v0.1.0-api-provenance.1",
     "refType": "tag",
-    "resolvedSourceSha": "1d3619557af60b356d8fbd0b3f5320919986da21",
+    "resolvedSourceSha": "ed71875f1a7d97bd2f20514019fc289cfce2b0db",
     "rootDirectory": "/",
     "dockerfilePath": "deploy/container/Dockerfile",
     "build": "Railway builds the public repository in the customer project",
@@ -161,9 +161,9 @@
     ],
     "sourceBuild": {
       "repository": "https://github.com/Tealbrick/knowledge",
-      "ref": "v0.1.0",
+      "ref": "v0.1.0-api-provenance.1",
       "refType": "tag",
-      "resolvedSourceSha": "1d3619557af60b356d8fbd0b3f5320919986da21",
+      "resolvedSourceSha": "ed71875f1a7d97bd2f20514019fc289cfce2b0db",
       "rootDirectory": "/",
       "dockerfilePath": "deploy/container/Dockerfile"
     },
@@ -194,7 +194,7 @@
     "architecture": "linux/amd64",
     "projectPolicy": "one customer workspace per dedicated project environment and three volumes",
     "requiredInputs": {
-      "knowledgeSource": "Public GitHub source at immutable tag v0.1.0, resolved to commit 1d3619557af60b356d8fbd0b3f5320919986da21",
+      "knowledgeSource": "Public GitHub source at immutable tag v0.1.0-api-provenance.1, resolved to commit ed71875f1a7d97bd2f20514019fc289cfce2b0db",
       "TEALBRICK_PORTAL_URL": "Exact trusted Portal HTTPS origin",
       "TEALBRICK_DEPLOYMENT_ID": "Existing server-issued Teal Brick deployment ID, not RAILWAY_DEPLOYMENT_ID",
       "KNOWLEDGE_COMPANY_ID": "Existing server-bound workspace ID; never generated from browser labels",
@@ -270,11 +270,11 @@
         "name": "Knowledge",
         "source": {
           "repository": "https://github.com/Tealbrick/knowledge",
-          "ref": "v0.1.0",
+          "ref": "v0.1.0-api-provenance.1",
           "refType": "tag",
           "rootDirectory": "/",
           "dockerfilePath": "deploy/container/Dockerfile",
-          "resolvedSourceSha": "1d3619557af60b356d8fbd0b3f5320919986da21"
+          "resolvedSourceSha": "ed71875f1a7d97bd2f20514019fc289cfce2b0db"
         },
         "sourcePolicy": "Railway builds the public repository in the customer project; Portal records the resolved commit before acceptance",
         "publicNetworking": true,

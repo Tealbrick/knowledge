@@ -19,8 +19,8 @@ or authority.
 ## Immutable release outputs
 
 - Source repository: the public `Tealbrick/knowledge` repository.
-- Source tag: `v0.1.0`.
-- Resolved source commit: `1d3619557af60b356d8fbd0b3f5320919986da21`.
+- Source tag: `v0.1.0-api-provenance.1`.
+- Resolved source commit: `ed71875f1a7d97bd2f20514019fc289cfce2b0db`.
 - Railway distribution: Portal-owned source-backed template/service. Railway
   builds the public repository in the customer project from the source tag;
   Portal records the provider-resolved commit before acceptance. No template

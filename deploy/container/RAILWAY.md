@@ -20,8 +20,8 @@ need publisher registry credentials or access to a private image registry.
 
 ```text
 repository: https://github.com/Tealbrick/knowledge
-ref: v0.1.0 (tag)
-resolved source commit: 1d3619557af60b356d8fbd0b3f5320919986da21
+ref: v0.1.0-api-provenance.1 (tag)
+resolved source commit: ed71875f1a7d97bd2f20514019fc289cfce2b0db
 root directory: /
 Dockerfile: deploy/container/Dockerfile
 service config: deploy/container/railway.json

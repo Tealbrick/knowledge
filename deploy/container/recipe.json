@@ -141,11 +141,21 @@
   ],
   "sourceBuild": {
     "repository": "https://github.com/Tealbrick/knowledge",
-    "ref": "v0.1.0-api-provenance.1",
-    "refType": "tag",
+    "ref": "release/knowledge-v0.1.0-api-provenance.1",
+    "refType": "branch",
+    "releaseTag": "v0.1.0-api-provenance.1",
     "resolvedSourceSha": "ed71875f1a7d97bd2f20514019fc289cfce2b0db",
     "rootDirectory": "/",
     "dockerfilePath": "deploy/container/Dockerfile",
+    "branchProtection": {
+      "provider": "github",
+      "requiredPullRequestReviews": 1,
+      "enforceAdministrators": true,
+      "allowForcePushes": false,
+      "allowDeletions": false,
+      "requiredLinearHistory": true,
+      "requiredConversationResolution": true
+    },
     "build": "Railway builds the public repository in the customer project",
     "resolution": "Portal verifies the provider-resolved commit SHA before accepting deployment"
   },

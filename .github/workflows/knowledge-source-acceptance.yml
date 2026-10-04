@@ -6,7 +6,7 @@ on:
       source_ref:
         description: Immutable Knowledge source tag to build
         required: true
-        default: v0.1.0-api-provenance.1
+        default: release/knowledge-v0.1.0-api-provenance.1
 
 permissions:
   contents: read
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      SOURCE_REF: ${{ inputs.source_ref || 'v0.1.0-api-provenance.1' }}
+      SOURCE_REF: ${{ inputs.source_ref || 'release/knowledge-v0.1.0-api-provenance.1' }}
       KNOWLEDGE_IMAGE: knowledge:source-${{ github.sha }}
       KNOWLEDGE_BUILD_MODE: source-build
       KNOWLEDGE_REGISTRY_ACCESS: public-source-repository
@@ -36,17 +36,21 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           path: source
-          ref: ${{ inputs.source_ref || 'v0.1.0-api-provenance.1' }}
+          ref: ${{ inputs.source_ref || 'release/knowledge-v0.1.0-api-provenance.1' }}
           fetch-depth: 0
           persist-credentials: false
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
-      - name: Verify the source checkout is the requested immutable tag
+      - name: Verify the source checkout is the protected release branch at the recorded commit
         run: |
           test -n "$SOURCE_REF"
-          resolved_sha="$(git -C source rev-parse "refs/tags/${SOURCE_REF}^{commit}")"
+          contract_ref="$(node -p "require('./acceptance/deploy/container/public-deployment.json').sourceBuild.ref")"
+          contract_sha="$(node -p "require('./acceptance/deploy/container/public-deployment.json').sourceBuild.resolvedSourceSha")"
+          test "$SOURCE_REF" = "$contract_ref"
+          resolved_sha="$(git -C source rev-parse "refs/remotes/origin/${SOURCE_REF}")"
           checked_out_sha="$(git -C source rev-parse HEAD)"
           test "$resolved_sha" = "$checked_out_sha"
-          printf 'Source tag `%s` resolved to `%s`\n' "$SOURCE_REF" "$resolved_sha" >> "$GITHUB_STEP_SUMMARY"
+          test "$resolved_sha" = "$contract_sha"
+          printf 'Protected source branch `%s` resolved to `%s` (release tag `%s`)\n' "$SOURCE_REF" "$resolved_sha" "$(node -p "require('./acceptance/deploy/container/public-deployment.json').sourceBuild.releaseTag")" >> "$GITHUB_STEP_SUMMARY"
       - name: Validate source release artifacts
         working-directory: acceptance
         run: node deploy/container/generate-public-deployment.mjs --check

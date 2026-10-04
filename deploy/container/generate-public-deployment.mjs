@@ -26,8 +26,19 @@ export function validateSourceBuild(sourceBuild) {
   if (!/^https:\/\/github\.com\/[^/]+\/[^/]+$/.test(sourceBuild.repository)) {
     throw new Error('Source-build repository must be an HTTPS GitHub repository URL');
   }
-  if (!sourceBuild.ref || sourceBuild.refType !== 'tag') {
-    throw new Error('Source-build contract must use an immutable tag ref');
+  if (!/^release\/knowledge-[a-z0-9][a-z0-9._-]*$/u.test(sourceBuild.ref) || sourceBuild.refType !== 'branch') {
+    throw new Error('Source-build contract must use a protected Knowledge release branch ref');
+  }
+  if (!/^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][a-z0-9.-]+)?$/iu.test(sourceBuild.releaseTag)) {
+    throw new Error('Source-build contract must retain a valid immutable release tag');
+  }
+  if (sourceBuild.branchProtection?.provider !== 'github' ||
+      sourceBuild.branchProtection?.requiredPullRequestReviews !== 1 ||
+      sourceBuild.branchProtection?.enforceAdministrators !== true ||
+      sourceBuild.branchProtection?.allowForcePushes !== false ||
+      sourceBuild.branchProtection?.allowDeletions !== false ||
+      sourceBuild.branchProtection?.requiredLinearHistory !== true) {
+    throw new Error('Source-build contract must record the verified protected-branch policy');
   }
   if (!/^[a-f0-9]{40}$/.test(sourceBuild.resolvedSourceSha)) {
     throw new Error('Source-build contract must record the resolved 40-character commit SHA');
@@ -66,11 +77,13 @@ export function renderDeployment(spec, imageReference = spec.publicImage?.refere
     repository: sourceBuild.repository,
     ref: sourceBuild.ref,
     refType: sourceBuild.refType,
+    releaseTag: sourceBuild.releaseTag,
     rootDirectory: sourceBuild.rootDirectory,
     dockerfilePath: sourceBuild.dockerfilePath,
     resolvedSourceSha: sourceBuild.resolvedSourceSha,
+    branchProtection: structuredClone(sourceBuild.branchProtection),
   };
-  service.sourcePolicy = 'Railway builds the public repository in the customer project; Portal records the resolved commit before acceptance';
+  service.sourcePolicy = 'Railway templateDeployV2 uses the protected Knowledge release branch; Portal records the resolved commit before acceptance';
   delete service.sourceAlternative;
   blueprint.templateUrl = null;
   blueprint.status = 'authored-not-created-or-published-on-railway';

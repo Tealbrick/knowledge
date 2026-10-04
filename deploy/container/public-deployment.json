@@ -3,11 +3,21 @@
   "sourceOfTruth": "public Knowledge deployment and distribution settings",
   "sourceBuild": {
     "repository": "https://github.com/Tealbrick/knowledge",
-    "ref": "v0.1.0-api-provenance.1",
-    "refType": "tag",
+    "ref": "release/knowledge-v0.1.0-api-provenance.1",
+    "refType": "branch",
+    "releaseTag": "v0.1.0-api-provenance.1",
     "resolvedSourceSha": "ed71875f1a7d97bd2f20514019fc289cfce2b0db",
     "rootDirectory": "/",
     "dockerfilePath": "deploy/container/Dockerfile",
+    "branchProtection": {
+      "provider": "github",
+      "requiredPullRequestReviews": 1,
+      "enforceAdministrators": true,
+      "allowForcePushes": false,
+      "allowDeletions": false,
+      "requiredLinearHistory": true,
+      "requiredConversationResolution": true
+    },
     "build": "Railway builds the public repository in the customer project",
     "resolution": "Portal verifies the provider-resolved commit SHA before accepting deployment"
   },
@@ -161,11 +171,21 @@
     ],
     "sourceBuild": {
       "repository": "https://github.com/Tealbrick/knowledge",
-      "ref": "v0.1.0-api-provenance.1",
-      "refType": "tag",
+      "ref": "release/knowledge-v0.1.0-api-provenance.1",
+      "refType": "branch",
+      "releaseTag": "v0.1.0-api-provenance.1",
       "resolvedSourceSha": "ed71875f1a7d97bd2f20514019fc289cfce2b0db",
       "rootDirectory": "/",
-      "dockerfilePath": "deploy/container/Dockerfile"
+      "dockerfilePath": "deploy/container/Dockerfile",
+      "branchProtection": {
+        "provider": "github",
+        "requiredPullRequestReviews": 1,
+        "enforceAdministrators": true,
+        "allowForcePushes": false,
+        "allowDeletions": false,
+        "requiredLinearHistory": true,
+        "requiredConversationResolution": true
+      }
     },
     "optionalImage": null,
     "imageRegistry": "ghcr.io/tealbrick/knowledge",
@@ -270,13 +290,23 @@
         "name": "Knowledge",
         "source": {
           "repository": "https://github.com/Tealbrick/knowledge",
-          "ref": "v0.1.0-api-provenance.1",
-          "refType": "tag",
+          "ref": "release/knowledge-v0.1.0-api-provenance.1",
+          "refType": "branch",
+          "releaseTag": "v0.1.0-api-provenance.1",
           "rootDirectory": "/",
           "dockerfilePath": "deploy/container/Dockerfile",
-          "resolvedSourceSha": "ed71875f1a7d97bd2f20514019fc289cfce2b0db"
+          "resolvedSourceSha": "ed71875f1a7d97bd2f20514019fc289cfce2b0db",
+          "branchProtection": {
+            "provider": "github",
+            "requiredPullRequestReviews": 1,
+            "enforceAdministrators": true,
+            "allowForcePushes": false,
+            "allowDeletions": false,
+            "requiredLinearHistory": true,
+            "requiredConversationResolution": true
+          }
         },
-        "sourcePolicy": "Railway builds the public repository in the customer project; Portal records the resolved commit before acceptance",
+        "sourcePolicy": "Railway templateDeployV2 uses the protected Knowledge release branch; Portal records the resolved commit before acceptance",
         "publicNetworking": true,
         "publicTargetPort": 5310,
         "tcpProxy": false,

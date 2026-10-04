@@ -8,7 +8,7 @@ Documents, memory and research for your agents, with data stored in your own dep
 
 Knowledge 0.1.0 is an agent-first standalone release. The primary Railway
 distribution is a source-backed service: Portal supplies the public repository
-and immutable source tag, Railway builds it in the customer's project, and
+and a protected release branch fixed at the reviewed source commit, Railway builds it in the customer's project, and
 Portal records the provider-resolved commit before accepting the deployment.
 An OCI image may be published separately, but it is not required for the
 source-backed path.

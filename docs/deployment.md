@@ -27,8 +27,10 @@ Export with `KNOWLEDGE_EXPORT_ONLY=1` and transfer only the printed disposable c
 ## Railway
 
 The primary Railway path is source-backed. Portal supplies the public
-`Tealbrick/knowledge` repository at immutable tag `v0.1.0-api-provenance.1`;
-Railway builds
+`Tealbrick/knowledge` repository at protected branch
+`release/knowledge-v0.1.0-api-provenance.1`, fixed at reviewed commit
+`ed71875f1a7d97bd2f20514019fc289cfce2b0db`; the preserved release tag is
+`v0.1.0-api-provenance.1`. Railway builds
 `deploy/container/Dockerfile` in the customer's project and Portal verifies the
 provider-resolved commit before accepting the deployment. The generated
 blueprint remains a specification until Portal creates and publishes the
@@ -51,5 +53,5 @@ Research requires a separately configured Open Notebook service and its storage,
 This document describes packaging and required acceptance. It does not assert a
 created Railway template, deployed service, complete Research setup or
 production security clearance. Public releases must include their immutable
-source tag and resolved commit, supported configuration and verification
+source branch, preserved release tag and resolved commit, supported configuration and verification
 record. Optional image evidence is recorded separately.

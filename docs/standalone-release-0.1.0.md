@@ -20,9 +20,12 @@ or authority.
 
 - Source repository: the public `Tealbrick/knowledge` repository.
 - Source tag: `v0.1.0-api-provenance.1`.
+- Railway source branch: `release/knowledge-v0.1.0-api-provenance.1`, protected
+  and fixed at the resolved source commit below.
 - Resolved source commit: `ed71875f1a7d97bd2f20514019fc289cfce2b0db`.
 - Railway distribution: Portal-owned source-backed template/service. Railway
-  builds the public repository in the customer project from the source tag;
+  builds the public repository in the customer project from the protected
+  source branch;
   Portal records the provider-resolved commit before acceptance. No template
   URL is claimed until Portal creates and tests it.
 - Optional OCI image: `ghcr.io/tealbrick/knowledge` (the current GHCR package
@@ -53,12 +56,12 @@ Source and deterministic evidence:
   container memory peak of 114073600 bytes (about 108.8 MiB) under a 1.5 GiB
   test limit. It is image evidence, not anonymous-pull or Railway evidence.
 - The source-build acceptance workflow builds the public source checkout from
-  the immutable tag and runs the current agent-first API probe against the
+  the protected release branch and runs the current agent-first API probe against the
   resulting image. The probe covers synthetic ingestion, retrieval, actor
   provenance, partition denial, restart persistence, and cold-volume restore.
 - Source-build acceptance run `37180173993` passed from public `main` commit
   `ffcd20f3587ee71ac690eac28adbe16bcfbd4a1f` against source tag
-  `v0.1.0-api-provenance.1` / commit
+  `release/knowledge-v0.1.0-api-provenance.1` / commit
   `ed71875f1a7d97bd2f20514019fc289cfce2b0db`. Its agent-first output recorded
   `source-build`, `agent-auth`, `partition-isolation`,
   `synthetic-ingestion`, `retrieval`, `provenance`, `volume-restart`, and

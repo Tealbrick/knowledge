@@ -14,23 +14,28 @@ Railway environments provide IPv4 and IPv6, while legacy environments may
 provide only IPv6. Do not assume this recipe works unchanged in an IPv6-only
 environment. [Railway private networking](https://docs.railway.com/networking/private-networking/how-it-works)
 
-The primary Knowledge source is the public GitHub repository at the immutable
-tag below. Railway builds this source in the customer project; customers do not
+The primary Knowledge source is the public GitHub repository at the protected
+release branch below. Railway builds this source in the customer project;
+customers do not
 need publisher registry credentials or access to a private image registry.
 
 ```text
 repository: https://github.com/Tealbrick/knowledge
-ref: v0.1.0-api-provenance.1 (tag)
+ref: release/knowledge-v0.1.0-api-provenance.1 (protected branch)
+release tag: v0.1.0-api-provenance.1 (preserved audit marker)
 resolved source commit: ed71875f1a7d97bd2f20514019fc289cfce2b0db
 root directory: /
 Dockerfile: deploy/container/Dockerfile
 service config: deploy/container/railway.json
 ```
 
-The tag is the source-selection input; the resolved commit is the acceptance
-evidence. Portal must verify the provider-resolved commit after the build and
-record it against the deployment. A GHCR image may be used for an optional
-self-hosted path, but anonymous image pull is not a Railway source-build gate.
+Railway `templateDeployV2` receives the protected branch as its source input;
+the preserved tag and resolved commit are release evidence. GitHub protection
+requires one pull-request approval, includes administrators, requires linear
+history and conversation resolution, and disables force-pushes and deletion.
+Portal must verify the provider-resolved commit after the build and record it
+against the deployment. A GHCR image may be used for an optional self-hosted
+path, but anonymous image pull is not a Railway source-build gate.
 
 ## Source build
 
@@ -41,7 +46,7 @@ KNOWLEDGE_EXPORT_ONLY=1 sh deploy/container/build-local.sh
 ```
 
 For Railway, configure the Knowledge service from the public GitHub repository
-and tag above. Use repository root as the source root, Dockerfile
+and protected branch above. Use repository root as the source root, Dockerfile
 `deploy/container/Dockerfile`, and config path `deploy/container/railway.json`.
 Railway's build is equivalent to:
 
@@ -64,7 +69,7 @@ Keep these exact names because variable references use them:
 | --- | --- | --- | --- | --- |
 | `SurrealDB` | Pinned 2.6.5 digest in blueprint | 8000, `/health` | `/mydata` | None; no TCP proxy |
 | `OpenNotebook` | Pinned 1.14.0 digest in blueprint | API 5055, `/health` | `/app/data` | None; UI 8502 remains private |
-| `Knowledge` | Public GitHub source tag above; Railway builds `deploy/container/Dockerfile` | 5310, `/healthz` | `/data` | HTTPS domain targeting 5310 only |
+| `Knowledge` | Public GitHub protected release branch above; Railway builds `deploy/container/Dockerfile` | 5310, `/healthz` | `/data` | HTTPS domain targeting 5310 only |
 
 Use one replica for every service, disable serverless sleeping, and keep all
 three in the same environment/region. Begin Knowledge capacity testing with
@@ -157,7 +162,7 @@ never be shared across workspace deployments.
 
 Verify public health, missing-credential denial, scoped attachment permissions,
 active Brain status and a projected document surviving restart. Record the
-source tag and provider-resolved commit, all three service releases, any image
+source branch, preserved release tag and provider-resolved commit, all three service releases, any image
 digests, volume mounts, measured memory/OOM state, and Research posture.
 Railway health checks gate deployment only; they do not
 continuously monitor the service. Volume-attached redeploys can cause downtime.

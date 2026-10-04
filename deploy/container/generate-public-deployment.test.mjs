@@ -25,11 +25,13 @@ test('source-backed deployment emits a consistent recipe and blueprint without r
     repository: spec.sourceBuild.repository,
     ref: spec.sourceBuild.ref,
     refType: spec.sourceBuild.refType,
+    releaseTag: spec.sourceBuild.releaseTag,
     rootDirectory: spec.sourceBuild.rootDirectory,
     dockerfilePath: spec.sourceBuild.dockerfilePath,
     resolvedSourceSha: spec.sourceBuild.resolvedSourceSha,
+    branchProtection: spec.sourceBuild.branchProtection,
   });
-  assert.equal(knowledge.sourcePolicy.includes('customer project'), true);
+  assert.equal(knowledge.sourcePolicy.includes('protected Knowledge release branch'), true);
   assert.equal(blueprint.registryAuth, 'none');
   assert.equal(blueprint.templateUrl, null);
   assert.equal(blueprint.status, 'authored-not-created-or-published-on-railway');
@@ -40,9 +42,11 @@ test('source-backed deployment emits a consistent recipe and blueprint without r
   assert.equal(JSON.stringify({ recipe, blueprint, railway }).includes('registryCredentials'), false);
 });
 
-test('source build contract requires an immutable resolved tag', () => {
+test('source build contract requires a protected release branch and immutable commit', () => {
   assert.doesNotThrow(() => validateSourceBuild(spec.sourceBuild));
-  assert.throws(() => validateSourceBuild({ ...spec.sourceBuild, refType: 'branch' }), /immutable tag ref/);
+  assert.throws(() => validateSourceBuild({ ...spec.sourceBuild, ref: 'main' }), /protected Knowledge release branch ref/);
+  assert.throws(() => validateSourceBuild({ ...spec.sourceBuild, refType: 'tag' }), /protected Knowledge release branch ref/);
+  assert.throws(() => validateSourceBuild({ ...spec.sourceBuild, branchProtection: { ...spec.sourceBuild.branchProtection, allowDeletions: true } }), /protected-branch policy/);
   assert.throws(() => validateSourceBuild({ ...spec.sourceBuild, resolvedSourceSha: 'latest' }), /40-character commit SHA/);
 });
 

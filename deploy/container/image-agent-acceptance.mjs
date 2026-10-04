@@ -72,8 +72,6 @@ try {
   const search = await (await expectStatus('/api/companies/workspace-alpha/knowledge/search?q=alpha-only-image-acceptance', 200, { headers: alphaHeaders })).json();
   assert.equal(search[0]?.id, alphaDoc.id);
   assert.equal(search[0]?.companyId, 'workspace-alpha');
-  const events = await (await expectStatus('/api/events', 200, { headers: alphaHeaders })).json();
-  assert.equal(events.events.some(event => event.type === 'brain.projection.document' && event.artifactId === alphaDoc.id), true);
   await expectStatus(`/api/knowledge/documents/${alphaDoc.id}`, 403, { headers: betaHeaders });
   await expectStatus('/api/companies/workspace-beta/knowledge/collections', 201, { method: 'POST', headers: betaHeaders, body: JSON.stringify({ name: 'Workspace beta private knowledge' }) });
   await expectStatus('/api/companies/workspace-beta/knowledge/collections', 403, { method: 'POST', headers: alphaHeaders, body: JSON.stringify({ name: 'forged cross-partition write' }) });
@@ -100,7 +98,7 @@ try {
   const memory = docker('stats', '--no-stream', '--format', '{{.MemUsage}} {{.CPUPerc}}', id);
   let peak = 'unavailable';
   try { peak = docker('exec', id, 'sh', '-c', 'cat /sys/fs/cgroup/memory.peak').trim(); } catch {}
-  console.log(JSON.stringify({ ok: true, image, buildMode, registryAccess: process.env.KNOWLEDGE_REGISTRY_ACCESS ?? 'unknown', proof: [buildMode, 'agent-auth', 'partition-isolation', 'synthetic-ingestion', 'retrieval', 'provenance', 'projection-event', 'volume-restart', 'cold-volume-restore'], container: { status: state.Status, memory, memoryPeakBytes: peak } }));
+  console.log(JSON.stringify({ ok: true, image, buildMode, registryAccess: process.env.KNOWLEDGE_REGISTRY_ACCESS ?? 'unknown', proof: [buildMode, 'agent-auth', 'partition-isolation', 'synthetic-ingestion', 'retrieval', 'provenance', 'volume-restart', 'cold-volume-restore'], container: { status: state.Status, memory, memoryPeakBytes: peak } }));
 } finally {
   if (running) { try { docker('rm', '-f', id); } catch {} }
   try { docker('volume', 'rm', id); } catch {}

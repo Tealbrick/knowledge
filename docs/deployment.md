@@ -36,8 +36,8 @@ template. An OCI image is optional and is not a deployment gate.
 
 The source-build acceptance workflow builds the public source checkout and runs
 the agent-first API probe against the resulting image. It proves synthetic
-ingestion, retrieval, actor provenance, projection-event evidence, partition
-denial, restart persistence and cold-volume restore; it does not prove a live
+ingestion, retrieval, actor provenance, partition denial, restart persistence
+and cold-volume restore; it does not prove a live
 Railway deployment or human UAT.
 
 A successful deployment must demonstrate authenticated access, rejection of missing/wrong credentials, scoped agent access and revocation, durable writes across restart, and recovery. `/healthz` is only a liveness check.

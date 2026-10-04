@@ -55,8 +55,7 @@ Source and deterministic evidence:
 - The source-build acceptance workflow builds the public source checkout from
   the immutable tag and runs the current agent-first API probe against the
   resulting image. The probe covers synthetic ingestion, retrieval, actor
-  provenance, projection-event evidence, partition denial, restart persistence,
-  and cold-volume restore.
+  provenance, partition denial, restart persistence, and cold-volume restore.
 - The npm registry serves the exact 20-file adapter tarball with the reviewed
   shasum `4b38d0fd8a80d708f25c750ef0f111cc0ac817ea`, matching the reviewed
   local pack. A clean consumer install imported the MCP/client entrypoints and

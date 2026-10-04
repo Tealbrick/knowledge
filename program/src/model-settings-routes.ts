@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { GBrainRuntime } from "./gbrain.js";
-import { ModelSettingsSchema, readModelSettings, saveModelSettings, modelSettingsSummary, testModelSettings } from "./model-settings.js";
+import { ModelSettingsUpdateError, ModelSettingsUpdateSchema, readModelSettings, resolveModelSettingsUpdate, saveModelSettings, modelSettingsSummary, testModelSettings, type ModelSettings } from "./model-settings.js";
 
 export function registerModelSettingsRoutes(app: FastifyInstance, input: { dataDir: string; gbrainHome: string; brain: GBrainRuntime; authority: string | undefined }) {
   let busy = false;
@@ -20,17 +20,23 @@ export function registerModelSettingsRoutes(app: FastifyInstance, input: { dataD
   app.get("/api/settings/models", async () => ({ ...modelSettingsSummary(await readModelSettings(input.dataDir)), brain: { status: input.brain.status().status } }));
   app.put("/api/settings/models", async (request, reply) => {
     if (busy) return reply.code(409).send({ ok: false, error: "settings_update_in_progress" });
-    const parsed = ModelSettingsSchema.safeParse(request.body);
+    const parsed = ModelSettingsUpdateSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_model_settings" });
+    let settings: ModelSettings;
+    try { settings = resolveModelSettingsUpdate(parsed.data, await readModelSettings(input.dataDir)); }
+    catch (error) {
+      if (error instanceof ModelSettingsUpdateError) return reply.code(400).send({ ok: false, error: error.code, component: error.component });
+      return reply.code(400).send({ ok: false, error: "invalid_model_settings" });
+    }
     busy = true;
     try {
-      const readiness = await testModelSettings(parsed.data);
+      const readiness = await testModelSettings(settings);
       if (!readiness.ok) return reply.code(422).send(readiness);
-      await saveModelSettings(input.dataDir, input.gbrainHome, parsed.data);
+      await saveModelSettings(input.dataDir, input.gbrainHome, settings);
       await input.brain.close();
       await input.brain.start();
       if (input.brain.status().status !== "online") return reply.code(503).send({ ok: false, error: "brain_start_failed", configured: true, checks: readiness.checks, brain: { status: input.brain.status().status } });
-      return { ...readiness, ...modelSettingsSummary(parsed.data), brain: { status: input.brain.status().status } };
+      return { ...readiness, ...modelSettingsSummary(settings), brain: { status: input.brain.status().status } };
     } catch (error) {
       const migration = error instanceof Error && error.message.startsWith("embedding_migration_required");
       return reply.code(migration ? 409 : 500).send({ ok: false, error: migration ? "embedding_migration_required" : "settings_update_failed" });

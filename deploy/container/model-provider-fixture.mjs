@@ -75,4 +75,6 @@ const server = createServer(async (req, res) => {
   respond(res, 404, { error: 'unsupported_fixture_route' });
 });
 
-server.listen(5319, '0.0.0.0', () => console.log(JSON.stringify({ event: 'fixture-listening', port: 5319, label: evidence.label })));
+const port = Number(process.env.KNOWLEDGE_FIXTURE_PORT ?? 5319);
+const host = process.env.KNOWLEDGE_FIXTURE_HOST ?? '0.0.0.0';
+server.listen(port, host, () => console.log(JSON.stringify({ event: 'fixture-listening', port: server.address().port, label: evidence.label })));

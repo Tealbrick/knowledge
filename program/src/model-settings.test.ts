@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
-import { saveModelSettings, readModelSettings, modelSettingsSummary, ModelSettingsSchema, modelSettingsEnvironment } from "./model-settings.js";
+import { saveModelSettings, readModelSettings, modelSettingsSummary, ModelSettingsSchema, modelSettingsEnvironment, ModelSettingsUpdateSchema, resolveModelSettingsUpdate } from "./model-settings.js";
 import { registerModelSettingsRoutes } from "./model-settings-routes.js";
 import type { GBrainRuntime } from "./gbrain.js";
 
@@ -59,6 +59,41 @@ describe("Knowledge owner model settings", () => {
       for(const headers of [{},{authorization:"Bearer agent-key"},{origin:"http://knowledge.test",host:"knowledge.test"},{"x-knowledge-settings-token":"wrong"}]) expect((await app.inject({method:"GET",url:"/api/settings/models",headers})).statusCode).toBe(403);
       expect((await app.inject({method:"GET",url:"/api/settings/models",headers:{"x-knowledge-settings-token":secret}})).statusCode).toBe(200);
       expect((await app.inject({method:"PUT",url:"/api/settings/models",headers:{"x-knowledge-settings-token":secret,origin:"https://attacker.invalid",host:"knowledge.test"},payload:settings})).statusCode).toBe(403);
+    } finally { await app.close(); await fs.rm(root,{recursive:true,force:true}); }
+  });
+  it("keeps a saved key only for the same provider and endpoint", () => {
+    const saved = ModelSettingsSchema.parse(settings);
+    const keyless = { chat: { ...settings.chat, apiKey: undefined, model: "renamed-chat" }, embedding: { ...settings.embedding, apiKey: "" } };
+    const resolved = resolveModelSettingsUpdate(ModelSettingsUpdateSchema.parse(keyless), saved);
+    expect(resolved.chat).toMatchObject({ model: "renamed-chat", apiKey: "disposable-provider-key" });
+    expect(resolved.embedding.apiKey).toBe("disposable-provider-key");
+    // Moving a key to a different endpoint or provider requires entering it again.
+    const moved = ModelSettingsUpdateSchema.parse({ ...keyless, chat: { ...keyless.chat, baseUrl: "https://models.example/v1" } });
+    expect(() => resolveModelSettingsUpdate(moved, saved)).toThrow("model_api_key_required");
+    const switched = ModelSettingsUpdateSchema.parse({ ...keyless, chat: { ...keyless.chat, provider: "openrouter" } });
+    expect(() => resolveModelSettingsUpdate(switched, saved)).toThrow("model_api_key_required");
+    expect(() => resolveModelSettingsUpdate(ModelSettingsUpdateSchema.parse(keyless), null)).toThrow("model_api_key_required");
+    // A new key replaces the saved one.
+    expect(resolveModelSettingsUpdate(ModelSettingsUpdateSchema.parse({ ...keyless, chat: { ...keyless.chat, apiKey: "replacement" }, embedding: { ...keyless.embedding, apiKey: "replacement" } }), saved).chat.apiKey).toBe("replacement");
+    // Two models on one provider must share an endpoint and key.
+    const conflicting = ModelSettingsUpdateSchema.parse({ ...keyless, embedding: { ...keyless.embedding, apiKey: "different-key" } });
+    expect(() => resolveModelSettingsUpdate(conflicting, saved)).toThrow("model_provider_conflict");
+  });
+  it("PUT without a key reuses the saved key and never echoes it", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(),"knowledge-settings-keep-"));
+    const app = Fastify();
+    registerModelSettingsRoutes(app,{dataDir:root,gbrainHome:root,authority:secret,brain:{status:()=>({status:"disabled"})} as unknown as GBrainRuntime});
+    try {
+      const headers = {"x-knowledge-settings-token":secret};
+      const missing = await app.inject({method:"PUT",url:"/api/settings/models",headers,payload:{chat:{...settings.chat,apiKey:""},embedding:{...settings.embedding,apiKey:""}}});
+      expect(missing.statusCode).toBe(400);
+      expect(missing.json()).toEqual({ok:false,error:"model_api_key_required",component:"chat"});
+      await saveModelSettings(root,root,settings);
+      const summary = (await app.inject({method:"GET",url:"/api/settings/models",headers})).json();
+      expect(summary.chat).toMatchObject({provider:"openai",model:"test-chat",keyConfigured:true});
+      expect(JSON.stringify(summary)).not.toContain("disposable-provider-key");
+      const conflict = await app.inject({method:"PUT",url:"/api/settings/models",headers,payload:{chat:{...settings.chat,apiKey:""},embedding:{...settings.embedding,apiKey:"other"}}});
+      expect(conflict.json()).toEqual({ok:false,error:"model_provider_conflict",component:"settings"});
     } finally { await app.close(); await fs.rm(root,{recursive:true,force:true}); }
   });
 });

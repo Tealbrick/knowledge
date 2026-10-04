@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, BookOpen, Bot, ChevronRight, FileText, Plus, RefreshCw, Search, Sparkles, Upload } from "lucide-react";
+import { AlertTriangle, BookOpen, Bot, ChevronRight, FileText, RefreshCw, Search, Sparkles } from "lucide-react";
 import { Button, EmptyState, Tag } from "@doppelganger/ui";
 import { ApiError, askResearch, getNotebooks, getResearchSummary, getResearchWorkspace } from "./api";
 import type { ResearchAnswer } from "./types";
@@ -73,7 +73,7 @@ export function ResearchView({ companyId }: { companyId: string }) {
   </section>;
 }
 
-function LocalResearchView({ companyId }: { companyId: string }) {
+export function LocalResearchView({ companyId }: { companyId: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [answer, setAnswer] = useState<ResearchAnswer | null>(null);
@@ -92,17 +92,19 @@ function LocalResearchView({ companyId }: { companyId: string }) {
     )
       setSelectedId(notebooks.data?.[0]?.id ?? null);
   }, [notebooks.data, selectedId]);
+  // Show the first record immediately instead of an empty state until the effect runs.
+  const activeId = selectedId ?? notebooks.data?.[0]?.id ?? null;
   const workspace = useQuery({
-    queryKey: ["research-workspace", selectedId],
-    queryFn: () => getResearchWorkspace(selectedId!),
-    enabled: Boolean(selectedId),
+    queryKey: ["research-workspace", activeId],
+    queryFn: () => getResearchWorkspace(activeId!),
+    enabled: Boolean(activeId),
     retry: false,
   });
   const ask = useMutation({
-    mutationFn: () => askResearch(selectedId!, prompt.trim()),
+    mutationFn: () => askResearch(activeId!, prompt.trim()),
     onSuccess: (result) => setAnswer(result),
   });
-  const selected = notebooks.data?.find((entry) => entry.id === selectedId);
+  const selected = notebooks.data?.find((entry) => entry.id === activeId);
 
   return (
     <section aria-label="Local research records">
@@ -139,7 +141,7 @@ function LocalResearchView({ companyId }: { companyId: string }) {
             notebooks.data.map((notebook) => (
               <button
                 key={notebook.id}
-                aria-current={notebook.id === selectedId}
+                aria-current={notebook.id === activeId}
                 onClick={() => {
                   setSelectedId(notebook.id);
                   setAnswer(null);
@@ -160,10 +162,9 @@ function LocalResearchView({ companyId }: { companyId: string }) {
           ) : (
             <div className="index-empty">
               <BookOpen size={22} />
-              <strong>No research notebooks</strong>
+              <strong>No local research records</strong>
               <span>
-                Create one to collect sources, ask grounded questions, and
-                publish outputs.
+                New research happens in the Research workspace above.
               </span>
             </div>
           )}
@@ -255,10 +256,6 @@ function LocalResearchView({ companyId }: { companyId: string }) {
                 <section>
                   <div className="subheading">
                     <h3>Local sources</h3>
-                    <Button size="small" disabled title="Add new sources in the Research workspace above.">
-                      <Upload size={13} />
-                      Import
-                    </Button>
                   </div>
                   {workspace.data.sources.length ? (
                     <div className="simple-list">
@@ -281,10 +278,6 @@ function LocalResearchView({ companyId }: { companyId: string }) {
                 <section>
                   <div className="subheading">
                     <h3>Outputs</h3>
-                    <Button size="small" disabled title="Output drafting is not yet available in this view.">
-                      <Plus size={13} />
-                      Draft
-                    </Button>
                   </div>
                   {workspace.data.outputs.length ? (
                     <div className="simple-list">
@@ -307,8 +300,10 @@ function LocalResearchView({ companyId }: { companyId: string }) {
               </div>
             </>
           ) : (
-            <EmptyState title="Research starts empty">
-              Create a notebook to establish a scoped research workspace.
+            <EmptyState title="Nothing to show">
+              There are no older local research records in this workspace. Use
+              the Research workspace above to collect sources and ask
+              questions.
             </EmptyState>
           )}
         </main>

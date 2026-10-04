@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Network, Plus, RefreshCw } from "lucide-react";
+import { AlertTriangle, Network, RefreshCw } from "lucide-react";
 import { Button, EmptyState, Tag } from "@doppelganger/ui";
 import { ApiError, getBindings, getEvents } from "./api";
 import { errorTitle } from "./errors";
@@ -75,12 +75,6 @@ export function ActivityView() {
       <SectionHeader
         eyebrow="History"
         title="Activity"
-        actions={
-          <Button size="small">
-            <Plus size={14} />
-            New binding
-          </Button>
-        }
       >
         Links between Knowledge records and other apps, and recent activity on
         this installation.
@@ -124,7 +118,8 @@ export function ActivityView() {
             </div>
           ) : (
             <EmptyState title="No linked records">
-              No other app has linked a record to Knowledge yet.
+              No other app has linked a record to Knowledge yet. Connected apps
+              and agents create these links through the Knowledge API.
             </EmptyState>
           )}
         </section>

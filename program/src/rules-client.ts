@@ -1,3 +1,5 @@
+import { isRulesEvaluateMethod, RULES_EVALUATE_METHOD } from "./legacy-ids.js";
+
 export interface KnowledgeRulesEvaluationInput {
   readonly operation: string;
   readonly targetKind: string;
@@ -95,7 +97,7 @@ export class KnowledgeRulesClient {
         redirect: "error",
         signal: controller.signal,
         body: JSON.stringify({
-          method: "doppelganger.rules.evaluate",
+          method: RULES_EVALUATE_METHOD,
           params: {
             ruleKey: "knowledge",
             operation: input.operation,
@@ -130,7 +132,7 @@ export class KnowledgeRulesClient {
         typeof (body as { reason?: unknown }).reason !== "string" ||
         !Object.prototype.hasOwnProperty.call(body, "method") ||
         !Object.prototype.hasOwnProperty.call(body, "details") ||
-        (body as { method?: unknown }).method !== "doppelganger.rules.evaluate" ||
+        !isRulesEvaluateMethod((body as { method?: unknown }).method) ||
         typeof (body as { details?: unknown }).details !== "object" ||
         (body as { details?: unknown }).details === null ||
         Array.isArray((body as { details?: unknown }).details)

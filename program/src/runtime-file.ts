@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 
+import { readTealbrickEnv } from "./legacy-ids.js";
 import { describeListenUrl } from "./listen-url.js";
 import type { KnowledgeConfig } from "./types.js";
 
@@ -26,7 +27,7 @@ function defaultKnowledgeRuntimeFilePath(config: KnowledgeConfig): string {
 
 function knowledgeRuntimeFilePaths(config: KnowledgeConfig): readonly string[] {
   const configuredPath = path.resolve(
-    process.env.DOPPELGANGER_RUNTIME_FILE ??
+    readTealbrickEnv("TEALBRICK_RUNTIME_FILE") ??
       process.env.KNOWLEDGE_RUNTIME_FILE ??
       defaultKnowledgeRuntimeFilePath(config),
   );

@@ -11,6 +11,11 @@ import re
 import urllib.parse
 
 BASE = Path(__file__).with_name("runtime-connection.json")
+# Doppelganger -> Tealbrick transition: accept both connection schema ids; the
+# installer keeps writing the legacy id until every producer/consumer accepts
+# the new one. Keep in sync with tools.py, research_tools.py and
+# program/src/legacy-ids.ts (removal condition documented there).
+RUNTIME_CONNECTION_SCHEMAS = frozenset({"doppelganger.remote-program-connection/v1", "tealbrick.remote-program-connection/v1"})
 MAX_BYTES = 8 * 1024 * 1024
 
 
@@ -31,7 +36,7 @@ def _call(args, operation=None, catalog=False):
         base = os.environ.get("KNOWLEDGE_BASE_URL", "")
         if not base and BASE.is_file():
             record = json.loads(BASE.read_text())
-            if record.get("schemaVersion") == "doppelganger.remote-program-connection/v1" and record.get("unitId") == "knowledge":
+            if record.get("schemaVersion") in RUNTIME_CONNECTION_SCHEMAS and record.get("unitId") == "knowledge":
                 base = record.get("baseUrl", "")
         url = urllib.parse.urlsplit(base)
         if url.username or url.password or url.query or url.fragment or url.path not in ("", "/") or not url.hostname:

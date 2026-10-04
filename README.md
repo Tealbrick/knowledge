@@ -58,6 +58,8 @@ Memory and Research have separate supported contracts. See [native memory operat
 
 Mount a persistent volume at `/data` for container deployments. Keep each customer's data and secrets isolated. Back up persistent data before upgrades; an image rollback alone does not undo a database migration.
 
+Without `KNOWLEDGE_DATA_DIR`, a source checkout stores data in `~/.tealbrick-knowledge`. An existing `~/.doppelganger-knowledge` is moved there once on the next Program start; if it cannot be moved (for example across filesystems) it stays in use and a warning is logged. `TEALBRICK_RUNTIME_FILE` and `TEALBRICK_UI_SDK_ROOT` replace `DOPPELGANGER_RUNTIME_FILE` and `DOPPELGANGER_UI_SDK_ROOT`; the old names still work as deprecated aliases and log a warning.
+
 Configuration is server-side. Start with [the environment example](program/.env.example), then follow [Research configuration](docs/open-notebook-connection.md) when enabling that integration. Do not place secrets in browser storage, URLs or agent tool arguments.
 
 ## Release status

@@ -1,4 +1,5 @@
 import { loadConfig } from "./config.js";
+import { migrateLegacyKnowledgeDataDir } from "./legacy-ids.js";
 import { describeListenUrl } from "./listen-url.js";
 import { buildKnowledgeApp } from "./app.js";
 import {
@@ -6,6 +7,10 @@ import {
   writeKnowledgeRuntimeFile,
 } from "./runtime-file.js";
 
+const dataDirMigration = migrateLegacyKnowledgeDataDir();
+if (dataDirMigration.status === "migrated") {
+  console.log(JSON.stringify({ event: "knowledge.data-dir.migrated", from: dataDirMigration.from, to: dataDirMigration.path }));
+}
 const config = loadConfig();
 const app = await buildKnowledgeApp({ config });
 

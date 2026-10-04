@@ -25,7 +25,7 @@
       },
       "health": "/health",
       "portStrategy": "dynamic-ephemeral",
-      "defaultHome": "~/.doppelganger-knowledge/gbrain-home",
+      "defaultHome": "~/.tealbrick-knowledge/gbrain-home",
       "homeEnv": "KNOWLEDGE_GBRAIN_HOME"
     },
     {
@@ -34,7 +34,7 @@
       "required": true,
       "launch": {
         "strategy": "program-owned-file",
-        "defaultPath": "~/.doppelganger-knowledge/knowledge.sqlite",
+        "defaultPath": "~/.tealbrick-knowledge/knowledge.sqlite",
         "dataDirEnv": "KNOWLEDGE_DATA_DIR"
       }
     },

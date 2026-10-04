@@ -5,17 +5,18 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME,
-  installDoppelgangerGBrainSchemaPack,
-  readDoppelgangerGBrainSchemaPack,
+  KNOWLEDGE_GBRAIN_SCHEMA_PACK_ALIAS,
+  KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME,
+  installKnowledgeGBrainSchemaPack,
+  readKnowledgeGBrainSchemaPack,
 } from "./gbrain-schema.js";
 
 describe("Teal Brick GBrain schema pack", () => {
   it("declares the DG domain entity and edge types GBrain should use", async () => {
-    const pack = await readDoppelgangerGBrainSchemaPack();
+    const pack = await readKnowledgeGBrainSchemaPack();
 
     expect(pack.api_version).toBe("gbrain-schema-pack-v1");
-    expect(pack.name).toBe(DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME);
+    expect(pack.name).toBe(KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME);
     expect(pack.extends).toBe("gbrain-base");
     expect(pack.page_types.map((type) => type.name)).toEqual([
       "knowledge_document",
@@ -65,18 +66,18 @@ describe("Teal Brick GBrain schema pack", () => {
       "utf8",
     );
 
-    const firstInstall = await installDoppelgangerGBrainSchemaPack(gbrainHome);
-    const secondInstall = await installDoppelgangerGBrainSchemaPack(gbrainHome);
+    const firstInstall = await installKnowledgeGBrainSchemaPack(gbrainHome);
+    const secondInstall = await installKnowledgeGBrainSchemaPack(gbrainHome);
 
     expect(firstInstall).toEqual({
-      packName: DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME,
+      packName: KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME,
       installed: true,
       activated: true,
       packPath: path.join(
         gbrainHome,
         ".gbrain",
         "schema-packs",
-        DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME,
+        KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME,
         "pack.json",
       ),
     });
@@ -91,7 +92,47 @@ describe("Teal Brick GBrain schema pack", () => {
     ).resolves.toMatchObject({
       engine: "pglite",
       existing: true,
-      schema_pack: DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME,
+      schema_pack: KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME,
     });
+  });
+
+  it("keeps the persisted doppelganger pack id and installs a tealbrick alias that extends it", async () => {
+    const gbrainHome = await fs.mkdtemp(path.join(os.tmpdir(), "dg-gbrain-schema-alias-"));
+    await installKnowledgeGBrainSchemaPack(gbrainHome);
+
+    expect(KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME).toBe("doppelganger");
+    const alias = JSON.parse(
+      await fs.readFile(
+        path.join(gbrainHome, ".gbrain", "schema-packs", KNOWLEDGE_GBRAIN_SCHEMA_PACK_ALIAS, "pack.json"),
+        "utf8",
+      ),
+    ) as Record<string, unknown>;
+    expect(alias).toMatchObject({
+      api_version: "gbrain-schema-pack-v1",
+      name: "tealbrick",
+      extends: "doppelganger",
+      page_types: [],
+      link_types: [],
+    });
+    await expect(
+      fs.readFile(path.join(gbrainHome, ".gbrain", "config.json"), "utf8").then((body) => JSON.parse(body)),
+    ).resolves.toMatchObject({ schema_pack: "doppelganger" });
+  });
+
+  it("accepts a GBrain home already activated on the tealbrick alias without rewriting it", async () => {
+    const gbrainHome = await fs.mkdtemp(path.join(os.tmpdir(), "dg-gbrain-schema-alias-active-"));
+    await fs.mkdir(path.join(gbrainHome, ".gbrain"), { recursive: true });
+    await fs.writeFile(
+      path.join(gbrainHome, ".gbrain", "config.json"),
+      `${JSON.stringify({ engine: "pglite", schema_pack: "tealbrick" }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const result = await installKnowledgeGBrainSchemaPack(gbrainHome);
+
+    expect(result.activated).toBe(true);
+    await expect(
+      fs.readFile(path.join(gbrainHome, ".gbrain", "config.json"), "utf8").then((body) => JSON.parse(body)),
+    ).resolves.toEqual({ engine: "pglite", schema_pack: "tealbrick" });
   });
 });

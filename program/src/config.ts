@@ -1,5 +1,4 @@
 import path from "node:path";
-import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 import type {
@@ -10,10 +9,10 @@ import type {
   KnowledgeGBrainPartitionToken,
 } from "./types.js";
 import { normalizeKnowledgePartitionKey } from "./partition-authority.js";
+import { resolveDefaultKnowledgeDataDir } from "./legacy-ids.js";
 
 const programSrcDir = path.dirname(fileURLToPath(import.meta.url));
 const microappRoot = path.resolve(programSrcDir, "..", "..");
-const defaultDataDir = path.join(os.homedir(), ".doppelganger-knowledge");
 const defaultGbrainRepoPath = path.join(microappRoot, "sidecars", "gbrain");
 
 function numberFromEnv(value: string | undefined, fallback: number): number {
@@ -158,7 +157,7 @@ export function loadConfig(options: BuildKnowledgeAppOptions = {}): KnowledgeCon
   const environment = options.environment ?? environmentFromEnv(process.env.NODE_ENV);
   const dataDir =
     options.config?.dataDir ??
-    path.resolve(process.env.KNOWLEDGE_DATA_DIR ?? defaultDataDir);
+    path.resolve(process.env.KNOWLEDGE_DATA_DIR ?? resolveDefaultKnowledgeDataDir());
   const knowledgeDatabaseUrl =
     options.config?.knowledgeDatabaseUrl ??
     optionalEnv(process.env.KNOWLEDGE_DATABASE_URL ?? process.env.DATABASE_URL);

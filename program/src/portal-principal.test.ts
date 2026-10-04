@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { buildKnowledgeApp } from "./app.js";
 import { KnowledgeInstanceClaim } from "./instance-claim.js";
+import { createKnowledgePrincipalResolver } from "./knowledge-principal.js";
 import { createPortalPrincipalResolver, portalPrincipalConfig, portalPrincipalFromResponse, PORTAL_INTROSPECT_PATH } from "./portal-principal.js";
 
 const portal = "https://portal.fixture.invalid";
@@ -73,6 +74,43 @@ describe("Portal-validated runtime principals", () => {
     expect(a).not.toBeNull();
     expect(a).toBe(b);
     expect(f.calls).toHaveLength(2);
+  });
+
+  it("does not cache Portal errors or rate limits as denials", async () => {
+    for (const status of [429, 500, 503]) {
+      const instance = claim();
+      const f = portalFixture(instance, () => ({ status, body: { error: "unavailable" } }));
+      expect(await f.resolver.resolve(grant)).toBeNull();
+      expect(await f.resolver.resolve(grant)).toBeNull();
+      expect(f.calls).toHaveLength(2);
+    }
+  });
+
+  it("bounds concurrent introspections and keeps denials from evicting live principals", async () => {
+    const instance = claim();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let calls = 0;
+    const slow = (async (_url: string | URL, init?: RequestInit) => {
+      calls++;
+      const body = JSON.parse(String(init?.body));
+      if (body.token === grant) { await gate; return new Response(JSON.stringify(answer(instance.instanceId)), { status: 200 }); }
+      return new Response("{}", { status: 403 });
+    }) as typeof fetch;
+    const capped = createPortalPrincipalResolver({ portal, companyId, portalOrgId: "org-1", signer: instance, fetch: slow, maxInflight: 1, maxEntries: 2 });
+    const pending = capped.resolve(grant);
+    expect(await capped.resolve(`tbkg_${"z".repeat(43)}`)).toBeNull();
+    expect(calls).toBe(1);
+    release();
+    expect(await pending).not.toBeNull();
+    for (const letter of "abcdef") expect(await capped.resolve(`tbkg_${letter.repeat(43)}`)).toBeNull();
+    const before = calls;
+    expect(await capped.resolve(grant)).not.toBeNull();
+    expect(calls).toBe(before);
+  });
+
+  it("reserves the tealbrick-agent: identity for Portal principals", () => {
+    expect(createKnowledgePrincipalResolver([{ token: "static-token-fixture-only-000000000", principalId: "tealbrick-agent:a-henry", companyId, capabilities: ["knowledge:read"] }]).configured).toBe(false);
   });
 
   it("negative-caches Portal denials briefly", async () => {

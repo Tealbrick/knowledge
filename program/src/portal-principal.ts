@@ -43,6 +43,8 @@ export interface PortalPrincipalResolverOptions {
   /** Short negative cache so an invalid grant cannot hammer Portal. */
   readonly negativeTtlMs?: number;
   readonly maxEntries?: number;
+  /** Concurrent Portal introspections; above it new lookups fail closed (not cached). */
+  readonly maxInflight?: number;
   readonly timeoutMs?: number;
 }
 
@@ -52,7 +54,7 @@ export interface PortalPrincipalResolver {
 }
 
 interface CacheEntry {
-  readonly principal: KnowledgeServicePrincipal | null;
+  readonly principal: KnowledgeServicePrincipal;
   readonly expiresAt: number;
 }
 
@@ -125,17 +127,26 @@ export function createPortalPrincipalResolver(options: PortalPrincipalResolverOp
   const cacheTtlMs = Math.min(options.cacheTtlMs ?? 30_000, 60_000);
   const negativeTtlMs = options.negativeTtlMs ?? 5_000;
   const maxEntries = options.maxEntries ?? 1_000;
+  const maxInflight = options.maxInflight ?? 32;
   const timeoutMs = options.timeoutMs ?? 5_000;
+  // Positive and negative answers live apart so a flood of junk grants cannot evict live agents.
   const cache = new Map<string, CacheEntry>();
+  const denied = new Map<string, number>();
   const inflight = new Map<string, Promise<KnowledgeServicePrincipal | null>>();
   const expected = { instanceId: options.signer.instanceId, companyId: options.companyId, portalOrgId: options.portalOrgId };
 
+  const bounded = <V>(map: Map<string, V>, limit: number, expired: (value: V) => boolean) => {
+    if (map.size < limit) return;
+    for (const [entryKey, value] of map) if (expired(value)) map.delete(entryKey);
+    while (map.size >= limit) map.delete(map.keys().next().value!);
+  };
   const remember = (key: string, principal: KnowledgeServicePrincipal | null, expiresAt: number) => {
-    if (cache.size >= maxEntries) {
-      const at = now();
-      for (const [entryKey, entry] of cache) if (entry.expiresAt <= at) cache.delete(entryKey);
-      while (cache.size >= maxEntries) cache.delete(cache.keys().next().value!);
+    if (!principal) {
+      bounded(denied, maxEntries, until => until <= now());
+      denied.set(key, expiresAt);
+      return;
     }
+    bounded(cache, maxEntries, entry => entry.expiresAt <= now());
     cache.set(key, { principal, expiresAt });
   };
 
@@ -147,7 +158,9 @@ export function createPortalPrincipalResolver(options: PortalPrincipalResolverOp
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ token, instanceId: expected.instanceId, companyId: options.companyId, proof }),
       });
-      if (!response.ok || !response.body) { remember(tokenDigest, null, now() + negativeTtlMs); return null; }
+      // Only an explicit denial is cached; Portal errors and rate limits are treated like outages.
+      if (response.status === 401 || response.status === 403) { remember(tokenDigest, null, now() + negativeTtlMs); return null; }
+      if (!response.ok || !response.body) return null;
       const chunks: Buffer[] = [];
       let bytes = 0;
       for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
@@ -177,8 +190,12 @@ export function createPortalPrincipalResolver(options: PortalPrincipalResolverOp
       const cached = cache.get(key);
       if (cached && cached.expiresAt > now()) return cached.principal;
       if (cached) cache.delete(key);
+      const deniedUntil = denied.get(key);
+      if (deniedUntil !== undefined && deniedUntil > now()) return null;
+      if (deniedUntil !== undefined) denied.delete(key);
       const pending = inflight.get(key);
       if (pending) return pending;
+      if (inflight.size >= maxInflight) return null;
       const request = introspect(value, key).finally(() => inflight.delete(key));
       inflight.set(key, request);
       return request;

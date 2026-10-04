@@ -72,7 +72,10 @@ const server = createServer(async (req, res) => {
     } catch { res.writeHead(400); res.end('{"error":"invalid_claim_challenge"}'); return; }
   }
   const suppliedBearer = bearerToken({ headers: req.headers });
-  const runtimePrincipal = runtimePrincipals.resolve(suppliedBearer) ?? (portalPrincipals ? await portalPrincipals.resolve(suppliedBearer) : null);
+  // Only an admitted direct-runtime route may cost a Portal introspection; anything else is
+  // rejected without contacting Portal.
+  const runtimePrincipal = runtimePrincipals.resolve(suppliedBearer) ??
+    (portalPrincipals && customerRuntimeRoute(req.method ?? "", req.url ?? "") ? await portalPrincipals.resolve(suppliedBearer) : null);
   const runtimeAuthorized = !!runtimePrincipal && customerRuntimeRoute(req.method ?? "", req.url ?? "");
   let attachmentAuthorized = false;
   let dispatchGrant: {capability:string;agentId:string;orgId:string} | undefined;

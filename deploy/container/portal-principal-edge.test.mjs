@@ -83,5 +83,8 @@ test('a Portal-provisioned instance admits wired agents with no KNOWLEDGE_SERVIC
   const before = introspections;
   assert.equal((await fetch(`${base}/api/companies/customer-a/knowledge/collections`, { headers: as('not-a-portal-grant') })).status, 401);
   assert.equal(introspections, before);
+  // A grant-shaped bearer on a route outside the direct-runtime allowlist never reaches Portal.
+  assert.equal((await fetch(`${base}/api/settings/models`, { headers: as(grant('q')) })).status, 401);
+  assert.equal(introspections, before);
   assert.doesNotMatch(output, /tbkg_/);
 });

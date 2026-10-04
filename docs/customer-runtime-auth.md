@@ -27,8 +27,12 @@ redeploy is involved.
 - The answer must name this instance, company and Portal organization, and carry
   exactly one `exact`, depth-0 grant on this instance's partition no wider than
   the principal; anything else is rejected. Positive answers are cached for at
-  most 30 seconds (or Portal's shorter `expiresAt`), denials for 5 seconds, and
-  Portal outages are not cached. Revocation therefore takes effect within 30 s.
+  most 30 seconds (or Portal's shorter `expiresAt`), explicit denials (401/403)
+  for 5 seconds in a separate cache, and Portal errors, rate limits and outages
+  are not cached. Revocation therefore takes effect within 30 s.
+- Only requests on the direct-runtime route allowlist can trigger an
+  introspection, and at most 32 run concurrently; above that, lookups fail
+  closed. Static principals may not use the reserved `tealbrick-agent:` prefix.
 - The resolved principal (`tealbrick-agent:<agentId>`) is an ordinary service
   principal: route admission, partition authorization, per-operation capability
   checks and actor provenance are unchanged.

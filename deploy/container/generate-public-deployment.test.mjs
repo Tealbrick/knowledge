@@ -32,6 +32,7 @@ test('source-backed deployment emits a consistent recipe and blueprint without r
     branchProtection: spec.sourceBuild.branchProtection,
   });
   assert.equal(knowledge.sourcePolicy.includes('protected Knowledge release branch'), true);
+  assert.equal(knowledge.source.branchProtection.lockBranch, true);
   assert.equal(blueprint.registryAuth, 'none');
   assert.equal(blueprint.templateUrl, null);
   assert.equal(blueprint.status, 'authored-not-created-or-published-on-railway');

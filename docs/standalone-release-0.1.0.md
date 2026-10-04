@@ -22,6 +22,9 @@ or authority.
 - Source tag: `v0.1.0-api-provenance.1`.
 - Railway source branch: `release/knowledge-v0.1.0-api-provenance.1`, protected
   and fixed at the resolved source commit below.
+- Branch enforcement: one pull-request approval, administrator enforcement,
+  linear history and conversation resolution, force-push/deletion disabled, and
+  branch locked read-only after release.
 - Resolved source commit: `ed71875f1a7d97bd2f20514019fc289cfce2b0db`.
 - Railway distribution: Portal-owned source-backed template/service. Railway
   builds the public repository in the customer project from the protected

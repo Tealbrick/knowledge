@@ -37,7 +37,8 @@ export function validateSourceBuild(sourceBuild) {
       sourceBuild.branchProtection?.enforceAdministrators !== true ||
       sourceBuild.branchProtection?.allowForcePushes !== false ||
       sourceBuild.branchProtection?.allowDeletions !== false ||
-      sourceBuild.branchProtection?.requiredLinearHistory !== true) {
+      sourceBuild.branchProtection?.requiredLinearHistory !== true ||
+      sourceBuild.branchProtection?.lockBranch !== true) {
     throw new Error('Source-build contract must record the verified protected-branch policy');
   }
   if (!/^[a-f0-9]{40}$/.test(sourceBuild.resolvedSourceSha)) {

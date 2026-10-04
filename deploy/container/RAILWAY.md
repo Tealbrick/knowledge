@@ -32,7 +32,8 @@ service config: deploy/container/railway.json
 Railway `templateDeployV2` receives the protected branch as its source input;
 the preserved tag and resolved commit are release evidence. GitHub protection
 requires one pull-request approval, includes administrators, requires linear
-history and conversation resolution, and disables force-pushes and deletion.
+history and conversation resolution, disables force-pushes and deletion, and
+locks the branch read-only after release.
 Portal must verify the provider-resolved commit after the build and record it
 against the deployment. A GHCR image may be used for an optional self-hosted
 path, but anonymous image pull is not a Railway source-build gate.

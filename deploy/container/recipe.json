@@ -154,6 +154,7 @@
       "allowForcePushes": false,
       "allowDeletions": false,
       "requiredLinearHistory": true,
+      "lockBranch": true,
       "requiredConversationResolution": true
     },
     "build": "Railway builds the public repository in the customer project",

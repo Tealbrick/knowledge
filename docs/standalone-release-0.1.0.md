@@ -37,7 +37,7 @@ or authority.
   integrity `sha512-LAI1xHKwQa4N5jMiyrUz/duGx6Rgdz+9IxEkEJrq7SqysQO7XCVMMGJbgaz9XfGA2F9zdUts3FNlwK+k4P91/w==`.
 
 The source commit and package integrity are recorded from public-source and
-registry evidence, not inferred from a mutable branch. Portal consumers use
+registry evidence, not inferred from an unprotected branch. Portal consumers use
 their own server-attested deployment/org binding. The current source receipt
 does not claim a created Railway template, live deployment, formal GitHub
 release, or human UAT.
@@ -62,14 +62,14 @@ Source and deterministic evidence:
   the protected release branch and runs the current agent-first API probe against the
   resulting image. The probe covers synthetic ingestion, retrieval, actor
   provenance, partition denial, restart persistence, and cold-volume restore.
-- Source-build acceptance run `37180173993` passed from public `main` commit
-  `ffcd20f3587ee71ac690eac28adbe16bcfbd4a1f` against source tag
+- Source-build acceptance run `37180873353` passed from public `main` commit
+  `9615ec16dc710f2447007d0962c4e68deb0fced6` against protected source branch
   `release/knowledge-v0.1.0-api-provenance.1` / commit
   `ed71875f1a7d97bd2f20514019fc289cfce2b0db`. Its agent-first output recorded
   `source-build`, `agent-auth`, `partition-isolation`,
   `synthetic-ingestion`, `retrieval`, `provenance`, `volume-restart`, and
-  `cold-volume-restore`; memory was `95.27MiB / 1.5GiB` with a peak of
-  `108294144` bytes. This is source-built runtime evidence, not Railway or
+  `cold-volume-restore`; memory was `94.03MiB / 1.5GiB` with a peak of
+  `105099264` bytes. This is source-built runtime evidence, not Railway or
   human-UAT evidence.
 - The npm registry serves the exact 20-file adapter tarball with the reviewed
   shasum `4b38d0fd8a80d708f25c750ef0f111cc0ac817ea`, matching the reviewed

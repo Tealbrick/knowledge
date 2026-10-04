@@ -21,32 +21,56 @@ export function validateImageReference(reference, repository) {
   return reference;
 }
 
-export function renderDeployment(spec, imageReference = spec.publicImage.reference) {
-  if (spec.schemaVersion !== 1) throw new Error('Unsupported public deployment schema version');
-  if (spec.publicImage.credentialsRequired !== false || spec.publicImage.pullPolicy !== 'anonymous-public-pull') {
-    throw new Error('Public Knowledge image must allow anonymous pulls without registry credentials');
+export function validateSourceBuild(sourceBuild) {
+  if (!sourceBuild || typeof sourceBuild !== 'object') throw new Error('Source-build contract is required');
+  if (!/^https:\/\/github\.com\/[^/]+\/[^/]+$/.test(sourceBuild.repository)) {
+    throw new Error('Source-build repository must be an HTTPS GitHub repository URL');
   }
-  const image = validateImageReference(imageReference, spec.publicImage.repository);
+  if (!sourceBuild.ref || sourceBuild.refType !== 'tag') {
+    throw new Error('Source-build contract must use an immutable tag ref');
+  }
+  if (!/^[a-f0-9]{40}$/.test(sourceBuild.resolvedSourceSha)) {
+    throw new Error('Source-build contract must record the resolved 40-character commit SHA');
+  }
+  if (sourceBuild.rootDirectory !== '/') throw new Error('Source-build root directory must be repository root');
+  if (sourceBuild.dockerfilePath !== 'deploy/container/Dockerfile') {
+    throw new Error('Source-build Dockerfile path must be deploy/container/Dockerfile');
+  }
+  return sourceBuild;
+}
+
+export function renderDeployment(spec, imageReference = spec.publicImage?.reference) {
+  if (spec.schemaVersion !== 1) throw new Error('Unsupported public deployment schema version');
+  const sourceBuild = validateSourceBuild(spec.sourceBuild);
+  const optionalImage = validateImageReference(imageReference, spec.publicImage?.repository);
   const recipe = structuredClone(spec.recipe);
   const blueprint = structuredClone(spec.blueprint);
   const railway = structuredClone(spec.railway);
 
-  recipe.image = image;
-  recipe.imageStatus = image ? 'digest-pinned-public-image-configured' : 'awaiting-public-image-digest';
-  recipe.imageRegistry = spec.publicImage.repository;
-  recipe.imagePullPolicy = spec.publicImage.pullPolicy;
+  recipe.distribution = 'public-source-and-railway-template';
+  recipe.sourceBuild = structuredClone(sourceBuild);
+  recipe.image = null;
+  recipe.imageStatus = 'optional-public-image-not-required';
+  recipe.optionalImage = optionalImage;
+  recipe.imageRegistry = spec.publicImage?.repository ?? null;
+  recipe.imagePullPolicy = 'optional';
   recipe.registryAuth = 'none';
 
-  blueprint.requiredInputs.knowledgeImage = image
-    ? `Configured public digest-pinned image: ${image}`
-    : `Public image reference required in ${spec.publicImage.repository}@sha256:<verified digest>`;
-  if (image) delete blueprint.requiredInputs.knowledgeImage;
+  blueprint.requiredInputs.knowledgeSource = `Public source ${sourceBuild.repository} at ${sourceBuild.ref} (resolved ${sourceBuild.resolvedSourceSha})`;
+  delete blueprint.requiredInputs.knowledgeImage;
+  blueprint.sourceBuild = structuredClone(sourceBuild);
   blueprint.registryAuth = 'none';
   const service = blueprint.services.find(({ name }) => name === 'Knowledge');
   if (!service) throw new Error('Blueprint must contain a Knowledge service');
-  service.source = image
-    ? { image, visibility: 'public' }
-    : { image: null, requiredInput: 'knowledgeImage', visibility: 'public' };
+  service.source = {
+    repository: sourceBuild.repository,
+    ref: sourceBuild.ref,
+    refType: sourceBuild.refType,
+    rootDirectory: sourceBuild.rootDirectory,
+    dockerfilePath: sourceBuild.dockerfilePath,
+    resolvedSourceSha: sourceBuild.resolvedSourceSha,
+  };
+  service.sourcePolicy = 'Railway builds the public repository in the customer project; Portal records the resolved commit before acceptance';
   delete service.sourceAlternative;
   blueprint.templateUrl = null;
   blueprint.status = 'authored-not-created-or-published-on-railway';
@@ -62,7 +86,9 @@ export function renderDeployment(spec, imageReference = spec.publicImage.referen
   if (/registryCredentials|private registry/i.test(combined) || recipe.registryAuth !== 'none' || blueprint.registryAuth !== 'none') {
     throw new Error('Public deployment artifacts must not require registry credentials');
   }
-  if (recipe.image !== service.source.image) throw new Error('Recipe and blueprint image references differ');
+  if (service.source.resolvedSourceSha !== recipe.sourceBuild.resolvedSourceSha) {
+    throw new Error('Recipe and blueprint source revisions differ');
+  }
   return { recipe, blueprint, railway };
 }
 
@@ -71,7 +97,7 @@ function main(args) {
   const unknown = args.filter((arg) => arg !== '--check' && arg !== '--write');
   if (unknown.length) throw new Error(`Unknown arguments: ${unknown.join(' ')}`);
   const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
-  const imageReference = process.env.KNOWLEDGE_PUBLIC_IMAGE || spec.publicImage.reference;
+  const imageReference = process.env.KNOWLEDGE_PUBLIC_IMAGE || spec.publicImage?.reference;
   const generated = renderDeployment(spec, imageReference);
   let stale = false;
   for (const [key, outputPath] of outputs) {

@@ -56,23 +56,29 @@ The build defaults to linux/amd64 for Railway/Coolify; set
 `KNOWLEDGE_EXPORT_ONLY=1` prepares the same allowlisted context without building,
 for a native remote builder. Do not export the entire dirty LABS checkout.
 
-The distribution target is a public, anonymously pullable image under
-`ghcr.io/tealbrick/knowledge`, pinned to an immutable registry digest.
-No publisher GitHub PAT or registry credential belongs in a customer project.
-`public-deployment.json` is the source for generated deployment artifacts:
+The primary distribution target is a source-backed Railway service. Portal
+points Railway at the public `Tealbrick/knowledge` repository and immutable
+tag `v0.1.0`; Railway builds the Dockerfile in the customer's project, while
+Portal verifies and records the resolved source commit before acceptance. No
+publisher GitHub PAT or registry credential belongs in a customer project.
+An OCI image under `ghcr.io/tealbrick/knowledge` is optional and must not be a
+source-backed deployment prerequisite. `public-deployment.json` is the source
+for generated deployment artifacts:
 
 ```sh
 node deploy/container/generate-public-deployment.mjs --write
 node deploy/container/generate-public-deployment.mjs --check
 ```
 
-Keep the source, licence bundle and immutable image digest associated with each
-release. Agent consumers use the separately published `@tealbrick/knowledge-agent`
-package; they do not receive the instance recovery credential.
+Keep the source tag, resolved commit, licence bundle and any optional image
+digest associated with each release. Agent consumers use the separately
+published `@tealbrick/knowledge-agent` package; they do not receive the
+instance recovery credential.
 
 ## Coolify / Compose
 
-Use `compose.yaml` with a verified public image digest in `KNOWLEDGE_IMAGE`.
+Use `compose.yaml` with a verified image digest in `KNOWLEDGE_IMAGE` only for
+the optional self-hosted image path.
 Configure distinct `KNOWLEDGE_INSTANCE_TOKEN`, `OPEN_NOTEBOOK_PASSWORD`,
 `OPEN_NOTEBOOK_ENCRYPTION_KEY`, and `SURREAL_PASSWORD` in the deployment secret
 store. Required-variable checks prevent default passwords. Connect Coolify's

@@ -20,16 +20,21 @@ or authority.
 
 - Source repository: the public `Tealbrick/knowledge` repository.
 - Source tag: `v0.1.0`.
-- OCI image target: `ghcr.io/tealbrick/knowledge@sha256:<published digest>`
-  (the current GHCR package remains private pending organization policy).
+- Resolved source commit: `1d3619557af60b356d8fbd0b3f5320919986da21`.
+- Railway distribution: Portal-owned source-backed template/service. Railway
+  builds the public repository in the customer project from the source tag;
+  Portal records the provider-resolved commit before acceptance. No template
+  URL is claimed until Portal creates and tests it.
+- Optional OCI image: `ghcr.io/tealbrick/knowledge` (the current GHCR package
+  remains private; this is not a Railway source-build prerequisite).
 - Agent package: `@tealbrick/knowledge-agent@0.1.0`, published with registry
   integrity `sha512-LAI1xHKwQa4N5jMiyrUz/duGx6Rgdz+9IxEkEJrq7SqysQO7XCVMMGJbgaz9XfGA2F9zdUts3FNlwK+k4P91/w==`.
 
-The image digest and package integrity are filled from publication receipts,
-not inferred from a source build or mutable tag. Portal consumers must use the
-exact digest-pinned image and their own server-attested deployment/org binding.
-The current source receipt therefore does not claim a public image, anonymous
-pull, npm publication, formal GitHub release, live deployment, or human UAT.
+The source commit and package integrity are recorded from public-source and
+registry evidence, not inferred from a mutable branch. Portal consumers use
+their own server-attested deployment/org binding. The current source receipt
+does not claim a created Railway template, live deployment, formal GitHub
+release, or human UAT.
 
 ## Acceptance evidence
 
@@ -41,31 +46,34 @@ Source and deterministic evidence:
 - The agent adapter tests, extension build and npm pack inspection pass.
 - The source tree contains no Boardstate API surface and no operator runtime
   state, credentials, databases or local environment files.
-- CI run 37125063563 built and pushed the private OCI artifact
+- Historical CI run 37125063563 built and pushed the private OCI artifact
   `ghcr.io/tealbrick/knowledge@sha256:106d4dff58046bb1fe5264c81a2c5fb7ca46a9e776b4055bad51f0cea5fee5e4`.
-  Its authenticated agent consumer proved the listed runtime checks and
-  measured a container memory peak of 114073600 bytes (about 108.8 MiB) under
-  a 1.5 GiB test limit.
+- Its authenticated agent consumer proved agent authentication, partition
+  isolation, volume restart persistence, cold-volume restore, and measured a
+  container memory peak of 114073600 bytes (about 108.8 MiB) under a 1.5 GiB
+  test limit. It is image evidence, not anonymous-pull or Railway evidence.
+- The source-build acceptance workflow builds the public source checkout from
+  the immutable tag and runs the current agent-first API probe against the
+  resulting image. The probe covers synthetic ingestion, retrieval, actor
+  provenance, projection-event evidence, partition denial, restart persistence,
+  and cold-volume restore.
 - The npm registry serves the exact 20-file adapter tarball with the reviewed
   shasum `4b38d0fd8a80d708f25c750ef0f111cc0ac817ea`, matching the reviewed
   local pack. A clean consumer install imported the MCP/client entrypoints and
   the root Eve extension when its declared `eve@0.58.1` peer was installed.
 
-Image evidence is supplied by the image CI workflow. The consumer job pulls
-the exact published digest with the smallest registry credential currently
-available and proves agent authentication, partition isolation, denied
-cross-partition access, volume restart persistence, cold-volume restore, and
-a container memory measurement. If the registry package is public, the same
-job must be rerun without registry credentials to establish anonymous-pull
-evidence. A successful image pull or `/healthz` response alone is not
-deployment or human-UAT proof.
+Image evidence is supplied by the optional image CI workflow. The consumer job
+pulls the exact published digest with the smallest registry credential currently
+available and proves the image-specific runtime checks. A successful image pull
+or `/healthz` response alone is not deployment or human-UAT proof.
 
 ## Known boundaries
 
 Research provider/model configuration, real Brain quality, Portal entitlement,
-customer deployment, backup custody, and named human UAT remain separate
-acceptance records. The GHCR package is still private: an unauthenticated
-manifest probe returned HTTP 401, so anonymous pull and public-image readiness
-are not proven. The GitHub release is not created and live deployment or
-human UAT remain unproven. The optional Portal attachment path is not a
-substitute for direct Knowledge principal authorization.
+customer deployment, backup custody, Railway template creation/publication, and
+named human UAT remain separate acceptance records. The GHCR package is still
+private: an unauthenticated manifest probe returned HTTP 401, so anonymous pull
+is not proven; it is also not required for the source-backed Railway path. The
+GitHub release is not created and live deployment or human UAT remain unproven.
+The optional Portal attachment path is not a substitute for direct Knowledge
+principal authorization.

@@ -14,13 +14,25 @@ Railway environments provide IPv4 and IPv6, while legacy environments may
 provide only IPv6. Do not assume this recipe works unchanged in an IPv6-only
 environment. [Railway private networking](https://docs.railway.com/networking/private-networking/how-it-works)
 
-Use the verified public Knowledge image digest from the generated recipe.
-Customers do not need GitHub repository access or publisher registry credentials.
-The digest is deliberately unset in an unpublished release candidate. Configure
-`public-deployment.json`, regenerate the artifacts and verify anonymous pull
-before creating a deployable template.
+The primary Knowledge source is the public GitHub repository at the immutable
+tag below. Railway builds this source in the customer project; customers do not
+need publisher registry credentials or access to a private image registry.
 
-## Optional source build
+```text
+repository: https://github.com/Tealbrick/knowledge
+ref: v0.1.0 (tag)
+resolved source commit: 1d3619557af60b356d8fbd0b3f5320919986da21
+root directory: /
+Dockerfile: deploy/container/Dockerfile
+service config: deploy/container/railway.json
+```
+
+The tag is the source-selection input; the resolved commit is the acceptance
+evidence. Portal must verify the provider-resolved commit after the build and
+record it against the deployment. A GHCR image may be used for an optional
+self-hosted path, but anonymous image pull is not a Railway source-build gate.
+
+## Source build
 
 Export the allowlisted Docker context from this repository root:
 
@@ -28,11 +40,21 @@ Export the allowlisted Docker context from this repository root:
 KNOWLEDGE_EXPORT_ONLY=1 sh deploy/container/build-local.sh
 ```
 
-For the exported context, use its root directory, Dockerfile
-`deploy/container/Dockerfile` and config path
-`deploy/container/railway.json`. Upload only that context, never a
-working checkout containing credentials or customer state. This source-upload
-path does not create a reusable image template.
+For Railway, configure the Knowledge service from the public GitHub repository
+and tag above. Use repository root as the source root, Dockerfile
+`deploy/container/Dockerfile`, and config path `deploy/container/railway.json`.
+Railway's build is equivalent to:
+
+```sh
+docker buildx build --platform linux/amd64 \
+  --file deploy/container/Dockerfile \
+  .
+```
+
+The source-build acceptance workflow runs the same Dockerfile build from the
+public tag, then runs the agent-first API probe against that built image. A
+successful source build does not by itself prove a Railway deployment or
+template publication.
 
 ## Services and storage
 
@@ -42,7 +64,7 @@ Keep these exact names because variable references use them:
 | --- | --- | --- | --- | --- |
 | `SurrealDB` | Pinned 2.6.5 digest in blueprint | 8000, `/health` | `/mydata` | None; no TCP proxy |
 | `OpenNotebook` | Pinned 1.14.0 digest in blueprint | API 5055, `/health` | `/app/data` | None; UI 8502 remains private |
-| `Knowledge` | Verified public digest | 5310, `/healthz` | `/data` | HTTPS domain targeting 5310 only |
+| `Knowledge` | Public GitHub source tag above; Railway builds `deploy/container/Dockerfile` | 5310, `/healthz` | `/data` | HTTPS domain targeting 5310 only |
 
 Use one replica for every service, disable serverless sleeping, and keep all
 three in the same environment/region. Begin Knowledge capacity testing with
@@ -134,9 +156,10 @@ never be shared across workspace deployments.
 ## Release and template gates
 
 Verify public health, missing-credential denial, scoped attachment permissions,
-active Brain status and a projected document surviving restart. Record all
-three service releases, image digests, volume mounts, measured memory/OOM state,
-and Research posture. Railway health checks gate deployment only; they do not
+active Brain status and a projected document surviving restart. Record the
+source tag and provider-resolved commit, all three service releases, any image
+digests, volume mounts, measured memory/OOM state, and Research posture.
+Railway health checks gate deployment only; they do not
 continuously monitor the service. Volume-attached redeploys can cause downtime.
 Configure separate monitoring and test coordinated backups/restores before
 production use. [Railway health checks](https://docs.railway.com/deployments/healthchecks)

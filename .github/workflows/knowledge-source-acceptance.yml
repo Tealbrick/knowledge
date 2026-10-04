@@ -1,0 +1,63 @@
+name: Knowledge source-build acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Immutable Knowledge source tag to build
+        required: true
+        default: v0.1.0
+
+permissions:
+  contents: read
+
+concurrency:
+  group: knowledge-source-acceptance
+  cancel-in-progress: false
+
+jobs:
+  source-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      SOURCE_REF: ${{ inputs.source_ref || 'v0.1.0' }}
+      KNOWLEDGE_IMAGE: knowledge:source-${{ github.sha }}
+      KNOWLEDGE_BUILD_MODE: source-build
+      KNOWLEDGE_REGISTRY_ACCESS: public-source-repository
+    steps:
+      # Keep the acceptance harness from the workflow revision while building
+      # the exact immutable source tag requested by the release contract.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: acceptance
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: source
+          ref: ${{ inputs.source_ref || 'v0.1.0' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - name: Verify the source checkout is the requested immutable tag
+        run: |
+          test -n "$SOURCE_REF"
+          resolved_sha="$(git -C source rev-parse "refs/tags/${SOURCE_REF}^{commit}")"
+          checked_out_sha="$(git -C source rev-parse HEAD)"
+          test "$resolved_sha" = "$checked_out_sha"
+          printf 'Source tag `%s` resolved to `%s`\n' "$SOURCE_REF" "$resolved_sha" >> "$GITHUB_STEP_SUMMARY"
+      - name: Validate source release artifacts
+        working-directory: acceptance
+        run: node deploy/container/generate-public-deployment.mjs --check
+      - name: Build Knowledge from the public source checkout
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --file source/deploy/container/Dockerfile \
+            --tag "$KNOWLEDGE_IMAGE" \
+            --load \
+            source
+      - name: Run agent-first API acceptance against the source-built image
+        working-directory: acceptance
+        run: node deploy/container/image-agent-acceptance.mjs

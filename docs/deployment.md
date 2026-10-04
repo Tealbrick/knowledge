@@ -26,7 +26,18 @@ Export with `KNOWLEDGE_EXPORT_ONLY=1` and transfer only the printed disposable c
 
 ## Railway
 
-Public image and template publication are pending. The intended public release will pull a digest-pinned public image without a GitHub PAT. Portal requires the customer's Railway authorization only for hosting operations.
+The primary Railway path is source-backed. Portal supplies the public
+`Tealbrick/knowledge` repository at immutable tag `v0.1.0`; Railway builds
+`deploy/container/Dockerfile` in the customer's project and Portal verifies the
+provider-resolved commit before accepting the deployment. The generated
+blueprint remains a specification until Portal creates and publishes the
+template. An OCI image is optional and is not a deployment gate.
+
+The source-build acceptance workflow builds the public source checkout and runs
+the agent-first API probe against the resulting image. It proves synthetic
+ingestion, retrieval, actor provenance, projection-event evidence, partition
+denial, restart persistence and cold-volume restore; it does not prove a live
+Railway deployment or human UAT.
 
 A successful deployment must demonstrate authenticated access, rejection of missing/wrong credentials, scoped agent access and revocation, durable writes across restart, and recovery. `/healthz` is only a liveness check.
 
@@ -36,4 +47,8 @@ Research requires a separately configured Open Notebook service and its storage,
 
 ## Current limitations
 
-This document describes packaging and required acceptance. It does not assert a newly built image, an anonymous image pull, a complete public template or production security clearance. Public releases must include their image digest, supported configuration and verification record.
+This document describes packaging and required acceptance. It does not assert a
+created Railway template, deployed service, complete Research setup or
+production security clearance. Public releases must include their immutable
+source tag and resolved commit, supported configuration and verification
+record. Optional image evidence is recorded separately.

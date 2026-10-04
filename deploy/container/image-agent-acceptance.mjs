@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 
 const image = process.env.KNOWLEDGE_IMAGE;
-assert.ok(image, 'Set KNOWLEDGE_IMAGE to the exact pulled public image reference');
+assert.ok(image, 'Set KNOWLEDGE_IMAGE to the exact built or pulled image reference');
+const buildMode = process.env.KNOWLEDGE_BUILD_MODE ?? 'registry-pull';
 const id = `knowledge-image-agent-${randomBytes(5).toString('hex')}`;
 const restore = `${id}-restore`;
 const instance = randomBytes(32).toString('hex');
@@ -53,8 +54,26 @@ try {
   const partitions = await (await expectStatus('/api/knowledge/partitions', 200, { headers: alphaHeaders })).json();
   assert.deepEqual(partitions.partitions.map(item => item.partitionKey), ['workspace-alpha']);
   const alphaCollection = await (await expectStatus('/api/companies/workspace-alpha/knowledge/collections', 201, { method: 'POST', headers: alphaHeaders, body: JSON.stringify({ name: 'Workspace alpha private knowledge' }) })).json();
-  const alphaDoc = await (await expectStatus(`/api/knowledge/collections/${alphaCollection.id}/documents`, 201, { method: 'POST', headers: alphaHeaders, body: JSON.stringify({ title: 'Workspace alpha marker', body: 'alpha-only-image-acceptance' }) })).json();
-  assert.equal((await (await expectStatus(`/api/knowledge/documents/${alphaDoc.id}`, 200, { headers: alphaHeaders })).json()).body, 'alpha-only-image-acceptance');
+  const alphaDoc = await (await expectStatus(`/api/knowledge/collections/${alphaCollection.id}/documents`, 201, { method: 'POST', headers: alphaHeaders, body: JSON.stringify({ title: 'Workspace alpha marker', body: 'alpha-only-image-acceptance', actor: { kind: 'agent', id: 'alpha-agent' } }) })).json();
+  assert.deepEqual({
+    companyId: alphaDoc.companyId,
+    createdByAgentId: alphaDoc.createdByAgentId,
+    createdByUserId: alphaDoc.createdByUserId,
+    source: alphaDoc.source,
+  }, {
+    companyId: 'workspace-alpha',
+    createdByAgentId: 'alpha-agent',
+    createdByUserId: null,
+    source: null,
+  });
+  const retrieved = await (await expectStatus(`/api/knowledge/documents/${alphaDoc.id}`, 200, { headers: alphaHeaders })).json();
+  assert.equal(retrieved.body, 'alpha-only-image-acceptance');
+  assert.equal(retrieved.createdByAgentId, 'alpha-agent');
+  const search = await (await expectStatus('/api/companies/workspace-alpha/knowledge/search?q=alpha-only-image-acceptance', 200, { headers: alphaHeaders })).json();
+  assert.equal(search[0]?.id, alphaDoc.id);
+  assert.equal(search[0]?.companyId, 'workspace-alpha');
+  const events = await (await expectStatus('/api/events', 200, { headers: alphaHeaders })).json();
+  assert.equal(events.events.some(event => event.type === 'brain.projection.document' && event.artifactId === alphaDoc.id), true);
   await expectStatus(`/api/knowledge/documents/${alphaDoc.id}`, 403, { headers: betaHeaders });
   await expectStatus('/api/companies/workspace-beta/knowledge/collections', 201, { method: 'POST', headers: betaHeaders, body: JSON.stringify({ name: 'Workspace beta private knowledge' }) });
   await expectStatus('/api/companies/workspace-beta/knowledge/collections', 403, { method: 'POST', headers: alphaHeaders, body: JSON.stringify({ name: 'forged cross-partition write' }) });
@@ -81,7 +100,7 @@ try {
   const memory = docker('stats', '--no-stream', '--format', '{{.MemUsage}} {{.CPUPerc}}', id);
   let peak = 'unavailable';
   try { peak = docker('exec', id, 'sh', '-c', 'cat /sys/fs/cgroup/memory.peak').trim(); } catch {}
-  console.log(JSON.stringify({ ok: true, image, registryAccess: process.env.KNOWLEDGE_REGISTRY_ACCESS ?? 'unknown', proof: ['registry-pull', 'agent-auth', 'partition-isolation', 'volume-restart', 'cold-volume-restore'], container: { status: state.Status, memory, memoryPeakBytes: peak } }));
+  console.log(JSON.stringify({ ok: true, image, buildMode, registryAccess: process.env.KNOWLEDGE_REGISTRY_ACCESS ?? 'unknown', proof: [buildMode, 'agent-auth', 'partition-isolation', 'synthetic-ingestion', 'retrieval', 'provenance', 'projection-event', 'volume-restart', 'cold-volume-restore'], container: { status: state.Status, memory, memoryPeakBytes: peak } }));
 } finally {
   if (running) { try { docker('rm', '-f', id); } catch {} }
   try { docker('volume', 'rm', id); } catch {}

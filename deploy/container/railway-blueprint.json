@@ -6,7 +6,7 @@
   "architecture": "linux/amd64",
   "projectPolicy": "one customer workspace per dedicated project environment and three volumes",
   "requiredInputs": {
-    "knowledgeImage": "Public image reference required in ghcr.io/tealbrick/knowledge@sha256:<verified digest>",
+    "knowledgeSource": "Public source https://github.com/Tealbrick/knowledge at v0.1.0 (resolved 1d3619557af60b356d8fbd0b3f5320919986da21)",
     "TEALBRICK_PORTAL_URL": "Exact trusted Portal HTTPS origin",
     "TEALBRICK_DEPLOYMENT_ID": "Existing server-issued Teal Brick deployment ID, not RAILWAY_DEPLOYMENT_ID",
     "KNOWLEDGE_COMPANY_ID": "Existing server-bound workspace ID; never generated from browser labels",
@@ -81,10 +81,14 @@
     {
       "name": "Knowledge",
       "source": {
-        "image": null,
-        "requiredInput": "knowledgeImage",
-        "visibility": "public"
+        "repository": "https://github.com/Tealbrick/knowledge",
+        "ref": "v0.1.0",
+        "refType": "tag",
+        "rootDirectory": "/",
+        "dockerfilePath": "deploy/container/Dockerfile",
+        "resolvedSourceSha": "1d3619557af60b356d8fbd0b3f5320919986da21"
       },
+      "sourcePolicy": "Railway builds the public repository in the customer project; Portal records the resolved commit before acceptance",
       "publicNetworking": true,
       "publicTargetPort": 5310,
       "tcpProxy": false,
@@ -140,12 +144,22 @@
   "continuousMonitorRequired": true,
   "templateUrl": null,
   "remainingGates": [
-    "public Knowledge image build and anonymous pull verification with immutable digest",
+    "Portal hosting consent and a durable customer project/volume plan",
+    "actual three-service Railway deployment, source build, resolved source SHA, and volume persistence",
     "trusted Portal deployment/workspace binding",
-    "actual three-service Railway deployment and volume persistence",
     "Research principal/notebook/provider/model provisioning and acceptance",
     "template creation and separately authorized publication"
   ],
-  "distribution": "public-source-and-digest-pinned-image",
-  "registryAuth": "none"
+  "distribution": "public-source-and-railway-template",
+  "registryAuth": "none",
+  "sourceBuild": {
+    "repository": "https://github.com/Tealbrick/knowledge",
+    "ref": "v0.1.0",
+    "refType": "tag",
+    "resolvedSourceSha": "1d3619557af60b356d8fbd0b3f5320919986da21",
+    "rootDirectory": "/",
+    "dockerfilePath": "deploy/container/Dockerfile",
+    "build": "Railway builds the public repository in the customer project",
+    "resolution": "Portal verifies the provider-resolved commit SHA before accepting deployment"
+  }
 }

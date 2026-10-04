@@ -6,9 +6,12 @@ Documents, memory and research for your agents, with data stored in your own dep
 
 [Website](https://tealbrick.com) · [Portal](https://portal.tealbrick.com) · [Deployment](docs/deployment.md) · [Agent setup](adapters/agent/README.md) · [Release receipt](docs/standalone-release-0.1.0.md)
 
-Knowledge 0.1.0 is an agent-first standalone release. The source repository and
-container image are published independently; use the immutable image digest
-recorded in `deploy/container/recipe.json` for deployments.
+Knowledge 0.1.0 is an agent-first standalone release. The primary Railway
+distribution is a source-backed service: Portal supplies the public repository
+and immutable source tag, Railway builds it in the customer's project, and
+Portal records the provider-resolved commit before accepting the deployment.
+An OCI image may be published separately, but it is not required for the
+source-backed path.
 
 ## What it does
 
@@ -59,9 +62,9 @@ Configuration is server-side. Start with [the environment example](program/.env.
 
 ## Release status
 
-The release evidence records source publication, image digest, adapter artifact,
-security review, and isolated persistence checks separately. Container checks
-use synthetic providers and do not establish real model quality, complete
+The release evidence records source publication, optional image evidence,
+adapter artifact, security review, and isolated persistence checks separately.
+Container checks use synthetic providers and do not establish real model quality, complete
 Research functionality, or human agent UAT. Portal-managed and standalone
 deployments require separate acceptance. The archive security-trigger
 verification remains restricted; see [OS backports and validation limits](deploy/container/OS-BACKPORTS.md).

@@ -1,0 +1,157 @@
+{
+  "$comment": "DRAFT, not published and not installable. Hindsight memory-engine variant of tealbrick-knowledge-source. Hindsight (vectorize-io/hindsight, MIT; trademark of Vectorize AI) is pulled unmodified from GHCR and is private-only: agents reach memory exclusively through the Knowledge edge. Requires the HindsightMemoryEngine wiring (see docs/memory-engines.md) before a Portal recipe may reference it.",
+  "services": {
+    "knowledge": {
+      "name": "Knowledge",
+      "source": {
+        "repo": "Tealbrick/knowledge",
+        "branch": "<protected release branch>",
+        "rootDirectory": "/"
+      },
+      "deploy": {
+        "healthcheckPath": "/healthz",
+        "healthcheckTimeout": 300
+      },
+      "networking": {
+        "serviceDomains": {
+          "<hasDomain>:5310": {
+            "port": 5310
+          }
+        }
+      },
+      "volumeMounts": {
+        "knowledge": {
+          "mountPath": "/data"
+        }
+      },
+      "variables": {
+        "HOST": {
+          "defaultValue": "0.0.0.0"
+        },
+        "PORT": {
+          "defaultValue": "5310"
+        },
+        "NODE_ENV": {
+          "defaultValue": "production"
+        },
+        "RAILWAY_RUN_UID": {
+          "defaultValue": "0"
+        },
+        "RAILWAY_DOCKERFILE_PATH": {
+          "defaultValue": "deploy/container/Dockerfile"
+        },
+        "KNOWLEDGE_DATA_DIR": {
+          "defaultValue": "/data"
+        },
+        "KNOWLEDGE_MEMORY_ENGINE": {
+          "defaultValue": "hindsight"
+        },
+        "KNOWLEDGE_GBRAIN_AUTOSTART": {
+          "defaultValue": "false"
+        },
+        "KNOWLEDGE_HINDSIGHT_URL": {
+          "defaultValue": "http://${{Hindsight.RAILWAY_PRIVATE_DOMAIN}}:8888"
+        },
+        "KNOWLEDGE_HINDSIGHT_API_KEY": {
+          "defaultValue": "${{Hindsight.HINDSIGHT_API_TENANT_API_KEY}}"
+        },
+        "KNOWLEDGE_INSTANCE_TOKEN": {
+          "defaultValue": "${{secret(64, \"abcdef0123456789\")}}"
+        },
+        "KNOWLEDGE_SERVICE_PRINCIPALS": {
+          "defaultValue": "[]"
+        },
+        "TEALBRICK_PORTAL_URL": {
+          "defaultValue": ""
+        },
+        "TEALBRICK_DEPLOYMENT_ID": {
+          "defaultValue": ""
+        },
+        "KNOWLEDGE_COMPANY_ID": {
+          "defaultValue": ""
+        },
+        "KNOWLEDGE_PORTAL_ORG_ID": {
+          "defaultValue": ""
+        },
+        "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS": {
+          "defaultValue": "0"
+        },
+        "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": {
+          "defaultValue": "30"
+        }
+      }
+    },
+    "hindsight": {
+      "name": "Hindsight",
+      "source": {
+        "image": "ghcr.io/vectorize-io/hindsight-api:0.10.2-slim@sha256:3c7b54a7e7dc92c3ad6a6b874aa9b3e96603b2c6fc4b215d9890a93578d2de99"
+      },
+      "deploy": {
+        "healthcheckPath": "/health",
+        "healthcheckTimeout": 300
+      },
+      "volumeMounts": {
+        "hindsight": {
+          "mountPath": "/home/hindsight"
+        }
+      },
+      "variables": {
+        "HINDSIGHT_API_HOST": {
+          "defaultValue": "::"
+        },
+        "HINDSIGHT_API_PORT": {
+          "defaultValue": "8888"
+        },
+        "HINDSIGHT_API_DATABASE_URL": {
+          "defaultValue": "postgresql://postgres:${{Postgres.POSTGRES_PASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/postgres"
+        },
+        "HINDSIGHT_API_TENANT_EXTENSION": {
+          "defaultValue": "hindsight_api.extensions.builtin.tenant:ApiKeyTenantExtension"
+        },
+        "HINDSIGHT_API_TENANT_API_KEY": {
+          "defaultValue": "${{secret(64, \"abcdef0123456789\")}}"
+        },
+        "HINDSIGHT_API_MCP_ENABLED": {
+          "defaultValue": "false"
+        },
+        "HINDSIGHT_API_WORKER_ID": {
+          "defaultValue": "knowledge-hindsight"
+        },
+        "HINDSIGHT_API_LLM_PROVIDER": {
+          "defaultValue": "<set by Portal model setup>"
+        },
+        "HINDSIGHT_API_LLM_MODEL": {
+          "defaultValue": "<set by Portal model setup>"
+        },
+        "HINDSIGHT_API_LLM_API_KEY": {
+          "defaultValue": "<set by Portal model setup>"
+        },
+        "HINDSIGHT_API_EMBEDDINGS_PROVIDER": {
+          "defaultValue": "<set by Portal model setup>"
+        },
+        "HINDSIGHT_API_RERANKER_PROVIDER": {
+          "defaultValue": "none"
+        }
+      }
+    },
+    "postgres": {
+      "name": "Postgres",
+      "source": {
+        "image": "pgvector/pgvector:0.8.1-pg17@sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21"
+      },
+      "volumeMounts": {
+        "pg": {
+          "mountPath": "/var/lib/postgresql/data"
+        }
+      },
+      "variables": {
+        "POSTGRES_PASSWORD": {
+          "defaultValue": "${{secret(48, \"abcdefghijklmnopqrstuvwxyz0123456789\")}}"
+        },
+        "PGDATA": {
+          "defaultValue": "/var/lib/postgresql/data/pgdata"
+        }
+      }
+    }
+  }
+}

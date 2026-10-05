@@ -6,7 +6,7 @@
   "architecture": "linux/amd64",
   "projectPolicy": "one customer workspace per dedicated project environment and three volumes",
   "requiredInputs": {
-    "knowledgeSource": "Public source https://github.com/Tealbrick/knowledge at release/knowledge-v0.1.0-api-provenance.1 (resolved ed71875f1a7d97bd2f20514019fc289cfce2b0db)",
+    "knowledgeSource": "Public source https://github.com/Tealbrick/knowledge at release-knowledge-v0.2.1 (resolved 0eef94e9580b8df0fe5e4795cbb14ced777ee7d3)",
     "TEALBRICK_PORTAL_URL": "Exact trusted Portal HTTPS origin",
     "TEALBRICK_DEPLOYMENT_ID": "Existing server-issued Teal Brick deployment ID, not RAILWAY_DEPLOYMENT_ID",
     "KNOWLEDGE_COMPANY_ID": "Existing server-bound workspace ID; never generated from browser labels",
@@ -82,12 +82,12 @@
       "name": "Knowledge",
       "source": {
         "repository": "https://github.com/Tealbrick/knowledge",
-        "ref": "release/knowledge-v0.1.0-api-provenance.1",
+        "ref": "release-knowledge-v0.2.1",
         "refType": "branch",
-        "releaseTag": "v0.1.0-api-provenance.1",
+        "releaseTag": "v0.2.1",
         "rootDirectory": "/",
         "dockerfilePath": "deploy/container/Dockerfile",
-        "resolvedSourceSha": "ed71875f1a7d97bd2f20514019fc289cfce2b0db",
+        "resolvedSourceSha": "0eef94e9580b8df0fe5e4795cbb14ced777ee7d3",
         "branchProtection": {
           "provider": "github",
           "requiredPullRequestReviews": 1,
@@ -165,10 +165,10 @@
   "registryAuth": "none",
   "sourceBuild": {
     "repository": "https://github.com/Tealbrick/knowledge",
-    "ref": "release/knowledge-v0.1.0-api-provenance.1",
+    "ref": "release-knowledge-v0.2.1",
     "refType": "branch",
-    "releaseTag": "v0.1.0-api-provenance.1",
-    "resolvedSourceSha": "ed71875f1a7d97bd2f20514019fc289cfce2b0db",
+    "releaseTag": "v0.2.1",
+    "resolvedSourceSha": "0eef94e9580b8df0fe5e4795cbb14ced777ee7d3",
     "rootDirectory": "/",
     "dockerfilePath": "deploy/container/Dockerfile",
     "branchProtection": {

@@ -21,9 +21,9 @@ need publisher registry credentials or access to a private image registry.
 
 ```text
 repository: https://github.com/Tealbrick/knowledge
-ref: release/knowledge-v0.1.0-api-provenance.1 (protected branch)
-release tag: v0.1.0-api-provenance.1 (preserved audit marker)
-resolved source commit: ed71875f1a7d97bd2f20514019fc289cfce2b0db
+ref: release-knowledge-v0.2.1 (protected branch)
+release tag: v0.2.1 (preserved audit marker)
+resolved source commit: 0eef94e9580b8df0fe5e4795cbb14ced777ee7d3
 root directory: /
 Dockerfile: deploy/container/Dockerfile
 service config: deploy/container/railway.json

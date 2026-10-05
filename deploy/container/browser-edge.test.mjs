@@ -19,7 +19,7 @@ test('actual Knowledge edge launches an owner browser, admits local document con
     if (req.url.endsWith('/redeem')) { authorized &&= !used && input.ticket === ticket; used = true; }
     else authorized &&= input.session === session;
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ schema: 1, authorized, product: 'knowledge', session, deploymentId: 'deployment', workspaceId: 'workspace', companyId: 'workspace', userId: 'owner', orgId: 'org', instanceProofAudience: 'tealbrick/knowledge/deployment', endpoint: base, expiresAt: Date.now() + 60000 }));
+    res.end(JSON.stringify({ schema: 1, authorized, product: 'knowledge', session, deploymentId: 'deployment', workspaceId: 'workspace', companyId: 'workspace', userId: 'owner', orgId: 'org', instanceProofAudience: 'tealbrick/knowledge/deployment', endpoint: base, expiresAt: Date.now() + 60000, workspaceName: 'Polygonface ✓' }));
   });
   await new Promise(r => portal.listen(0, '127.0.0.1', r));
   const portalOrigin = `http://127.0.0.1:${portal.address().port}`;
@@ -57,6 +57,11 @@ test('actual Knowledge edge launches an owner browser, admits local document con
   const plain=await fetch(base+'/');
   assert.equal(plain.status,401);assert.deepEqual(await plain.json(),{ok:false,error:'instance_auth_required'});
   assert.equal((await fetch(base+'/api/status',{headers:{cookie}})).status,200);
+  // The Portal workspace name reaches the app for display; a client cannot inject its own label.
+  const boot=await(await fetch(base+'/bootstrap.json',{headers:{cookie,'x-knowledge-workspace-label':'Spoofed'}})).json();
+  assert.equal(boot.scope.workspaceLabel,'Polygonface ✓');
+  assert.equal(boot.scope.defaultCompanyId,'workspace');
+  assert.equal((await fetch(base+'/bootstrap.json',{headers:{'x-knowledge-workspace-label':'Spoofed'}})).status,401);
   const companyId=new URL(response.headers.get('location'),base).searchParams.get('companyId');
   const path=`/api/companies/${encodeURIComponent(companyId)}/knowledge/collections`;
   assert.equal((await fetch(base+path,{method:'POST',headers:{cookie,origin:'https://evil.invalid','content-type':'application/json'},body:'{"name":"Denied"}'})).status,401);

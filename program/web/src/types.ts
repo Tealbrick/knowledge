@@ -34,7 +34,7 @@ export interface FrontendBootstrap {
     openapi: string;
     swagger: string;
   };
-  scope: { defaultCompanyId: string };
+  scope: { defaultCompanyId: string; workspaceLabel?: string | null };
   capabilities: Record<string, boolean>;
 }
 

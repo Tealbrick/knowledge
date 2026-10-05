@@ -9,7 +9,7 @@ import { ActivityView } from "./ActivityView";
 import { BrainView } from "./BrainView";
 import { LibraryView } from "./LibraryView";
 import { ResearchView } from "./ResearchView";
-import { DEFAULT_SETTINGS_SECTION, parseSettingsSection, SettingsPageView, type SettingsSection } from "./SettingsPageView";
+import { DEFAULT_SETTINGS_SECTION, parseSettingsSection, SettingsPageView, workspaceDisplayName, type SettingsSection } from "./SettingsPageView";
 import { describeMemory } from "./service-status";
 
 const nav: Array<{ id: Section; label: string }> = [
@@ -30,6 +30,17 @@ function capabilityFor(section: Section): string | undefined {
 }
 
 /** Plain status wording for the memory engine badge. */
+/**
+ * A memory engine that simply has not been set up yet is a next step, not an error:
+ * only a failing engine uses the warning tone.
+ */
+export function memoryBadgeFor(memory: { state: string }): { label: string; tone: "success" | "default" | "warning"; sidebar?: string } {
+  if (memory.state === "Running") return { label: "Memory ready", tone: "success" };
+  if (memory.state === "Needs setup" || memory.state === "Off") return { label: "Set up memory", tone: "default", sidebar: "Set up" };
+  if (memory.state === "Starting") return { label: "Memory starting", tone: "default", sidebar: "Starting" };
+  return { label: "Memory unavailable", tone: "warning", sidebar: "Issue" };
+}
+
 export function memoryLabel(status: string | undefined) {
   if (status === "online") return "Memory ready";
   if (status === "starting") return "Memory starting";
@@ -93,6 +104,8 @@ export function App() {
   const connected = bootstrap.data.program.status === "online";
   const currentSection = route.kind === "section" ? route.section : null;
   const memory = describeMemory(bootstrap.data.dependencies.gbrain);
+  const workspaceName = workspaceDisplayName(bootstrap.data, companyId);
+  const memoryBadge = memoryBadgeFor(memory);
   const capabilities = bootstrap.data.capabilities ?? {};
   const sidebarItems = [...nav.map((entry) => ({
     id: entry.id,
@@ -101,7 +114,7 @@ export function App() {
     current: currentSection === entry.id,
     // A feature the installation reports as not included cannot be opened.
     unavailable: capabilityFor(entry.id) !== undefined && capabilities[capabilityFor(entry.id)!] === false,
-    badge: entry.id === "brain" && memory.state !== "Running" ? memory.state : undefined,
+    badge: entry.id === "brain" ? memoryBadge.sidebar : undefined,
   })), {
     id: "settings",
     label: "Settings",
@@ -126,7 +139,7 @@ export function App() {
         footer={<>
           <div className="scope-card">
             <p className="eyebrow">Workspace</p>
-            <strong>{companyId}</strong>
+            <strong title={companyId}>{workspaceName}</strong>
             <span>
               {bootstrap.data.counts.documents ?? 0} documents ·{" "}
               {bootstrap.data.counts.researchNotebooks ?? 0} notebooks
@@ -150,18 +163,17 @@ export function App() {
           <div>
             <strong>{route.kind === "settings" ? "Settings" : nav.find((entry) => entry.id === route.section)?.label}</strong>
             <span className="slash">/</span>
-            <code>{companyId}</code>
+            <span className="topbar-workspace" title={companyId}>{workspaceName}</span>
           </div>
           <div>
-            <Tag
-              tone={
-                bootstrap.data.dependencies.gbrain?.status === "online"
-                  ? "success"
-                  : "warning"
-              }
+            <button
+              type="button"
+              className="memory-status"
+              title={[memory.detail, memory.nextStep].filter(Boolean).join(" ")}
+              onClick={() => navigate({ kind: "settings", section: memory.action?.section ?? "connections", companyId })}
             >
-              {memoryLabel(bootstrap.data.dependencies.gbrain?.status)}
-            </Tag>
+              <Tag tone={memoryBadge.tone}>{memoryBadge.label}</Tag>
+            </button>
             <Button size="small" onClick={() => navigate(settingsToggle)}>
               {route.kind === "settings" ? <BookOpen size={14} /> : <Settings size={14} />}
               {route.kind === "settings" ? "Library" : "Settings"}

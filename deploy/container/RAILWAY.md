@@ -136,20 +136,22 @@ deployment owner record; never derive it from a browser label or agent input.
 Connected agents receive their own agent credential plus a short-lived Portal
 attachment, and send those directly to Knowledge. Do not deliver the instance
 secret to Eve or another connected harness. The allowed attachment capabilities
-currently cover Documents and Brain reads, not Research or fact extraction.
+cover Documents, Brain reads and, with `knowledge:research:read`/`write`
+grants from Portal, the Research engine routes; not fact extraction.
 
 ## Research provisioning and acceptance
 
-The blueprint starts with empty principal and notebook-binding arrays. This
-is intentionally unavailable Research, not an automatic end-to-end installation.
-Use the trusted private upstream administration path to configure:
+The blueprint starts with empty principal and notebook-binding arrays. Research
+models and the workspace notebook come from Knowledge → Settings → Models:
 
-1. An intended provider credential, supplied only to OpenNotebook (optional
-   `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GOOGLE_API_KEY`).
-2. A saved language-model record; set its exact `model:<id>` as
-   `KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID` on Knowledge.
-3. An existing local Knowledge notebook and matching upstream notebook, then
-   an explicit company mapping and independent Research service principal.
+1. Set `OPEN_NOTEBOOK_ENCRYPTION_KEY` on OpenNotebook so it can store the key.
+2. Save models in Settings → Models. Knowledge creates the OpenNotebook
+   credential, chat/embedding models and defaults, and (with
+   `KNOWLEDGE_COMPANY_ID`) the bound workspace notebook. The save reports the
+   Research status. `KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID` and
+   `KNOWLEDGE_OPEN_NOTEBOOK_BINDINGS` remain optional overrides.
+3. Grant agents Research through Portal (`knowledge:research:*`) or an
+   independent Research service principal.
    Follow [the scoped connection contract](../../docs/open-notebook-connection.md).
 4. Authenticated source create/read, mapped context, chat, held/replayed receipt,
    and restart checks using synthetic data. Do not infer success from `/health`.

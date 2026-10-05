@@ -121,14 +121,15 @@ requires a compatible data snapshot as well as the prior image digest.
 ## Research and Brain provisioning
 
 Follow [RESEARCH-SETUP.md](RESEARCH-SETUP.md) for the source-backed Research
-provider, model, service-principal and notebook-binding prerequisites. Portal
-attachments do not yet grant Research access.
+prerequisites. Settings → Models configures Research's provider credential,
+models and defaults (Open Notebook needs `OPEN_NOTEBOOK_ENCRYPTION_KEY`) and,
+with `KNOWLEDGE_COMPANY_ID` set, a bound workspace notebook. Portal attachments
+grant Research engine access only when Portal issues `knowledge:research:read`
+/ `knowledge:research:write`.
 
-Set the server-only principal and notebook mapping arrays using
-`../../docs/open-notebook-connection.md`. Empty arrays intentionally grant no
-Research access. Create local and upstream notebooks then bind their exact IDs.
-Chat also needs an explicit upstream `model:<id>` and provider credentials
-configured in the trusted Open Notebook service. No provider key is bundled.
+The principal, notebook-mapping and chat-model environment variables in
+`../../docs/open-notebook-connection.md` remain optional overrides; empty
+arrays add no static Research access. No provider key is bundled.
 A fresh GBrain waits for model configuration. Use Settings → Models to verify
 and save chat and embedding endpoints before it initializes persistent PGlite. A healthy process
 does not prove those features. Heavy Docling/Crawl4AI installers are disabled.

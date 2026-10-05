@@ -19,6 +19,7 @@ test('instance edge rejects unauthenticated routes and preserves Research scope'
   let revoked = false;
   let returnedOrg = 'fixture-org';
   let expiryOverride;
+  const deniedCapabilities=new Set();
   const introspections=[];
   const brainCalls=[];
   const brainFixture=createHttpServer(async(req,res)=>{
@@ -34,7 +35,7 @@ test('instance edge rejects unauthenticated routes and preserves Research scope'
     let raw='';for await(const chunk of req)raw+=chunk;
     const input=JSON.parse(raw);introspections.push(input);
     res.setHeader('content-type','application/json');
-    res.end(JSON.stringify({authorized:!revoked && input.agentToken==='fixture-agent-token',
+    res.end(JSON.stringify({authorized:!revoked && input.agentToken==='fixture-agent-token' && !deniedCapabilities.has(input.capability),
       orgId:returnedOrg,agentId:'fixture-agent',deploymentId:'fixture-deployment',
       companyId:'fixture-company',capability:input.capability,expiresAt:new Date(expiryOverride ?? Date.now()+60000).toISOString()}));
   });
@@ -95,7 +96,27 @@ test('instance edge rejects unauthenticated routes and preserves Research scope'
     assert.equal((await fetch(`${base}/api/companies/fixture-company/knowledge/collections`,{headers:agentHeaders})).status,401);
     returnedOrg='fixture-org';
     assert.equal((await fetch(`${base}/api/companies/other/knowledge/collections`,{headers:agentHeaders})).status,401);
-    assert.equal((await fetch(`${base}/api/research/engine/notebooks`,{headers:agentHeaders})).status,401);
+    // Research engine routes follow Portal knowledge:research:* grants.
+    deniedCapabilities.add('knowledge:research:read');
+    assert.equal((await fetch(`${base}/api/research/engine/notebooks`,{headers:agentHeaders})).status,401,'Research read requires a Portal research grant');
+    deniedCapabilities.clear();
+    const discovery=await fetch(`${base}/api/research/engine/notebooks`,{headers:agentHeaders});
+    assert.equal(discovery.status,200,'A Portal research:read grant reaches Research discovery');
+    assert.deepEqual((await discovery.json()).notebooks,[]);
+    const chatSessions=`${base}/api/research/notebooks/notebook_none/engine/chat/sessions`;
+    const admitted=await fetch(chatSessions,{method:'POST',headers:{...agentHeaders,'idempotency-key':'k1'},body:'{}'});
+    assert.equal(admitted.status,404,'Admitted writer reaches the Program notebook mapping check');
+    assert.deepEqual(await admitted.json(),{error:'notebook_not_found'});
+    deniedCapabilities.add('knowledge:research:write');
+    assert.equal((await fetch(chatSessions,{method:'POST',headers:{...agentHeaders,'idempotency-key':'k1'},body:'{}'})).status,401,'Research write requires a Portal write grant');
+    deniedCapabilities.clear();
+    deniedCapabilities.add('knowledge:research:read');
+    assert.equal((await fetch(`${chatSessions}/s1/messages`,{method:'POST',headers:{...agentHeaders,'idempotency-key':'k2'},body:'{"message":"x"}'})).status,401,'Chat send needs both research grants');
+    deniedCapabilities.clear();
+    const forged=`kedge_${randomBytes(32).toString('base64url')}`;
+    assert.equal((await fetch(`${base}/api/research/engine/notebooks`,{headers:{authorization:`Bearer ${forged}`}})).status,401,'A guessed edge bearer is not an attachment');
+    assert.equal((await fetch(`${base}/api/research/engine/notebooks`,{headers:{'x-knowledge-instance-token':token,authorization:`Bearer ${forged}`}})).status,401,'Only edge-minted in-flight bearers resolve');
+    assert.equal((await fetch(`${base}/api/research/summary?companyId=fixture-company`,{headers:agentHeaders})).status,401,'Local Research CRUD stays outside attachment access');
     const collectionResponse=await fetch(`${base}/api/companies/fixture-company/knowledge/collections`,{method:'POST',headers:agentHeaders,body:JSON.stringify({name:'fixture'})});
     assert.equal(collectionResponse.status,201);
     const collection=await collectionResponse.json();

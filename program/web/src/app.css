@@ -1904,3 +1904,7 @@ textarea {
   border: 1px solid var(--dg-line);
   border-radius: var(--dg-radius-sm);
 }
+
+.model-settings__research--success {
+  color: var(--dg-success, inherit);
+}

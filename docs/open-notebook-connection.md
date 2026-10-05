@@ -19,13 +19,22 @@ Configure these on the Knowledge server, never in browser code or a URL:
   and grants. Entries have exactly `token`, `principalId`, `companyId` and
   `capabilities`. Reads require `research:read`; writes/receipts require the
   separate `research:write` grant.
-- `KNOWLEDGE_OPEN_NOTEBOOK_BINDINGS`: JSON array whose entries have exactly
-  `knowledgeNotebookId`, `companyId`, and `externalNotebookId`.
+- `KNOWLEDGE_OPEN_NOTEBOOK_BINDINGS` (optional): JSON array whose entries have
+  exactly `knowledgeNotebookId`, `companyId`, and `externalNotebookId`. Merged
+  with bindings saved in `research-settings.json`; duplicates fail closed.
+- `KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID` (optional): overrides the chat model
+  synced from Settings -> Models.
 - `KNOWLEDGE_RESEARCH_WRITE_LEDGER_PATH`: absolute dedicated SQLite file.
   Defaults to `research-writes.sqlite` under the data directory outside tests;
   tests must explicitly supply a disposable path. Opened only with a configured
   engine and a write-capable principal. Back it up with notebook configuration;
   deleting it destroys duplicate protection. Do not point it at the main DB.
+
+Model providers are not configured here. Knowledge -> Settings -> Models
+configures Open Notebook's credential, chat/embedding models and defaults on
+save and at startup, and, when `KNOWLEDGE_COMPANY_ID` is set, a bound Research
+notebook for that workspace. See the
+[container Research runbook](../deploy/container/RESEARCH-SETUP.md#models-settings---models-configures-research).
 
 Example shapes only; replace identifiers and supply independently generated
 credentials through your secret manager. Do not use these placeholders:

@@ -7,6 +7,7 @@ import { bearerToken, normalizeKnowledgePartitionKey } from "../../program/src/p
 import { customerRuntimeRoute } from "../../program/src/customer-runtime-access.js";
 import { KnowledgeInstanceClaim } from "../../program/src/instance-claim.js";
 import { createPortalPrincipalResolver, portalPrincipalConfig } from "../../program/src/portal-principal.js";
+import { createAttachmentResearchAuthority } from "../../program/src/attachment-research-principal.js";
 import { attachmentConfig, attachmentRoute, introspectAttachment } from "./attachment-auth.mjs";
 import { browserConfig, browserAccess, sendSessionEnded, wantsSessionPage } from "./browser-auth.mjs";
 
@@ -35,7 +36,13 @@ const instanceClaim = new KnowledgeInstanceClaim(config.dataDir);
 // per-agent KNOWLEDGE_SERVICE_PRINCIPALS edit or redeploy is required.
 const portalBinding = portalPrincipalConfig(process.env);
 const portalPrincipals = portalBinding ? createPortalPrincipalResolver({ ...portalBinding, signer: instanceClaim }) : undefined;
-const app = await buildKnowledgeApp({ config: { ...config, host: "127.0.0.1", port: 0 }, portalPrincipals });
+// Portal attachments with knowledge:research:* reach Research engine routes
+// through a per-request bearer minted below; static service principals keep working.
+const attachmentResearch = attachment
+  ? createAttachmentResearchAuthority({ companyId: attachment.companyId, fallback: runtimePrincipals.configured ? runtimePrincipals : null })
+  : null;
+const app = await buildKnowledgeApp({ config: { ...config, host: "127.0.0.1", port: 0 }, portalPrincipals,
+  ...(attachmentResearch ? { researchPrincipalProvider: attachmentResearch.provider } : {}) });
 await app.listen({ host: "127.0.0.1", port: 0 });
 const address = app.server.address();
 if (!address || typeof address === "string") throw new Error("Missing internal listener");
@@ -82,16 +89,28 @@ const server = createServer(async (req, res) => {
     (portalPrincipals && customerRuntimeRoute(req.method ?? "", req.url ?? "") ? await portalPrincipals.resolve(suppliedBearer) : null);
   const runtimeAuthorized = !!runtimePrincipal && customerRuntimeRoute(req.method ?? "", req.url ?? "");
   let attachmentAuthorized = false;
-  let dispatchGrant: {capability:string;agentId:string;orgId:string} | undefined;
+  let dispatchGrant: {capability:string;agentId:string;orgId:string;requires:string[];expiresAt:number} | undefined;
+  let researchBearer: string | null = null;
   let replacementBody: string | Buffer | undefined;
   let replacementUrl: string | undefined;
   if (!publicHealth && !instanceAuthorized && !runtimeAuthorized && !browserResult.authorized && attachment) {
     try {
       const route = attachmentRoute(req.method, req.url, attachment.companyId);
       const grant=route ? await introspectAttachment(attachment,req.headers,route.capability) : null;
-      if(route && grant) {
+      // Research routes may need more than one capability (chat send needs read and write).
+      let researchAdmitted = !route?.research;
+      let expiresAt = grant ? (typeof grant.expiresAt === 'number' ? grant.expiresAt : Date.parse(grant.expiresAt)) : 0;
+      if(route?.research && grant && attachmentResearch) {
+        researchAdmitted = true;
+        for(const capability of route.requires.slice(1)) {
+          const extra=await introspectAttachment(attachment,req.headers,capability);
+          if(!extra || extra.agentId!==grant.agentId || extra.orgId!==grant.orgId) { researchAdmitted=false; break; }
+          expiresAt=Math.min(expiresAt, typeof extra.expiresAt === 'number' ? extra.expiresAt : Date.parse(extra.expiresAt));
+        }
+      }
+      if(route && grant && researchAdmitted) {
         attachmentAuthorized = true;
-        dispatchGrant={capability:route.capability,agentId:grant.agentId,orgId:grant.orgId};
+        dispatchGrant={capability:route.capability,agentId:grant.agentId,orgId:grant.orgId,requires:route.requires ?? [route.capability],expiresAt};
         // Admission and dispatch must use the same parsed path, including
         // encoded company IDs and normalized segments.
         const url = new URL(req.url!, 'http://knowledge.invalid');
@@ -135,8 +154,15 @@ const server = createServer(async (req, res) => {
   // Body upload and ownership reads can outlive a short attachment. Recheck
   // the live grant at dispatch, after consuming all caller-controlled delay.
   if(attachmentAuthorized && attachment && dispatchGrant) {
-    const current=await introspectAttachment(attachment,req.headers,dispatchGrant.capability);
-    attachmentAuthorized=!!current && current.agentId===dispatchGrant.agentId && current.orgId===dispatchGrant.orgId;
+    for(const capability of dispatchGrant.requires) {
+      const current=await introspectAttachment(attachment,req.headers,capability);
+      attachmentAuthorized=!!current && current.agentId===dispatchGrant.agentId && current.orgId===dispatchGrant.orgId;
+      if(!attachmentAuthorized) break;
+    }
+    if(attachmentAuthorized && attachmentResearch && dispatchGrant.requires.some(capability => capability.startsWith('knowledge:research:'))) {
+      researchBearer=attachmentResearch.issue({agentId:dispatchGrant.agentId,orgId:dispatchGrant.orgId,capabilities:dispatchGrant.requires,expiresAt:dispatchGrant.expiresAt});
+      attachmentAuthorized=researchBearer!==null;
+    }
   }
   if (browserResult.authorized && !['GET', 'HEAD', 'OPTIONS'].includes(req.method ?? '')) {
     const chunks: Buffer[] = []; let bytes = 0;
@@ -169,6 +195,12 @@ const server = createServer(async (req, res) => {
   if (typeof workspaceName === "string" && workspaceName.trim()) headers["x-knowledge-workspace-label"] = encodeURIComponent(workspaceName.trim().slice(0, 80));
   delete headers["x-tealbrick-agent-token"];
   if(attachmentAuthorized) delete headers.authorization;
+  // Valid only for this in-flight request; revoked as soon as it completes.
+  if(attachmentAuthorized && researchBearer) {
+    const minted = researchBearer;
+    headers.authorization = `Bearer ${minted}`;
+    res.once('close', () => attachmentResearch?.revoke(minted));
+  }
   if (browserResult.authorized) {
     delete headers.authorization;
     if (headers.cookie) {

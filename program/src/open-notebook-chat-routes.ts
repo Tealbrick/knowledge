@@ -15,7 +15,8 @@ export interface NotebookChatAccess {
 export interface OpenNotebookChatRouteOptions {
   adapter: OpenNotebookChatAdapter | null;
   ledger: ResearchChatLedger | null;
-  modelId: string | null;
+  /** Fixed model id, or a resolver read at request time so settings changes apply without restart. */
+  modelId: string | null | (() => string | null);
   access: NotebookChatAccess;
 }
 
@@ -37,6 +38,10 @@ function ledgerFailure(reply: FastifyReply, error: unknown) {
 
 export function registerOpenNotebookChatRoutes(app: FastifyInstance, options: OpenNotebookChatRouteOptions): void {
   const { access } = options;
+  const currentModelId = (): string | null => {
+    try { return typeof options.modelId === "function" ? options.modelId() : options.modelId; }
+    catch { return null; }
+  };
   const authorize = (capability: string, alsoRead = false) => async (request: Request, reply: FastifyReply) => {
     reply.header("cache-control", "no-store");
     await access.authorize(request, reply, capability);
@@ -45,10 +50,10 @@ export function registerOpenNotebookChatRoutes(app: FastifyInstance, options: Op
   const scopeFor = (binding: OpenNotebookNotebookBinding, principal: KnowledgeServicePrincipal): ResearchChatScope => ({
     principalId: principal.principalId, companyId: binding.companyId,
     knowledgeNotebookId: binding.knowledgeNotebookId, externalNotebookId: binding.externalNotebookId,
-    modelId: options.modelId!,
+    modelId: currentModelId()!,
   });
   const ready = (reply: FastifyReply) => {
-    if (options.adapter && options.ledger && options.modelId) return true;
+    if (options.adapter && options.ledger && currentModelId()) return true;
     errorResponse(reply, 503, "research_chat_unavailable");
     return false;
   };
@@ -104,7 +109,7 @@ export function registerOpenNotebookChatRoutes(app: FastifyInstance, options: Op
       if (!session) return errorResponse(reply, 404, "chat_session_not_found");
       try {
         const remote = await options.adapter!.getChatSession(binding.externalNotebookId, session.externalSessionId);
-        if (remote.modelId !== options.modelId) return errorResponse(reply, 409, "chat_model_policy_changed");
+        if (remote.modelId !== currentModelId()) return errorResponse(reply, 409, "chat_model_policy_changed");
         if (!await currentRead(request, reply)) return;
         return { ...envelope, session: { id: session.localSessionId, title: session.title, notebookId: binding.knowledgeNotebookId, createdAt: session.createdAt, updatedAt: session.updatedAt }, messages: remote.messages };
       } catch { return errorResponse(reply, 503, "research_chat_unavailable"); }

@@ -25,7 +25,10 @@ export type ModelSettingsStatus = {
   embedding?: PublicConnection;
   reranker?: PublicConnection | null;
   brain: { status: string };
+  research?: ResearchStatus;
 };
+/** Key-free Research status returned with model settings. */
+export type ResearchStatus = { status: string; error?: string; hint?: string };
 type Check = { component: string; ok: boolean; error?: string };
 
 /** One of three setups; each maps onto providers accepted by the server schema. */
@@ -62,6 +65,20 @@ export function describeSaveError(error: Error): string[] {
   }
   if (error.code === "model_api_key_required") return [`${COMPONENT_LABELS[body.component ?? ""] ?? "Model"}: enter an API key. A saved key is only reused for the same provider and URL.`];
   return [error.message];
+}
+
+/** One short line about Research after a save; null when Research is not installed. */
+export function describeResearchStatus(research: ResearchStatus | undefined): { tone: "success" | "warning"; text: string } | null {
+  switch (research?.status) {
+    case "configured": return { tone: "success", text: "Research uses the same models." };
+    case "pending": return { tone: "warning", text: "Research will pick up these models shortly." };
+    case "embedding_migration_required": return { tone: "warning", text: "Research chat uses these models. Research search keeps its current embedding model because it already holds sources." };
+    case "encryption_not_configured": return { tone: "warning", text: "Research can't store this key yet: its server needs an encryption key. Memory is set up." };
+    case "provider_unsupported": return { tone: "warning", text: "Research can't use this provider yet. Memory is set up." };
+    case "model_conflict": return { tone: "warning", text: research.hint?.trim() || "Research already has a model with this name on another key. Remove it there or pick a different model." };
+    case "failed": return { tone: "warning", text: "Research couldn't be updated. Memory is set up, and Knowledge will try again when it next starts." };
+    default: return null;
+  }
 }
 
 function savedKeyFor(status: ModelSettingsStatus | undefined, provider: string, url: string) {
@@ -162,7 +179,7 @@ export function ModelSettingsPanel() {
             } }
           : {}),
       };
-      return api<{ ok: boolean; brain: { status: string } }>("/api/settings/models", { method: "PUT", body: JSON.stringify(body) });
+      return api<{ ok: boolean; brain: { status: string }; research?: ResearchStatus }>("/api/settings/models", { method: "PUT", body: JSON.stringify(body) });
     },
     onSuccess: () => void status.refetch(),
     // A memory-engine start failure happens after the settings were saved.
@@ -173,6 +190,7 @@ export function ModelSettingsPanel() {
   const saved = status.data?.configured;
   const keyHint = (available: boolean) => available ? "A key is saved for this provider and URL. Leave blank to keep it." : undefined;
   const sharedKeySaved = savedKeyFor(status.data, providers.chat, url);
+  const research = describeResearchStatus(save.data?.research ?? (saved ? status.data?.research : undefined));
 
   return <div className="settings-stack model-settings">
     <div className="settings-intro">
@@ -232,5 +250,6 @@ export function ModelSettingsPanel() {
       <ul className="model-settings__errors">{describeSaveError(save.error).map((line) => <li key={line}>{line}</li>)}</ul>
     </Feedback>}
     {save.data && <Feedback state="success" title="Models connected">All model checks passed and memory is running. Connect each agent with its own Knowledge credential — never this model key.</Feedback>}
+    {research && <p className={`settings-note model-settings__research model-settings__research--${research.tone}`} role="status">{research.text}</p>}
   </div>;
 }

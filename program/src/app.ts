@@ -13,6 +13,8 @@ import { BrainExtractions } from "./brain-extractions.js";
 import { registerNativeMemoryRoutes } from "./brain-native-routes.js";
 import { nativeMemoryCapabilities } from "./brain-native-policy.js";
 import { registerModelSettingsRoutes } from "./model-settings-routes.js";
+import { readModelSettings } from "./model-settings.js";
+import { ResearchModelSync, resolveResearchChatModelId } from "./research-model-sync.js";
 import { createKnowledgePrincipalResolver, type KnowledgeServicePrincipal } from "./knowledge-principal.js";
 import { KnowledgeAuthorizationAudit } from "./authorization-audit.js";
 import {
@@ -1238,14 +1240,19 @@ export async function buildKnowledgeApp(
       : null;
   let researchWriteLedger: ResearchWriteLedger | null = null;
   let researchChatLedger: ResearchChatLedger | null = null;
-  const openNotebookChat = openNotebook && config.openNotebookChatModelId
+  // The chat model id is resolved per request (env override, else the model
+  // Settings -> Models configured in Research), so the adapter exists whenever
+  // Open Notebook is configured.
+  const openNotebookChat = openNotebook
     ? new OpenNotebookChatAdapter({ baseUrl: config.openNotebookBaseUrl!, token: config.openNotebookToken!, timeoutMs: 30_000, maxResponseBytes: 4 * 1024 * 1024 }) : null;
+  // Writers are static service principals or a trusted host provider (e.g.
+  // Portal attachments admitted by the container edge).
+  const researchWritersPossible = Boolean(options.researchPrincipalProvider) ||
+    config.knowledgeServicePrincipals.some((principal) => principal.capabilities.includes("research:write"));
   try {
-    researchWriteLedger = openNotebook && config.researchWriteLedgerPath &&
-      config.knowledgeServicePrincipals.some((principal) => principal.capabilities.includes("research:write"))
+    researchWriteLedger = openNotebook && config.researchWriteLedgerPath && researchWritersPossible
       ? new ResearchWriteLedger(config.researchWriteLedgerPath) : null;
-    researchChatLedger = openNotebookChat && config.researchChatLedgerPath &&
-      config.knowledgeServicePrincipals.some((principal) => principal.capabilities.includes("research:write"))
+    researchChatLedger = openNotebookChat && config.researchChatLedgerPath && researchWritersPossible
       ? new ResearchChatLedger(config.researchChatLedgerPath) : null;
     await brain.start();
   } catch (error) {
@@ -2770,14 +2777,47 @@ export async function buildKnowledgeApp(
   registerOwnerRoutes("goal");
   registerOwnerRoutes("issue");
 
+  const deploymentCompanyId = options.researchModelSync?.companyId !== undefined
+    ? options.researchModelSync.companyId
+    : process.env.KNOWLEDGE_COMPANY_ID?.trim() || null;
+  const researchSync = new ResearchModelSync({
+    baseUrl: config.openNotebookBaseUrl,
+    token: config.openNotebookToken,
+    dataDir: config.dataDir,
+    fetchImpl: options.researchModelSync?.fetchImpl,
+    companyId: deploymentCompanyId,
+    envBindings: config.openNotebookBindings,
+    notebooks: {
+      create: (companyId) => store.createResearchNotebook({
+        companyId,
+        title: "Research",
+        summary: "Research notebook connected to this Knowledge installation.",
+      }).id,
+      ownerOf: (id) => store.getResearchNotebook(id)?.companyId ?? null,
+    },
+  });
+  await researchSync.load();
+  // Startup (and post-upgrade) reconciliation: idempotent, never blocks boot,
+  // retried on the next start when it fails.
+  if (options.researchModelSync?.syncOnStart ?? config.environment !== "test") {
+    app.addHook("onReady", async () => {
+      if (!researchSync.installed) return;
+      void readModelSettings(config.dataDir)
+        .then((settings) => settings ? researchSync.sync(settings, { onlyIfStale: true }) : undefined)
+        .then((result) => { if (result) recordEvent({ type: "research.models.sync", status: result.status }); })
+        .catch(() => recordEvent({ type: "research.models.sync", status: "failed" }));
+    });
+  }
+
   registerOpenNotebookRoutes(app, {
     researchPrincipalProvider: options.researchPrincipalProvider,
     adapter: openNotebook,
     ledger: researchWriteLedger,
-    chatAdapter: openNotebookChat, chatLedger: researchChatLedger, chatModelId: config.openNotebookChatModelId,
+    chatAdapter: openNotebookChat, chatLedger: researchChatLedger,
+    chatModelId: () => resolveResearchChatModelId(config.openNotebookChatModelId, researchSync),
     browserSession,
     principals: researchPrincipals,
-    bindings: config.openNotebookBindings,
+    bindings: () => researchSync.bindings(),
     resolveNotebookCompany: (id) => store.getResearchNotebook(id)?.companyId ?? null,
     resolveNotebookSummary: (id) => {
       const notebook = store.getResearchNotebook(id);
@@ -3705,7 +3745,7 @@ export async function buildKnowledgeApp(
     reply.send(deleted);
   });
 
-  registerModelSettingsRoutes(app, { dataDir: config.dataDir, gbrainHome: config.gbrainHome, brain, authority: process.env.KNOWLEDGE_SETTINGS_TOKEN });
+  registerModelSettingsRoutes(app, { dataDir: config.dataDir, gbrainHome: config.gbrainHome, brain, authority: process.env.KNOWLEDGE_SETTINGS_TOKEN, research: researchSync });
   registerNativeMemoryRoutes(app, {brain,dataDir:config.dataDir,persistent:Boolean(config.knowledgeDatabasePath)});
 
   app.get("/api/brain/indexing", async (request, reply) => {

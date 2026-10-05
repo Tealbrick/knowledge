@@ -20,7 +20,8 @@ afterEach(async () => {
 function backend() {
   return { creates: 0, executes: 0, reads: 0, contexts: 0, mode: "ok" as "ok" | "ambiguous" | "rejected", sessions: new Map<string, OpenNotebookChatMessage[]>(), block: null as Promise<void> | null, started: null as (() => void) | null };
 }
-async function fixture(options: { dir?: string; state?: ReturnType<typeof backend>; deny?: boolean; contextRevokes?: boolean; dynamicRead?: boolean } = {}) {
+type Binding = { knowledgeNotebookId: string; companyId: string; externalNotebookId: string };
+async function fixture(options: { dir?: string; state?: ReturnType<typeof backend>; deny?: boolean; contextRevokes?: boolean; dynamicRead?: boolean; modelId?: () => string | null; bindings?: () => readonly Binding[] } = {}) {
   const dir = options.dir ?? await fs.mkdtemp(path.join(os.tmpdir(), "knowledge-chat-routes-"));
   if (!options.dir) directories.push(dir);
   const state = options.state ?? backend();
@@ -62,7 +63,7 @@ async function fixture(options: { dir?: string; state?: ReturnType<typeof backen
     },
   } as unknown as OpenNotebookChatAdapter;
   registerOpenNotebookRoutes(app, {
-    adapter: engine, chatAdapter: adapter, chatLedger: ledger, chatModelId: "model:fixture",
+    adapter: engine, chatAdapter: adapter, chatLedger: ledger, chatModelId: options.modelId ?? "model:fixture",
     researchPrincipalProvider: options.dynamicRead ? (async (_request, _capability) => {
       return ({
       kind: "service" as const, principalId: "agent-a", companyId: "company-a",
@@ -81,7 +82,7 @@ async function fixture(options: { dir?: string; state?: ReturnType<typeof backen
       { token: "beta", principalId: "agent-b", companyId: "company-b", capabilities: ["research:read", "research:write"] },
       { token: "write-only", principalId: "agent-write", companyId: "company-a", capabilities: ["research:write"] },
     ]),
-    bindings: [{ knowledgeNotebookId: "local-a", companyId: "company-a", externalNotebookId: "notebook:external-a" }],
+    bindings: options.bindings ?? [{ knowledgeNotebookId: "local-a", companyId: "company-a", externalNotebookId: "notebook:external-a" }],
     resolveNotebookCompany: () => owner,
   });
   return { app, dir, state,
@@ -92,6 +93,20 @@ async function fixture(options: { dir?: string; state?: ReturnType<typeof backen
 }
 
 describe("principal-owned durable Research chat routes", () => {
+  it("reads the chat model and notebook bindings at request time (Settings -> Models sync, no restart)", async () => {
+    let modelId: string | null = null;
+    let bindings: readonly Binding[] = [];
+    const f = await fixture({ modelId: () => modelId, bindings: () => bindings });
+    expect((await f.create("create-a")).statusCode).toBe(404);
+    bindings = [{ knowledgeNotebookId: "local-a", companyId: "company-a", externalNotebookId: "notebook:external-a" }];
+    expect((await f.create("create-b")).json()).toEqual({ error: "research_chat_unavailable" });
+    modelId = "model:fixture";
+    expect((await f.create("create-c")).statusCode).toBe(201);
+    // A conflicting union fails closed rather than picking one mapping.
+    bindings = [...bindings, { knowledgeNotebookId: "local-b", companyId: "company-a", externalNotebookId: "notebook:external-a" }];
+    expect((await f.create("create-d")).json()).toEqual({ error: "notebook_mapping_unavailable" });
+  });
+
   it("creates local sessions and returns only the current durable assistant reply", async () => {
     const f = await fixture();
     const created = await f.create();

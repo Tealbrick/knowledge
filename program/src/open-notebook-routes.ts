@@ -54,14 +54,16 @@ export interface OpenNotebookRouteOptions {
   readonly researchPrincipalProvider?: ResearchPrincipalProvider;
   readonly adapter: OpenNotebookRouteAdapter | null;
   readonly principals: KnowledgePrincipalResolver;
-  readonly bindings: readonly OpenNotebookNotebookBinding[];
+  /** Static bindings, or a reader for bindings that can change at runtime (persisted Research settings). */
+  readonly bindings: readonly OpenNotebookNotebookBinding[] | (() => readonly OpenNotebookNotebookBinding[]);
   readonly resolveNotebookCompany: (knowledgeNotebookId: string) => string | null;
   /** Resolve current local metadata; never returns upstream notebook data. */
   readonly resolveNotebookSummary?: (knowledgeNotebookId: string) => OpenNotebookNotebookSummary | null;
   readonly ledger?: ResearchWriteLedger | null;
   readonly chatAdapter?: OpenNotebookChatAdapter | null;
   readonly chatLedger?: ResearchChatLedger | null;
-  readonly chatModelId?: string | null;
+  /** Fixed model id, or a request-time resolver (env override, else persisted Research settings). */
+  readonly chatModelId?: string | null | (() => string | null);
   readonly browserSession?: ResearchBrowserSessionAuthority | null;
 }
 
@@ -303,7 +305,19 @@ export function registerOpenNotebookRoutes(
   app: FastifyInstance,
   options: OpenNotebookRouteOptions,
 ): void {
-  const mappings = buildMappingIndex(options.bindings);
+  // Rebuild the fail-closed mapping index whenever the binding source changes.
+  let cachedSource: unknown = undefined;
+  let cachedIndex: MappingIndex = { invalid: true, byKnowledgeId: new Map() };
+  const currentMappings = (): MappingIndex => {
+    let source: readonly OpenNotebookNotebookBinding[];
+    try { source = typeof options.bindings === "function" ? options.bindings() : options.bindings; }
+    catch { return { invalid: true, byKnowledgeId: new Map() }; }
+    if (source !== cachedSource) {
+      cachedSource = source;
+      cachedIndex = buildMappingIndex(source);
+    }
+    return cachedIndex;
+  };
 
   const resolvePrincipal = async (
     request: PrincipalRequest,
@@ -384,6 +398,7 @@ export function registerOpenNotebookRoutes(
   ): Promise<void> => {
     const principal = await resolvePrincipal(request, reply, capability);
     if (reply.sent || !principal) return;
+    const mappings = currentMappings();
     if (mappings.invalid) {
       sendError(reply, 503, "notebook_mapping_unavailable");
       return;
@@ -421,7 +436,7 @@ export function registerOpenNotebookRoutes(
     capability = "research:read",
   ) => {
     if (reply.sent) return undefined;
-    const mapping = mappings.byKnowledgeId.get(request.params.notebookId);
+    const mapping = currentMappings().byKnowledgeId.get(request.params.notebookId);
     if (!mapping) return undefined;
 
     // The app's global Rules hook may run between this route's onRequest hook
@@ -467,6 +482,7 @@ export function registerOpenNotebookRoutes(
   app.get<{ Querystring: DiscoveryQuerystring }>("/api/research/engine/notebooks", { onRequest: authorizeDiscovery }, async (request, reply) => {
     const pagination = parseDiscoveryPagination(request);
     if (!pagination) return sendError(reply, 400, "invalid_notebook_discovery_request");
+    const mappings = currentMappings();
     if (mappings.invalid || mappings.byKnowledgeId.size > DISCOVERY_MAX_MAPPINGS) return sendError(reply, 503, "notebook_mapping_unavailable");
     if (typeof options.resolveNotebookSummary !== "function") return sendError(reply, 503, "notebook_summary_unavailable");
 

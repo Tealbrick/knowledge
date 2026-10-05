@@ -63,6 +63,14 @@ export interface BuildKnowledgeAppOptions {
   readonly portalPrincipals?: import("./portal-principal.js").PortalPrincipalResolver;
   readonly environment?: KnowledgeEnvironment;
   readonly config?: Partial<KnowledgeConfig>;
+  /** Test/host hooks for mirroring Settings -> Models into Research (Open Notebook). */
+  readonly researchModelSync?: {
+    readonly fetchImpl?: typeof fetch;
+    /** Defaults to on outside the test environment. */
+    readonly syncOnStart?: boolean;
+    /** Defaults to KNOWLEDGE_COMPANY_ID. */
+    readonly companyId?: string | null;
+  };
 }
 
 export interface KnowledgeBinding {

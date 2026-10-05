@@ -174,6 +174,8 @@ export function loadConfig(options: BuildKnowledgeAppOptions = {}): KnowledgeCon
       options.config?.defaultDocsSourceConfig ?? defaultDocsSourceConfigFromEnv(),
     gbrainBaseUrl: options.config?.gbrainBaseUrl ?? optionalEnv(process.env.GBRAIN_BASE_URL),
     gbrainToken: options.config?.gbrainToken ?? optionalEnv(process.env.GBRAIN_TOKEN),
+    gbrainServiceUrl: options.config?.gbrainServiceUrl ?? optionalEnv(process.env.KNOWLEDGE_GBRAIN_URL),
+    gbrainServiceAdminToken: options.config?.gbrainServiceAdminToken ?? optionalEnv(process.env.KNOWLEDGE_GBRAIN_ADMIN_TOKEN),
     gbrainPartitionTokens: options.config?.gbrainPartitionTokens ?? configuredGbrainPartitionTokens(),
     brainExtractionToken:
       options.config?.brainExtractionToken !== undefined

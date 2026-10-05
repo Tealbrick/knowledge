@@ -22,6 +22,9 @@ export interface KnowledgeConfig {
   readonly defaultDocsSourceConfig: KnowledgeCollectionSourceConfig | null;
   readonly gbrainBaseUrl: string | null;
   readonly gbrainToken: string | null;
+  /** Separate upstream GBrain service (`gbrain serve --http`); Knowledge provisions per-source OAuth clients. */
+  readonly gbrainServiceUrl: string | null;
+  readonly gbrainServiceAdminToken: string | null;
   /** Optional server-only source-scoped GBrain credentials by partition. */
   readonly gbrainPartitionTokens: readonly KnowledgeGBrainPartitionToken[];
   /** Optional server-to-server credential for the broker's extract-facts hook. */

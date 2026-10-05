@@ -1,0 +1,252 @@
+{
+  "$comment": "DRAFT, not published and not installable. GBrain-as-a-service variant: Knowledge (no embedded engine) + unmodified upstream GBrain (deploy/gbrain/Dockerfile, pinned 99de570 = v0.60.57.0) + private pgvector Postgres + SurrealDB + Open Notebook. Portal sets KNOWLEDGE_GBRAIN_SOURCES to kb-<sha256(normalized KNOWLEDGE_COMPANY_ID)[0:24]>. Design: docs/gbrain-upstream-service.md.",
+  "services": {
+    "2cf2e259-c3ab-47b9-ae2d-644766b34b14": {
+      "name": "Knowledge",
+      "deploy": {
+        "healthcheckPath": "/healthz",
+        "healthcheckTimeout": 300
+      },
+      "source": {
+        "repo": "Tealbrick/knowledge",
+        "branch": "<protected release branch with the GBrain service engine>",
+        "rootDirectory": "/"
+      },
+      "variables": {
+        "HOST": {
+          "defaultValue": "0.0.0.0"
+        },
+        "PORT": {
+          "defaultValue": "5310"
+        },
+        "NODE_ENV": {
+          "defaultValue": "production"
+        },
+        "RAILWAY_RUN_UID": {
+          "defaultValue": "0"
+        },
+        "KNOWLEDGE_DATA_DIR": {
+          "defaultValue": "/data"
+        },
+        "KNOWLEDGE_COMPANY_ID": {
+          "defaultValue": ""
+        },
+        "TEALBRICK_PORTAL_URL": {
+          "defaultValue": ""
+        },
+        "KNOWLEDGE_PORTAL_ORG_ID": {
+          "defaultValue": ""
+        },
+        "RAILWAY_DOCKERFILE_PATH": {
+          "defaultValue": "deploy/container/Dockerfile"
+        },
+        "TEALBRICK_DEPLOYMENT_ID": {
+          "defaultValue": ""
+        },
+        "KNOWLEDGE_INSTANCE_TOKEN": {
+          "defaultValue": "${{secret(64, \"abcdef0123456789\")}}"
+        },
+        "KNOWLEDGE_GBRAIN_AUTOSTART": {
+          "defaultValue": "false"
+        },
+        "KNOWLEDGE_SERVICE_PRINCIPALS": {
+          "defaultValue": "[]"
+        },
+        "KNOWLEDGE_OPEN_NOTEBOOK_TOKEN": {
+          "defaultValue": "${{OpenNotebook.OPEN_NOTEBOOK_PASSWORD}}"
+        },
+        "KNOWLEDGE_OPEN_NOTEBOOK_BASE_URL": {
+          "defaultValue": "http://${{OpenNotebook.RAILWAY_PRIVATE_DOMAIN}}:5055"
+        },
+        "KNOWLEDGE_OPEN_NOTEBOOK_BINDINGS": {
+          "defaultValue": "[]"
+        },
+        "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS": {
+          "defaultValue": "0"
+        },
+        "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": {
+          "defaultValue": "30"
+        },
+        "KNOWLEDGE_GBRAIN_URL": {
+          "defaultValue": "http://${{GBrain.RAILWAY_PRIVATE_DOMAIN}}:3131"
+        },
+        "KNOWLEDGE_GBRAIN_ADMIN_TOKEN": {
+          "defaultValue": "${{GBrain.GBRAIN_ADMIN_BOOTSTRAP_TOKEN}}"
+        }
+      },
+      "networking": {
+        "serviceDomains": {
+          "<hasDomain>:5310": {
+            "port": 5310
+          }
+        }
+      },
+      "volumeMounts": {
+        "2cf2e259-c3ab-47b9-ae2d-644766b34b14": {
+          "mountPath": "/data"
+        }
+      }
+    },
+    "5eae0525-bf12-4e48-aba4-53b3c6c37a97": {
+      "name": "SurrealDB",
+      "deploy": {
+        "startCommand": "/surreal start --log info --bind 0.0.0.0:8000 rocksdb:/mydata/knowledge.db",
+        "healthcheckPath": "/health",
+        "healthcheckTimeout": 300
+      },
+      "source": {
+        "image": "surrealdb/surrealdb:v2.6.5@sha256:7db835aab6355b66e2b5779a3cddae811f201c417adadb4413310ae7f925110e"
+      },
+      "variables": {
+        "PORT": {
+          "defaultValue": "8000"
+        },
+        "SURREAL_PASS": {
+          "defaultValue": "${{secret(64, \"abcdef0123456789\")}}"
+        },
+        "SURREAL_USER": {
+          "defaultValue": "knowledge"
+        },
+        "RAILWAY_RUN_UID": {
+          "defaultValue": "0"
+        },
+        "SURREAL_DATABASE": {
+          "defaultValue": "knowledge"
+        },
+        "SURREAL_NAMESPACE": {
+          "defaultValue": "knowledge"
+        },
+        "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS": {
+          "defaultValue": "0"
+        },
+        "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": {
+          "defaultValue": "30"
+        }
+      },
+      "volumeMounts": {
+        "5eae0525-bf12-4e48-aba4-53b3c6c37a97": {
+          "mountPath": "/mydata"
+        }
+      }
+    },
+    "cf2a23fb-ba95-4728-a2b6-065b2d3e63eb": {
+      "name": "OpenNotebook",
+      "deploy": {
+        "healthcheckPath": "/health",
+        "healthcheckTimeout": 300
+      },
+      "source": {
+        "image": "lfnovo/open_notebook:1.14.0@sha256:6c5fb35b6c60549e4c2dc7617d1f07aaf0a67c4954564a73498d536b8186e879"
+      },
+      "variables": {
+        "PORT": {
+          "defaultValue": "5055"
+        },
+        "SURREAL_URL": {
+          "defaultValue": "ws://${{SurrealDB.RAILWAY_PRIVATE_DOMAIN}}:8000/rpc"
+        },
+        "SURREAL_USER": {
+          "defaultValue": "${{SurrealDB.SURREAL_USER}}"
+        },
+        "SURREAL_DATABASE": {
+          "defaultValue": "${{SurrealDB.SURREAL_DATABASE}}"
+        },
+        "SURREAL_PASSWORD": {
+          "defaultValue": "${{SurrealDB.SURREAL_PASS}}"
+        },
+        "SURREAL_NAMESPACE": {
+          "defaultValue": "${{SurrealDB.SURREAL_NAMESPACE}}"
+        },
+        "OPEN_NOTEBOOK_PASSWORD": {
+          "defaultValue": "${{secret(64, \"abcdef0123456789\")}}"
+        },
+        "OPEN_NOTEBOOK_ENABLE_DOCLING": {
+          "defaultValue": "false"
+        },
+        "OPEN_NOTEBOOK_ENCRYPTION_KEY": {
+          "defaultValue": "${{secret(64, \"abcdef0123456789\")}}"
+        },
+        "OPEN_NOTEBOOK_ENABLE_CRAWL4AI": {
+          "defaultValue": "false"
+        },
+        "OPEN_NOTEBOOK_WORKER_MAX_TASKS": {
+          "defaultValue": "1"
+        },
+        "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS": {
+          "defaultValue": "0"
+        },
+        "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": {
+          "defaultValue": "30"
+        }
+      },
+      "volumeMounts": {
+        "cf2a23fb-ba95-4728-a2b6-065b2d3e63eb": {
+          "mountPath": "/app/data"
+        }
+      }
+    },
+    "gbrain": {
+      "name": "GBrain",
+      "source": {
+        "image": "ghcr.io/tealbrick/gbrain-upstream:0.60.57.0@sha256:<published digest of deploy/gbrain/Dockerfile at upstream 99de5707f6fc0916f43b4c167802a5f8d9ea0cf0>"
+      },
+      "deploy": {
+        "healthcheckPath": "/health",
+        "healthcheckTimeout": 300
+      },
+      "volumeMounts": {
+        "gbrain": {
+          "mountPath": "/data"
+        }
+      },
+      "variables": {
+        "PORT": {
+          "defaultValue": "3131"
+        },
+        "GBRAIN_ADMIN_BOOTSTRAP_TOKEN": {
+          "defaultValue": "${{secret(64, \"abcdef0123456789\")}}"
+        },
+        "GBRAIN_DATABASE_URL": {
+          "defaultValue": "postgresql://postgres:${{GBrainPostgres.POSTGRES_PASSWORD}}@${{GBrainPostgres.RAILWAY_PRIVATE_DOMAIN}}:5432/postgres"
+        },
+        "GBRAIN_PUBLIC_URL": {
+          "defaultValue": "http://${{RAILWAY_PRIVATE_DOMAIN}}:3131"
+        },
+        "GBRAIN_HTTP_TRUST_PROXY": {
+          "defaultValue": "1"
+        },
+        "KNOWLEDGE_GBRAIN_SOURCES": {
+          "defaultValue": ""
+        },
+        "GBRAIN_INIT_ARGS": {
+          "defaultValue": "--no-embedding"
+        },
+        "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS": {
+          "defaultValue": "0"
+        },
+        "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": {
+          "defaultValue": "30"
+        }
+      }
+    },
+    "gbrain-postgres": {
+      "name": "GBrainPostgres",
+      "source": {
+        "image": "pgvector/pgvector:0.8.1-pg17@sha256:3e8b3adfd27b5707128f60956f62a793c3c9326ea8cfaf0eab7adccb5d700b21"
+      },
+      "volumeMounts": {
+        "gbrainpg": {
+          "mountPath": "/var/lib/postgresql/data"
+        }
+      },
+      "variables": {
+        "POSTGRES_PASSWORD": {
+          "defaultValue": "${{secret(48, \"abcdefghijklmnopqrstuvwxyz0123456789\")}}"
+        },
+        "PGDATA": {
+          "defaultValue": "/var/lib/postgresql/data/pgdata"
+        }
+      }
+    }
+  }
+}

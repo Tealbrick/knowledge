@@ -28,7 +28,7 @@ export type ModelSettingsStatus = {
   research?: ResearchStatus;
 };
 /** Key-free Research status returned with model settings. */
-export type ResearchStatus = { status: string; error?: string };
+export type ResearchStatus = { status: string; error?: string; hint?: string };
 type Check = { component: string; ok: boolean; error?: string };
 
 /** One of three setups; each maps onto providers accepted by the server schema. */
@@ -75,6 +75,7 @@ export function describeResearchStatus(research: ResearchStatus | undefined): { 
     case "embedding_migration_required": return { tone: "warning", text: "Research chat uses these models. Research search keeps its current embedding model because it already holds sources." };
     case "encryption_not_configured": return { tone: "warning", text: "Research can't store this key yet: its server needs an encryption key. Memory is set up." };
     case "provider_unsupported": return { tone: "warning", text: "Research can't use this provider yet. Memory is set up." };
+    case "model_conflict": return { tone: "warning", text: research.hint?.trim() || "Research already has a model with this name on another key. Remove it there or pick a different model." };
     case "failed": return { tone: "warning", text: "Research couldn't be updated. Memory is set up, and Knowledge will try again when it next starts." };
     default: return null;
   }

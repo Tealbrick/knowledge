@@ -213,12 +213,40 @@ describe("Research model sync", () => {
     expect(engine.defaults.default_embedding_model).not.toBe("model:old");
   });
 
-  it("relinks a same-name model that uses another credential", async () => {
+  it("never deletes a same-name model Knowledge did not create; reports model_conflict and retries later", async () => {
+    for (const credential of ["credential:manual", null]) {
+      const engine = new FakeEngine();
+      engine.models.push({ id: "model:manual", name: "GPT-4.1-mini", provider: "openai", type: "language", credential });
+      const sync = syncer(engine);
+      const result = await sync.sync(settings());
+      expect(result).toEqual({ status: "model_conflict", error: "research_model_conflict", hint: "Research already has a GPT-4.1-mini model on another key; remove it there or pick a different model." });
+      expect(JSON.stringify(result)).not.toContain(KEY);
+      expect(engine.calls.filter((call) => call.method === "DELETE" || (call.method === "POST" && call.path === "/api/models"))).toEqual([]);
+      expect(engine.models).toEqual([{ id: "model:manual", name: "GPT-4.1-mini", provider: "openai", type: "language", credential }]);
+      expect(engine.defaults.default_chat_model).toBeNull();
+      const persisted = await readResearchSettings(root);
+      expect(persisted.appliedFingerprint).toBeNull(); // not fingerprinted: the next start retries
+      expect(persisted.lastResult).toMatchObject({ status: "model_conflict" });
+      expect(sync.summary()).toMatchObject({ status: "model_conflict", hint: expect.stringContaining("GPT-4.1-mini") });
+      await fs.rm(path.join(root, "research-settings.json"), { force: true });
+    }
+  });
+
+  it("reuses a model it recorded earlier and replaces only its own stale models", async () => {
     const engine = new FakeEngine();
-    engine.models.push({ id: "model:manual", name: "GPT-4.1-mini", provider: "openai", type: "language", credential: "credential:manual" });
-    const sync = syncer(engine);
-    expect(await sync.sync(settings())).toEqual({ status: "configured" });
-    expect(engine.models.find((model) => model.id === "model:manual")).toBeUndefined();
+    const notebooks = new LocalNotebooks();
+    await syncer(engine, { notebooks }).sync(settings());
+    const [chat, embedding] = engine.models;
+    engine.calls = [];
+    const restarted = syncer(engine, { notebooks });
+    expect(await restarted.sync(settings())).toEqual({ status: "configured" });
+    expect(engine.calls.filter((call) => call.method === "DELETE" || call.path === "/api/models" && call.method === "POST")).toEqual([]);
+    expect(restarted.chatModelId()).toBe(chat!.id);
+    expect((await readResearchSettings(root)).embeddingModelId).toBe(embedding!.id);
+    // A recorded model whose link was lost is ours, so it may be recreated.
+    chat!.credential = null;
+    expect(await restarted.sync(settings())).toEqual({ status: "configured" });
+    expect(engine.models.find((model) => model.id === chat!.id)).toBeUndefined();
     expect(engine.models.filter((model) => model.type === "language")).toEqual([expect.objectContaining({ credential: engine.credentials[0]!.id })]);
   });
 
@@ -300,6 +328,19 @@ describe("Settings -> Models route with Research", () => {
       const summary = await app.inject({ method: "GET", url: "/api/settings/models", headers: { "x-knowledge-settings-token": secret } });
       expect(summary.json().research).toMatchObject({ status: "failed" });
       expect(summary.body).not.toContain(KEY);
+    } finally { await app.close(); }
+  });
+
+  it("keeps the save at 200 and returns the hint on a model conflict", async () => {
+    const engine = new FakeEngine();
+    engine.models.push({ id: "model:manual", name: "gpt-4.1-mini", provider: "openai", type: "language", credential: "credential:manual" });
+    const app = Fastify();
+    registerModelSettingsRoutes(app, { dataDir: root, gbrainHome: root, brain, authority: secret, testModels, research: syncer(engine) });
+    try {
+      const response = await app.inject({ method: "PUT", url: "/api/settings/models", headers: { "x-knowledge-settings-token": secret }, payload: settings() });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().research).toMatchObject({ status: "model_conflict", hint: expect.stringContaining("gpt-4.1-mini") });
+      expect(engine.models).toHaveLength(1);
     } finally { await app.close(); }
   });
 

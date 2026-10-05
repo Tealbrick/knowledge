@@ -21,11 +21,14 @@ export type ResearchSyncStatus =
   | "provider_unsupported"
   | "embedding_migration_required"
   | "encryption_not_configured"
+  | "model_conflict"
   | "failed";
 
 export interface ResearchSyncResult {
   readonly status: ResearchSyncStatus;
   readonly error?: string;
+  /** Short owner-facing explanation (no secrets), e.g. for model_conflict. */
+  readonly hint?: string;
 }
 
 export interface ResearchSettingsFile {
@@ -171,7 +174,7 @@ export async function readResearchSettings(dataDir: string): Promise<ResearchSet
     appliedFingerprint: typeof parsed.appliedFingerprint === "string" && /^[a-f0-9]{64}$/u.test(parsed.appliedFingerprint) ? parsed.appliedFingerprint : null,
     appliedAt: typeof parsed.appliedAt === "string" ? parsed.appliedAt : null,
     lastResult: lastResult && typeof lastResult.status === "string" && typeof lastResult.at === "string"
-      ? { status: lastResult.status as ResearchSyncStatus, ...(typeof lastResult.error === "string" ? { error: lastResult.error } : {}), at: lastResult.at } : null,
+      ? { status: lastResult.status as ResearchSyncStatus, ...(typeof lastResult.error === "string" ? { error: lastResult.error } : {}), ...(typeof lastResult.hint === "string" ? { hint: lastResult.hint } : {}), at: lastResult.at } : null,
   };
 }
 export async function writeResearchSettings(dataDir: string, state: ResearchSettingsFile) {
@@ -278,6 +281,14 @@ function parseModels(value: unknown, step: string): EngineModel[] {
 const sameModel = (model: EngineModel, provider: string, name: string) =>
   model.provider.toLowerCase() === provider.toLowerCase() && model.name.toLowerCase() === name.toLowerCase();
 
+interface ModelConflict { readonly conflict: string }
+
+/** Owner-facing hint; names only the model the owner chose (customer copy avoids vendor names). */
+export function modelConflictHint(modelName: string) {
+  const name = modelName.length > 80 ? `${modelName.slice(0, 77)}...` : modelName;
+  return `Research already has a ${name} model on another key; remove it there or pick a different model.`;
+}
+
 /** Env KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID wins (back-compat override); else the synced model. */
 export function resolveResearchChatModelId(envOverride: string | null | undefined, sync: Pick<ResearchModelSync, "chatModelId"> | null): string | null {
   const configured = envOverride?.trim();
@@ -326,6 +337,7 @@ export class ResearchModelSync {
     return {
       status: last?.status ?? ("pending" as const),
       ...(last?.error ? { error: last.error } : {}),
+      ...(last?.hint ? { hint: last.hint } : {}),
       appliedAt: this.state.appliedAt,
       chatModelConfigured: Boolean(this.state.chatModelId),
       embeddingModelConfigured: Boolean(this.state.embeddingModelId),
@@ -418,19 +430,33 @@ export class ResearchModelSync {
       }
     }
 
-    // 2. Language and embedding models linked to those credentials.
-    const upsertModel = async (type: "language" | "embedding", provider: string, name: string, credential: string, models: EngineModel[]) => {
+    // 2. Language and embedding models linked to those credentials. Only
+    // models Knowledge created (linked to one of its fixed-name credentials, or
+    // recorded in research-settings.json) may be replaced; anything else is a
+    // conflict the owner resolves, never a silent delete.
+    const ownCredentials = new Set([...Object.values(this.state.credentialIds), ...Object.values(credentialIds)]);
+    const ownModels = new Set([this.state.chatModelId, this.state.embeddingModelId].filter((id): id is string => Boolean(id)));
+    const upsertModel = async (type: "language" | "embedding", provider: string, name: string, credential: string, models: EngineModel[]): Promise<string | ModelConflict> => {
       const match = models.find((model) => sameModel(model, provider, name));
       if (match?.credential === credential) return match.id;
-      // Open Notebook has no model update endpoint and rejects duplicates, so
-      // relink by replacing a same-name model that uses another credential.
-      if (match) await client.call(`model_relink_${type}`, "DELETE", `/api/models/${encodeURIComponent(match.id)}`);
+      if (match) {
+        const ours = ownModels.has(match.id) || (match.credential !== null && ownCredentials.has(match.credential));
+        if (!ours) return { conflict: match.name };
+        // Open Notebook has no model update endpoint and rejects duplicates.
+        await client.call(`model_relink_${type}`, "DELETE", `/api/models/${encodeURIComponent(match.id)}`);
+      }
       return idOf(await client.call(`model_create_${type}`, "POST", "/api/models", { name, provider, type, credential }), `model_create_${type}`);
+    };
+    const conflict = async (found: ModelConflict) => {
+      await this.persist({ ...this.state, credentialIds, credentialId: credentialIds[chatProvider] ?? null });
+      return this.record({ status: "model_conflict", error: "research_model_conflict", hint: modelConflictHint(found.conflict) }, {});
     };
     const languageModels = parseModels(await client.call("models_language", "GET", "/api/models?type=language"), "models_language");
     const chatModelId = await upsertModel("language", chatProvider, settings.chat.model, credentialIds[chatProvider]!, languageModels);
+    if (typeof chatModelId !== "string") return conflict(chatModelId);
     const embeddingModels = parseModels(await client.call("models_embedding", "GET", "/api/models?type=embedding"), "models_embedding");
     const embeddingModelId = await upsertModel("embedding", embeddingProvider, settings.embedding.model, credentialIds[embeddingProvider]!, embeddingModels);
+    if (typeof embeddingModelId !== "string") return conflict(embeddingModelId);
 
     // 3. Defaults. Never silently switch the embedding model under existing vectors.
     const defaults = await client.call("defaults", "GET", "/api/models/defaults") as EngineDefaults | null;

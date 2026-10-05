@@ -17,7 +17,7 @@ export function registerModelSettingsRoutes(app: FastifyInstance, input: { dataD
     if (!input.research) return { status: "not-installed" };
     try {
       const result = await input.research.sync(settings);
-      return { status: result.status, ...(result.error ? { error: result.error } : {}) };
+      return { status: result.status, ...(result.error ? { error: result.error } : {}), ...(result.hint ? { hint: result.hint } : {}) };
     } catch { return { status: "failed", error: "research_sync_failed" }; }
   };
   let busy = false;

@@ -36,7 +36,9 @@ describe("model settings panel helpers", () => {
     expect(describeResearchStatus({ status: "configured" })).toEqual({ tone: "success", text: "Research uses the same models." });
     expect(describeResearchStatus({ status: "not-installed" })).toBeNull();
     expect(describeResearchStatus(undefined)).toBeNull();
-    for (const status of ["pending", "embedding_migration_required", "encryption_not_configured", "provider_unsupported", "failed"]) {
+    expect(describeResearchStatus({ status: "model_conflict", hint: "Research already has a gpt-4.1-mini model on another key; remove it there or pick a different model." }))
+      .toEqual({ tone: "warning", text: "Research already has a gpt-4.1-mini model on another key; remove it there or pick a different model." });
+    for (const status of ["model_conflict", "pending", "embedding_migration_required", "encryption_not_configured", "provider_unsupported", "failed"]) {
       const line = describeResearchStatus({ status, error: "research_http_500:credential_create" });
       expect(line?.tone).toBe("warning");
       expect(line?.text).not.toMatch(/_/u);

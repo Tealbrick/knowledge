@@ -73,8 +73,10 @@ never undoes the memory save and is retried on the next start.
   sources or notes, Knowledge does not switch it (status
   `embedding_migration_required`): existing vectors would stop matching. Chat
   still follows the new models.
-- A same-name Open Notebook model linked to another credential is replaced so
-  it uses the Knowledge key.
+- Knowledge never deletes a model it did not create. If Open Notebook already
+  has a same-name model on another key (or none), the status is
+  `model_conflict` with a hint; remove that model in Open Notebook or pick a
+  different model. The save still succeeds and the next start retries.
 - `KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID` remains an optional override; when it
   is unset, Research chat uses the synced model without a restart.
 

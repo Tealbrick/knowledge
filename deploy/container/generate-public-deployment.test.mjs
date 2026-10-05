@@ -46,6 +46,9 @@ test('source-backed deployment emits a consistent recipe and blueprint without r
 test('source build contract requires a protected release branch and immutable commit', () => {
   assert.doesNotThrow(() => validateSourceBuild(spec.sourceBuild));
   assert.throws(() => validateSourceBuild({ ...spec.sourceBuild, ref: 'main' }), /protected Knowledge release branch ref/);
+  // Slash-free release branches are accepted because the Railway template editor rejects slashes.
+  assert.doesNotThrow(() => validateSourceBuild({ ...spec.sourceBuild, ref: 'release-knowledge-v0.2.0' }));
+  assert.throws(() => validateSourceBuild({ ...spec.sourceBuild, ref: 'release-other-v0.2.0' }), /protected Knowledge release branch ref/);
   assert.throws(() => validateSourceBuild({ ...spec.sourceBuild, refType: 'tag' }), /protected Knowledge release branch ref/);
   assert.throws(() => validateSourceBuild({ ...spec.sourceBuild, branchProtection: { ...spec.sourceBuild.branchProtection, allowDeletions: true } }), /protected-branch policy/);
   assert.throws(() => validateSourceBuild({ ...spec.sourceBuild, resolvedSourceSha: 'latest' }), /40-character commit SHA/);

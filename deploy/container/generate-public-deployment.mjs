@@ -26,7 +26,7 @@ export function validateSourceBuild(sourceBuild) {
   if (!/^https:\/\/github\.com\/[^/]+\/[^/]+$/.test(sourceBuild.repository)) {
     throw new Error('Source-build repository must be an HTTPS GitHub repository URL');
   }
-  if (!/^release\/knowledge-[a-z0-9][a-z0-9._-]*$/u.test(sourceBuild.ref) || sourceBuild.refType !== 'branch') {
+  if (!/^release[/-]knowledge-[a-z0-9][a-z0-9._-]*$/u.test(sourceBuild.ref) || sourceBuild.refType !== 'branch') {
     throw new Error('Source-build contract must use a protected Knowledge release branch ref');
   }
   if (!/^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][a-z0-9.-]+)?$/iu.test(sourceBuild.releaseTag)) {

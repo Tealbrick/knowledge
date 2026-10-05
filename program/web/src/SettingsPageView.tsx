@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Code2, Copy, Database, GitBranch, Link2, ServerCog } from "lucide-react";
 import { Button, Feedback, SettingsPage, Tag, TextField, SectionNavigation } from "@tealbrick/ui";
@@ -20,7 +20,7 @@ export function parseSettingsSection(value: string | null): SettingsSection {
 
 const settingsSections: Array<{ id: SettingsSection; label: string; icon: typeof Database }> = [
   { id: "models", label: "Models", icon: ServerCog },
-  { id: "runtime", label: "Runtime", icon: Database },
+  { id: "runtime", label: "Workspace", icon: Database },
   { id: "connections", label: "Dependencies", icon: Link2 },
   { id: "developer", label: "Developer", icon: Code2 },
 ];
@@ -37,7 +37,39 @@ function extractionLabel(mode: string) {
   return "Configured on the server";
 }
 
-function RuntimeSettings({ bootstrap, companyId, scope, onScopeChange, onApply }: {
+/** Display name for the workspace: the Portal workspace name when launched from Portal. */
+export function workspaceDisplayName(bootstrap: FrontendBootstrap, companyId: string) {
+  const label = bootstrap.scope.workspaceLabel?.trim();
+  if (label && companyId === bootstrap.scope.defaultCompanyId) return label;
+  return companyId === "default" ? "Default workspace" : "This workspace";
+}
+
+function RuntimeSettings({ bootstrap, companyId }: { bootstrap: FrontendBootstrap; companyId: string }) {
+  return (
+    <div className="settings-stack">
+      <div className="settings-intro">
+        <div>
+          <h3>Workspace</h3>
+          <p>Knowledge shows the documents, research and memory of the workspace it was opened for. Your Teal Brick Portal workspace decides who can open it.</p>
+        </div>
+        <Tag tone={bootstrap.program.status === "online" ? "success" : "warning"}>{bootstrap.program.status === "online" ? "Ready" : "Needs attention"}</Tag>
+      </div>
+      <dl className="contract-list">
+        <dt>Workspace</dt>
+        <dd>{workspaceDisplayName(bootstrap, companyId)}</dd>
+        <dt>Version</dt>
+        <dd>{bootstrap.program.name} {bootstrap.program.version}</dd>
+        <dt>Environment</dt>
+        <dd>{environmentLabel(bootstrap.program.environment)}</dd>
+        <dt>Keys visible in this browser</dt>
+        <dd>Never — model and service keys stay on the server</dd>
+      </dl>
+    </div>
+  );
+}
+
+/** Operator-only: workspace id, scope switching and access-mode details. */
+function WorkspaceDeveloperSettings({ bootstrap, companyId, scope, onScopeChange, onApply }: {
   bootstrap: FrontendBootstrap;
   companyId: string;
   scope: string;
@@ -48,10 +80,9 @@ function RuntimeSettings({ bootstrap, companyId, scope, onScopeChange, onApply }
     <div className="settings-stack">
       <div className="settings-intro">
         <div>
-          <h3>Workspace</h3>
-          <p>Choose which workspace this page shows. Switching workspace changes what you see here; it does not give you access to anything new.</p>
+          <h3>Workspace ID and access</h3>
+          <p>For operators and integrations. Opening another workspace ID only changes what this page shows; it never grants access.</p>
         </div>
-        <Tag tone={bootstrap.program.status === "online" ? "success" : "warning"}>{bootstrap.program.status === "online" ? "Ready" : "Needs attention"}</Tag>
       </div>
       <div className="settings-scope-form">
         <TextField
@@ -60,19 +91,13 @@ function RuntimeSettings({ bootstrap, companyId, scope, onScopeChange, onApply }
           value={scope}
           onChange={(event) => onScopeChange(event.target.value)}
         />
-        <Button size="small" disabled={!scope.trim() || scope.trim() === companyId} onClick={onApply}>Switch workspace</Button>
+        <Button size="small" disabled={!scope.trim() || scope.trim() === companyId} onClick={onApply}>Open workspace</Button>
       </div>
       <dl className="contract-list">
-        <dt>Version</dt>
-        <dd>{bootstrap.program.name} {bootstrap.program.version}</dd>
-        <dt>Environment</dt>
-        <dd>{environmentLabel(bootstrap.program.environment)}</dd>
         <dt>Agents need their own credential</dt>
-        <dd>{bootstrap.authorization.generalDomainBearerRequired ? "Yes — each agent signs in with a scoped Knowledge credential" : "No — this installation accepts requests without an agent credential"}</dd>
+        <dd>{bootstrap.authorization.generalDomainBearerRequired ? "Yes — each agent uses a credential scoped to this workspace" : "No — this installation accepts requests without an agent credential"}</dd>
         <dt>Who can add facts to memory</dt>
         <dd>{extractionLabel(bootstrap.authorization.brainExtractFacts)}</dd>
-        <dt>Keys visible in this browser</dt>
-        <dd>Never — model and service keys stay on the server</dd>
       </dl>
     </div>
   );
@@ -132,7 +157,7 @@ function DependenciesSettings({ bootstrap, onSectionChange }: { bootstrap: Front
   );
 }
 
-function DeveloperSettings() {
+function DeveloperSettings({ workspace }: { workspace: ReactNode }) {
   const [raw, setRaw] = useState(false);
   const openapi = useQuery({ queryKey: ["knowledge-openapi"], queryFn: getOpenApi, retry: false });
   const operations = useMemo(() => {
@@ -147,6 +172,7 @@ function DeveloperSettings() {
   if (openapi.error) return <Feedback state="error" title="API reference unavailable" action={<Button size="small" onClick={() => openapi.refetch()}>Retry</Button>}>{openapi.error.message}</Feedback>;
   return (
     <div className="settings-stack">
+      {workspace}
       <div className="settings-intro">
         <div>
           <h3>API reference</h3>
@@ -197,10 +223,10 @@ export function SettingsPageView({ bootstrap, companyId, section, onCompanyId, o
   const [scope, setScope] = useState(companyId);
   useEffect(() => setScope(companyId), [companyId]);
   const content = section === "models" ? <ModelSettingsPanel /> : section === "runtime"
-    ? <RuntimeSettings bootstrap={bootstrap} companyId={companyId} scope={scope} onScopeChange={setScope} onApply={() => onCompanyId(scope.trim())} />
+    ? <RuntimeSettings bootstrap={bootstrap} companyId={companyId} />
     : section === "connections"
       ? <DependenciesSettings bootstrap={bootstrap} onSectionChange={onSectionChange} />
-      : <DeveloperSettings />;
+      : <DeveloperSettings workspace={<WorkspaceDeveloperSettings bootstrap={bootstrap} companyId={companyId} scope={scope} onScopeChange={setScope} onApply={() => onCompanyId(scope.trim())} />} />;
   return (
     <SettingsPage title="Settings" description="Models, workspace, services, and developer tools." actions={null}>
       <div className="settings-route">

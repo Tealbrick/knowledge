@@ -163,6 +163,10 @@ const server = createServer(async (req, res) => {
   delete headers["x-knowledge-settings-token"];
   if (instanceAuthorized || browserResult.authorized) headers["x-knowledge-settings-token"] = settingsAuthority;
   delete headers["x-knowledge-instance-token"];
+  // Display-only workspace name from the Portal browser grant; never accepted from a client.
+  delete headers["x-knowledge-workspace-label"];
+  const workspaceName = browserResult.authorized ? (browserResult.grant as { workspaceName?: unknown }).workspaceName : undefined;
+  if (typeof workspaceName === "string" && workspaceName.trim()) headers["x-knowledge-workspace-label"] = encodeURIComponent(workspaceName.trim().slice(0, 80));
   delete headers["x-tealbrick-agent-token"];
   if(attachmentAuthorized) delete headers.authorization;
   if (browserResult.authorized) {

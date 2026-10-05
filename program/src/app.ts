@@ -1976,7 +1976,7 @@ export async function buildKnowledgeApp(
       browserSessionError(reply, error);
     }
   });
-  app.get("/bootstrap.json", async () => ({
+  app.get("/bootstrap.json", async (request) => ({
     ...redactedStatus(),
     surfaces: {
       standalone: "/",
@@ -1985,7 +1985,12 @@ export async function buildKnowledgeApp(
       openapi: "/openapi.json",
       swagger: "/swagger.json",
     },
-    scope: { defaultCompanyId: "default" },
+    scope: {
+      // A Portal deployment is bound to one workspace; standalone installs keep "default".
+      defaultCompanyId: process.env.KNOWLEDGE_COMPANY_ID?.trim() || "default",
+      // Display-only name forwarded by the instance edge from the Portal browser grant.
+      workspaceLabel: workspaceLabel(request.headers["x-knowledge-workspace-label"]),
+    },
     capabilities: {
       documents: true,
       research: true,
@@ -3773,4 +3778,12 @@ export async function buildKnowledgeApp(
   });
 
   return app;
+}
+
+function workspaceLabel(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 400) return null;
+  try {
+    const label = decodeURIComponent(value).replace(/[\u0000-\u001f\u007f]/gu, "").trim();
+    return label ? label.slice(0, 80) : null;
+  } catch { return null; }
 }

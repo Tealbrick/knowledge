@@ -49,9 +49,11 @@ agent ─▶ Knowledge edge + Program (authZ, partitions, policy, mitigations)
 
 ### Build (decided 5 October: Railway builds from source, no GHCR)
 
-- `Tealbrick/gbrain` mirrors upstream **unmodified**. Its protected, slash-free
-  release branch `release-gbrain-v0.60.57.0` is upstream `99de570` plus one
-  commit that adds only a separate `tealbrick/` root directory:
+- `Tealbrick/gbrain` (public, created 5 October) mirrors upstream
+  **unmodified**. Its protected, locked, slash-free release branch
+  `release-gbrain-v0.60.57.0` is at `ed79444a1545d913d04a34288a1a3ab84a7deb25`.
+  That is upstream `99de570` plus one commit that adds only a separate
+  `tealbrick/` root directory (5 files):
   - `tealbrick/Dockerfile`, which builds the checked-out upstream tree;
   - `tealbrick/entrypoint.sh`;
   - `tealbrick/verify-unmodified.sh`, which proves no upstream file differs;
@@ -137,7 +139,9 @@ leaves Knowledge). So vanilla GBrain is safe behind Knowledge today.
 | A9 out-of-grant edges | Rows naming another source are dropped. One partition source per client. |
 | A13 open loops | Entity-card `open_loops` are withheld |
 
-**Upstream PR bundle**, pending approval to submit:
+**Upstream PR bundle:** not submitted (Martin, 5 October). Knowledge's
+enforcement layer is the control. Re-evaluate at every GBrain pin bump with the
+parity suite and `gbrain-vendored-delta.md`. The fixes it would carry:
 
 - A1: remote writes match only world targets.
 - A2/A3: scoped, guarded supersede and `expireFact`.
@@ -251,12 +255,11 @@ writes go through Knowledge. No data is deleted at any step.
    - the write freeze;
    - the opt-in parity suite;
    - the template draft.
-2. **`Tealbrick/gbrain`:** the unmodified mirror plus `tealbrick/` packaging,
-   prepared. Creating the repository and protecting the branch need approval.
+2. **`Tealbrick/gbrain`:** done. The unmodified mirror plus `tealbrick/`
+   packaging is on a protected, locked release branch.
 3. **Core:** per-engine topologies, with the source-built GBrain sidecar
    verified by protected branch and revision.
 4. **After approval:**
-   - submit the upstream PR bundle;
    - publish the Railway template and add the Portal recipe;
    - run the Polygonface migration through the rollout session, after the
      0.2.x upgrade;

@@ -1,5 +1,5 @@
 {
-  "$comment": "DRAFT, not published and not installable. GBrain-as-a-service variant: Knowledge (no embedded engine) + unmodified upstream GBrain built by Railway from the protected Tealbrick/gbrain release branch (upstream v0.60.57.0 / 99de570 plus a separate tealbrick/ packaging dir) + private pgvector Postgres + SurrealDB + Open Notebook. Portal sets KNOWLEDGE_GBRAIN_SOURCES to kb-<sha256(normalized KNOWLEDGE_COMPANY_ID)[0:24]>. Design: docs/gbrain-upstream-service.md.",
+  "$comment": "DRAFT, not published and not installable. GBrain-as-a-service variant: Knowledge (no embedded engine) + unmodified upstream GBrain built by Railway from the protected Tealbrick/gbrain release branch (upstream v0.60.57.0 / 99de570 plus a separate tealbrick/ packaging dir; branch head ed79444a1545d913d04a34288a1a3ab84a7deb25) + private pgvector Postgres + SurrealDB + Open Notebook. Portal sets KNOWLEDGE_GBRAIN_SOURCES to kb-<sha256(normalized KNOWLEDGE_COMPANY_ID)[0:24]>. Design: docs/gbrain-upstream-service.md.",
   "services": {
     "2cf2e259-c3ab-47b9-ae2d-644766b34b14": {
       "name": "Knowledge",

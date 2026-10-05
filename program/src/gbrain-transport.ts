@@ -11,7 +11,7 @@ function parseEnvelope(text: string): unknown {
   catch { throw new Error("Invalid GBrain MCP JSON response"); }
 }
 
-function resultData(message: unknown, id: string, onMeta?: (meta: Record<string, unknown>) => void): unknown {
+function resultData(message: unknown, id: string, onMeta?: (meta: Record<string, unknown>) => void, onToolError?: (payload: unknown) => unknown): unknown {
   if (!record(message) || message.jsonrpc !== "2.0" || message.id !== id) {
     throw new Error("Invalid or mismatched GBrain MCP response");
   }
@@ -19,6 +19,14 @@ function resultData(message: unknown, id: string, onMeta?: (meta: Record<string,
   const result = message.result;
   if (!record(result) || (result.isError !== undefined && typeof result.isError !== "boolean")) {
     throw new Error("Invalid GBrain MCP tool result");
+  }
+  if (result.isError && onToolError) {
+    // Native protocol callers receive the structured upstream envelope; the
+    // caller is responsible for redaction before it leaves Knowledge.
+    const first = Array.isArray(result.content) ? result.content.find(item => record(item) && item.type === "text") : undefined;
+    let payload: unknown = null;
+    try { payload = record(first) && typeof first.text === "string" ? JSON.parse(first.text) : null; } catch { payload = null; }
+    return onToolError(payload);
   }
   if (result.isError) {
     // Preserve only an allowlisted machine category, never an upstream message
@@ -28,7 +36,7 @@ function resultData(message: unknown, id: string, onMeta?: (meta: Record<string,
       const first = Array.isArray(result.content) ? result.content.find(item => record(item) && item.type === "text") : undefined;
       code = record(first) && typeof first.text === "string" ? JSON.parse(first.text).error : undefined;
     } catch { /* generic redacted error below */ }
-    const safe = ["permission_denied", "scope_denied", "embedding_failed", "extraction_failed", "rate_limited", "invalid_params", "page_not_found", "unavailable", "operation_failed"];
+    const safe = ["permission_denied", "scope_denied", "embedding_failed", "extraction_failed", "rate_limited", "invalid_params", "page_not_found", "revision_conflict", "unavailable", "operation_failed"];
     throw new Error(`GBrain tool execution failed${typeof code === "string" && safe.includes(code) ? `: ${code}` : ""}`);
   }
   if (record(result._meta)) onMeta?.(result._meta);
@@ -54,6 +62,8 @@ export async function callGBrainTool(input: {
   args: Record<string, unknown>;
   timeoutMs?: number;
   onMeta?: (meta: Record<string, unknown>) => void;
+  /** Return upstream's structured tool error instead of throwing a redacted code. */
+  onToolError?: (payload: unknown) => unknown;
 }): Promise<unknown> {
   const id = randomUUID();
   const controller = new AbortController();
@@ -104,16 +114,33 @@ export async function callGBrainTool(input: {
           const message = parseEnvelope(data);
           // Progress notifications may precede the matching result on an open stream.
           if (record(message) && message.jsonrpc === "2.0" && !("id" in message) && typeof message.method === "string") continue;
-          return resultData(message, id, input.onMeta);
+          return resultData(message, id, input.onMeta, input.onToolError);
         }
       }
       if (done) break;
     }
     if (sse) throw new Error("GBrain MCP stream ended without a result");
-    return resultData(parseEnvelope(buffer), id, input.onMeta);
+    return resultData(parseEnvelope(buffer), id, input.onMeta, input.onToolError);
   } finally {
     clearTimeout(timeout);
     controller.abort();
     await reader?.cancel().catch(() => undefined);
   }
+}
+
+/** Stateless MCP tools/list (catalog discovery). Bounded like tool calls. */
+export async function listGBrainTools(input: { baseUrl: string; token: string; timeoutMs?: number }): Promise<readonly Record<string, unknown>[]> {
+  const id = randomUUID();
+  const response = await fetch(`${input.baseUrl.replace(/\/+$/u, "")}/mcp`, {
+    method: "POST", redirect: "error", signal: AbortSignal.timeout(input.timeoutMs ?? 30_000),
+    headers: { accept: "application/json, text/event-stream", authorization: `Bearer ${input.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/list", params: {} }),
+  });
+  if (!response.ok) { await response.body?.cancel(); throw new Error(`GBrain HTTP ${response.status}`); }
+  const text = await response.text();
+  if (text.length > MAX_RESPONSE_BYTES) throw new Error("GBrain MCP response exceeds 2 MiB");
+  const data = text.split(/\r?\n/u).filter(line => line.startsWith("data:")).map(line => line.slice(5).replace(/^ /u, "")).join("\n") || text;
+  const message = parseEnvelope(data);
+  if (!record(message) || message.id !== id || !record(message.result) || !Array.isArray(message.result.tools)) throw new Error("Invalid GBrain MCP tools/list response");
+  return message.result.tools.filter(record);
 }

@@ -59,3 +59,12 @@ unmodified and not redistributed by this repo.
 3. Portal model setup writes `HINDSIGHT_API_LLM_*`, `_EMBEDDINGS_*`,
    `_RERANKER_*` to the Hindsight service.
 4. Publish the template, then add a Portal recipe with `engine: "hindsight"`.
+
+## GBrain as a separate upstream service (5 October 2026)
+
+GBrain is moving out of the Knowledge container into a separate, pinned,
+unmodified upstream service (`gbrain serve --http`). `KNOWLEDGE_GBRAIN_URL` +
+`KNOWLEDGE_GBRAIN_ADMIN_TOKEN` select the service topology in `GBrainRuntime`;
+Knowledge provisions one OAuth client per partition (and per principal for
+native memory) through upstream's admin API. See
+[gbrain-upstream-service.md](gbrain-upstream-service.md).

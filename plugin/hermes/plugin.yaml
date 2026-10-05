@@ -1,7 +1,7 @@
 name: knowledge
 version: 0.2.0
 description: "Agent adapter manifest for Knowledge. Documents and Research remain canonical Product surfaces while Brain is exposed as a first-grade GBrain-powered cognition surface."
-author: Doppelganger
+author: Teal Brick
 kind: full-on
 depends_on:
   - rules-approvals

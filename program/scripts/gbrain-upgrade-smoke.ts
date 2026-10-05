@@ -249,8 +249,8 @@ async function main() {
     assert(firstStatus.status === "online", `first runtime did not become online: ${firstStatus.detail ?? "unknown"}`);
     assert(firstStatus.baseUrl?.startsWith("http://127.0.0.1:"), "first runtime was not loopback HTTP");
     const firstHealth = await readHealth(firstStatus.baseUrl, repoVersion);
-    assert(firstStatus.schemaPack.status === "installed", "Doppelganger schema pack was not installed");
-    assert(firstStatus.schemaPack.active, "Doppelganger schema pack was not activated");
+    assert(firstStatus.schemaPack.status === "installed", "Teal Brick schema pack was not installed");
+    assert(firstStatus.schemaPack.active, "Teal Brick schema pack was not activated");
     const installedPack = await readJson(firstStatus.schemaPack.path);
     assert(installedPack.version === "1.1.0", `unexpected schema pack version: ${String(installedPack.version)}`);
     const pageTypes = Array.isArray(installedPack.page_types) ? installedPack.page_types : [];

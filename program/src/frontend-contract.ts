@@ -39,7 +39,7 @@ export function buildKnowledgeOpenApi() {
   const document = {
     openapi: "3.1.0",
     info: {
-      title: "Doppelganger Knowledge Program API",
+      title: "Teal Brick Knowledge Program API",
       version: KNOWLEDGE_FRONTEND_VERSION,
       description:
         "Program-owned contracts for canonical documents, research, GBrain-backed recall, bindings, ingestion, and runtime inspection. The portable web application uses domain routes directly.",

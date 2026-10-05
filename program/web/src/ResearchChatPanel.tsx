@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Feedback, Tag, TextareaField, TextField } from "@doppelganger/ui";
+import { Button, Feedback, Tag, TextareaField, TextField } from "@tealbrick/ui";
 import { Bot, LockKeyhole } from "lucide-react";
 import { loadChatResume, type Pending, type Resume } from "./research-chat-resume";
 import {

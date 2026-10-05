@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/assets/teal-brick.svg" width="72" height="72" alt="Teal Brick" /></p>
+<p align="center"><img src="docs/assets/teal-brick.png" width="96" height="96" alt="Teal Brick" /></p>
 
 # Teal Brick Knowledge
 

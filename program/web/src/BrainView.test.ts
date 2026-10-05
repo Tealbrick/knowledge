@@ -8,7 +8,7 @@ const virtualMock = vi.mock as unknown as (
   factory: () => unknown,
   options?: { virtual?: boolean },
 ) => void;
-virtualMock("@doppelganger/ui", () => ({
+virtualMock("@tealbrick/ui", () => ({
   Button: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) =>
     createElement("button", props as Record<string, unknown>, children),
   Tag: ({ children }: { children?: ReactNode }) => createElement("span", null, children),

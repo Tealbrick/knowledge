@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Button, CheckboxField, Feedback, SelectField, Tag, TextField } from "@doppelganger/ui";
+import { Button, CheckboxField, Feedback, SelectField, Tag, TextField } from "@tealbrick/ui";
 import { api, ApiError } from "./api";
 import { describeErrorCode } from "./errors";
 

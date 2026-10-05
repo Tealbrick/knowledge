@@ -26,8 +26,8 @@
 !deploy/container/os-backports
 !deploy/container/os-backports/**
 !.sdk
-!.sdk/doppelganger-ui
-!.sdk/doppelganger-ui/**
+!.sdk/tealbrick-ui
+!.sdk/tealbrick-ui/**
 **/node_modules
 **/.git
 **/.env*

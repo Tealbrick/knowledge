@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, EmptyState, Feedback, Tag } from "@doppelganger/ui";
+import { Button, EmptyState, Feedback, Tag } from "@tealbrick/ui";
 import { ChevronRight, NotebookPen, RefreshCw } from "lucide-react";
 import { ResearchRequestError } from "./research-chat-api";
 import { getResearchNote, listResearchNotes, type ResearchNote } from "./research-notes-api";

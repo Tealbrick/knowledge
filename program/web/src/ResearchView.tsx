@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, BookOpen, Bot, ChevronRight, FileText, RefreshCw, Search, Sparkles } from "lucide-react";
-import { Button, EmptyState, Tag } from "@doppelganger/ui";
+import { Button, EmptyState, Tag } from "@tealbrick/ui";
 import { ApiError, askResearch, getNotebooks, getResearchSummary, getResearchWorkspace } from "./api";
 import type { ResearchAnswer } from "./types";
 import { ResearchChatPanel } from "./ResearchChatPanel";

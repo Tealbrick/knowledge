@@ -13,10 +13,11 @@ pre {
 }
 .eyebrow {
   margin: 0;
-  color: var(--dg-text-subtle);
-  font-size: 9px;
-  font-weight: 750;
-  letter-spacing: 0.14em;
+  color: var(--dg-text-muted);
+  font-family: var(--dg-font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
 }
 .spin {
@@ -199,7 +200,7 @@ textarea {
   margin: 4px 0 0;
   font-family: var(--dg-font-editorial);
   font-size: 27px;
-  font-weight: 520;
+  font-weight: 400;
   letter-spacing: -0.03em;
 }
 .search-box {
@@ -383,7 +384,7 @@ textarea {
   margin: 8px 0 13px;
   font-family: var(--dg-font-editorial);
   font-size: clamp(36px, 4vw, 54px);
-  font-weight: 480;
+  font-weight: 400;
   letter-spacing: -0.04em;
   line-height: 1.02;
   overflow-wrap: anywhere;
@@ -670,7 +671,7 @@ textarea {
   margin: 6px 0 9px;
   font-family: var(--dg-font-editorial);
   font-size: clamp(40px, 4.4vw, 58px);
-  font-weight: 480;
+  font-weight: 400;
   letter-spacing: -0.04em;
   line-height: 1;
 }
@@ -772,7 +773,7 @@ textarea {
   margin: 6px 0 8px;
   font-family: var(--dg-font-editorial);
   font-size: 36px;
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.03em;
 }
 .research-workspace > header > p:not(.eyebrow) {
@@ -798,7 +799,7 @@ textarea {
 .research-counts strong {
   font-family: var(--dg-font-editorial);
   font-size: 22px;
-  font-weight: 520;
+  font-weight: 400;
 }
 .research-counts span {
   color: var(--dg-text-subtle);
@@ -936,7 +937,7 @@ textarea {
   margin: 0;
   font-family: var(--dg-font-editorial);
   font-size: 23px;
-  font-weight: 520;
+  font-weight: 400;
 }
 .subheading > div h2 {
   margin-top: 4px;
@@ -1197,7 +1198,7 @@ textarea {
   position: fixed;
   z-index: 20;
   inset: 0;
-  background: rgb(25 19 17 / 44%);
+  background: rgb(15 31 29 / 44%);
   backdrop-filter: blur(2px);
 }
 .form-dialog,
@@ -1223,7 +1224,7 @@ textarea {
   margin: 7px 0;
   font-family: var(--dg-font-editorial);
   font-size: 29px;
-  font-weight: 520;
+  font-weight: 400;
 }
 .confirm-dialog [data-radix-alert-dialog-description] {
   margin: 0;
@@ -1366,7 +1367,7 @@ textarea {
   margin: 4px 0;
   font-family: var(--dg-font-editorial);
   font-size: 31px;
-  font-weight: 520;
+  font-weight: 400;
 }
 .modal-header [data-radix-dialog-description] {
   margin: 0;
@@ -1408,8 +1409,8 @@ textarea {
   color: var(--dg-ink);
 }
 .settings-nav button[aria-current="page"] {
-  background: var(--dg-burgundy-wash);
-  color: var(--dg-burgundy);
+  background: var(--dg-primary-wash);
+  color: var(--dg-primary);
 }
 .settings-content {
   min-width: 0;
@@ -1439,7 +1440,7 @@ textarea {
   margin: 0;
   font-family: var(--dg-font-editorial);
   font-size: 25px;
-  font-weight: 520;
+  font-weight: 400;
 }
 .settings-intro p {
   margin: 4px 0 0;
@@ -1532,7 +1533,7 @@ textarea {
   margin: 13px 0 5px;
   font-family: var(--dg-font-editorial);
   font-size: 27px;
-  font-weight: 520;
+  font-weight: 400;
 }
 .empty-settings p {
   max-width: 460px;
@@ -1583,18 +1584,46 @@ textarea {
     display: block;
   }
   .dg-sidebar {
-    position: sticky;
-    z-index: 10;
-    top: 0;
+    position: relative;
     height: auto;
     width: 100%;
     min-height: auto;
+    padding: 12px 10px 8px;
     border-right: 0;
     border-bottom: 1px solid var(--dg-line);
   }
+  .dg-sidebar__brand {
+    padding: 0 6px 10px;
+  }
+  /* Phone navigation: every section on one row, no horizontal clipping. */
   .dg-sidebar nav {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 2px;
+  }
+  .dg-sidebar__link {
+    min-height: 44px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1px;
+    padding: 6px 2px;
+    font-size: 13px;
+    line-height: 1.15;
+    text-align: center;
+  }
+  .dg-sidebar__badge {
+    font-size: 9px;
+  }
+  /* The settings shortcut joins the brand row; the topbar copy would repeat it. */
+  .dg-sidebar__footer {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    margin: 0;
+    padding: 0;
+  }
+  .topbar > div:last-child > .dg-button {
+    display: none;
   }
   .dg-sidebar__brand small,
   .scope-card,
@@ -1613,7 +1642,7 @@ textarea {
   .topbar {
     position: sticky;
     z-index: 9;
-    top: 55px;
+    top: 0;
     height: 48px;
     padding: 0 13px;
   }

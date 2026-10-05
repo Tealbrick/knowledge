@@ -19,7 +19,7 @@ import {
   Tag,
   TextareaField,
   TextField,
-} from "@doppelganger/ui";
+} from "@tealbrick/ui";
 
 import {
   createCollection,

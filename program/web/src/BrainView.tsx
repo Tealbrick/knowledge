@@ -14,7 +14,7 @@ import {
   Search,
   ShieldCheck,
 } from "lucide-react";
-import { Button, Tag } from "@doppelganger/ui";
+import { Button, Tag } from "@tealbrick/ui";
 import {
   ApiError,
   brainContext,

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Network, RefreshCw } from "lucide-react";
-import { Button, EmptyState, Tag } from "@doppelganger/ui";
+import { Button, EmptyState, Tag } from "@tealbrick/ui";
 import { ApiError, getBindings, getEvents } from "./api";
 import { errorTitle } from "./errors";
 

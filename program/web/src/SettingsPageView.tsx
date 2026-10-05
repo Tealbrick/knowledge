@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Code2, Copy, Database, GitBranch, Link2, ServerCog } from "lucide-react";
-import { Button, Feedback, SettingsPage, Tag, TextField, SectionNavigation } from "@doppelganger/ui";
+import { Button, Feedback, SettingsPage, Tag, TextField, SectionNavigation } from "@tealbrick/ui";
 import { getOpenApi } from "./api";
 import type { FrontendBootstrap } from "./types";
 import { ModelSettingsPanel } from "./ModelSettingsPanel";

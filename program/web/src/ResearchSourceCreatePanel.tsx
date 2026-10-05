@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Feedback, Tag, TextareaField, TextField } from "@doppelganger/ui";
+import { Button, Feedback, Tag, TextareaField, TextField } from "@tealbrick/ui";
 import { CheckCircle2, LockKeyhole, RefreshCw } from "lucide-react";
 import {
   createResearchSource,

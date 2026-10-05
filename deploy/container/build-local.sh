@@ -2,10 +2,10 @@
 set -eu
 task_app=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 # Support both a standalone miniapp checkout and the LABS portfolio layout.
-if [ -d "$task_app/.sdk/doppelganger-ui" ]; then
-  task_sdk="$task_app/.sdk/doppelganger-ui"
+if [ -d "$task_app/.sdk/tealbrick-ui" ]; then
+  task_sdk="$task_app/.sdk/tealbrick-ui"
 else
-  task_sdk="$task_app/../.sdk/doppelganger-ui"
+  task_sdk="$task_app/../.sdk/tealbrick-ui"
 fi
 if [ ! -f "$task_app/program/package.json" ] || [ ! -f "$task_sdk/package.json" ]; then
   printf "%s\n" "Knowledge source or bundled UI SDK is missing" >&2

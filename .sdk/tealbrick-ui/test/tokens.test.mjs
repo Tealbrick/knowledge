@@ -8,9 +8,22 @@ const luminance = hex => hex.slice(1).match(/../g).map(c => parseInt(c, 16) / 25
 const contrast = (a, b) => { const values = [luminance(a), luminance(b)].sort((x, y) => y - x); return (values[0] + .05) / (values[1] + .05); };
 for (const [i, tokens] of blocks.entries()) {
   const theme = i === 0 ? "light" : "dark";
-  for (const [foreground, background] of [["--dg-on-accent", "--dg-burgundy"], ["--dg-on-accent", "--dg-burgundy-deep"], ["--dg-ink", "--dg-paper"], ["--dg-muted", "--dg-paper"], ["--dg-danger", "--dg-paper"], ["--dg-warning", "--dg-paper"], ["--dg-success", "--dg-paper"]]) {
+  for (const [foreground, background] of [["--dg-on-primary", "--dg-burgundy"], ["--dg-on-primary", "--dg-burgundy-deep"], ["--dg-ink", "--dg-paper"], ["--dg-muted", "--dg-paper"], ["--dg-danger", "--dg-paper"], ["--dg-warning", "--dg-paper"], ["--dg-success", "--dg-paper"]]) {
     test(`${theme} ${foreground} on ${background} has normal-text contrast`, () => assert.ok(contrast(tokens[foreground], tokens[background]) >= 4.5, `${contrast(tokens[foreground], tokens[background]).toFixed(2)} < 4.5`));
   }
 }
 test("both theme blocks were checked", () => assert.equal(blocks.length, 2));
 test("shared geometry remains centralized", () => { for (const [name, value] of [["control", 4], ["surface", 6], ["modal", 8]]) assert.match(source, new RegExp(`--dg-radius-${name}: ${value}px;`)); });
+const tokenMap = body => Object.fromEntries([...body.matchAll(/(--dg-[\w-]+):\s*([^;]+);/g)].map(token => [token[1], token[2].trim()]));
+test("OS dark mode applies exactly the data-theme dark tokens", () => {
+  const media = source.match(/@media \(prefers-color-scheme: dark\) \{\s*:root:not\(\[data-theme="light"\]\) \{([^}]+)\}/);
+  const pinned = source.match(/:root\[data-theme="dark"\] \{([^}]+)\}/);
+  assert.ok(media && pinned);
+  assert.deepEqual(tokenMap(media[1]), tokenMap(pinned[1]));
+});
+test("Teal Brick brand values, no legacy burgundy", () => {
+  assert.match(source, /--dg-canvas: #f3f1e9;/);
+  assert.match(source, /--dg-burgundy: #173f3c;/);
+  assert.match(source, /--dg-brick: #a8442f;/);
+  assert.doesNotMatch(source, /#7c2d36|#5f2029/i);
+});

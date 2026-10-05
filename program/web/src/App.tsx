@@ -1,8 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpen, Settings } from "lucide-react";
-import { Button, Feedback, IconButton, Sidebar, Tag } from "@tealbrick/ui";
-import tealBrickMark from "./assets/teal-brick.svg";
+import { BrandMark, Button, Feedback, IconButton, Sidebar, Tag } from "@tealbrick/ui";
 import { getBootstrap, getSessionEnded, subscribeSessionEnded } from "./api";
 import { SessionEndedBanner, SessionEndedSplash } from "./SessionNotice";
 import type { Section } from "./types";
@@ -117,7 +116,7 @@ export function App() {
       <Sidebar
         label="Knowledge navigation"
         brand={<>
-          <img className="dg-mark" src={tealBrickMark} alt="" />
+          <BrandMark />
           <span>
             <strong>Knowledge</strong>
             <small>Teal Brick</small>

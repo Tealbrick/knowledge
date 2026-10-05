@@ -1,6 +1,11 @@
 # Bundled UI provenance
 
-Updated 2026-09-06 from the reviewed LABS `.sdk/doppelganger-ui` source (renamed to `.sdk/tealbrick-ui` 2026-10-05).
+2026-10-05 (0.2.1): Teal Brick brand applied — tokens, mark, fonts and icons
+from the miniapp brand lane's `@tealbrick/ui` 0.2.0 (sourced from the deployed
+Portal/website), merged into this richer primitive set; OS dark mode and the
+`vite/app-icons.mjs` icon/manifest plugin added. Earlier history follows.
+
+Updated 2026-09-06 from the reviewed LABS `.sdk/doppelganger-ui` source.
 Shared-support source commit: `1c2a828269af9b44776200ad0370e4ff8e2e93e4`.
 That local source history is preserved in LABS's verified
 `report/evidence/shared-dialog-close-race.bundle`; it is not a published

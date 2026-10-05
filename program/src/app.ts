@@ -1130,6 +1130,10 @@ function webContentType(filePath: string) {
       return "application/json; charset=utf-8";
     case ".svg":
       return "image/svg+xml";
+    case ".png":
+      return "image/png";
+    case ".webmanifest":
+      return "application/manifest+json";
     case ".ttf":
       return "font/ttf";
     case ".woff2":

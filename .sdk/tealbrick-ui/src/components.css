@@ -32,14 +32,14 @@
 }
 
 .dg-button--primary {
-  border-color: var(--dg-burgundy);
-  background: var(--dg-burgundy);
-  color: var(--dg-on-accent);
+  border-color: var(--dg-primary);
+  background: var(--dg-primary);
+  color: var(--dg-on-primary);
 }
 
 .dg-button--primary:hover:not(:disabled) {
-  border-color: var(--dg-burgundy-deep);
-  background: var(--dg-burgundy-deep);
+  border-color: var(--dg-primary-deep);
+  background: var(--dg-primary-deep);
 }
 
 .dg-button--danger {
@@ -89,9 +89,9 @@
 }
 
 .dg-tag--accent {
-  border-color: color-mix(in srgb, var(--dg-burgundy) 28%, var(--dg-line));
-  background: var(--dg-burgundy-wash);
-  color: var(--dg-burgundy);
+  border-color: color-mix(in srgb, var(--dg-primary) 28%, var(--dg-line));
+  background: var(--dg-primary-wash);
+  color: var(--dg-primary);
 }
 
 .dg-tag--danger {
@@ -117,6 +117,23 @@
   width: 32px;
   height: 32px;
   flex: none;
+  object-fit: contain;
+}
+
+/* The mark's dark outlines need its paper ground on dark surfaces; keep the
+   artwork itself untouched. */
+:root[data-theme="dark"] .dg-mark {
+  padding: 2px;
+  border-radius: var(--dg-radius-control);
+  background: #f3f1e9;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .dg-mark {
+    padding: 2px;
+    border-radius: var(--dg-radius-control);
+    background: #f3f1e9;
+  }
 }
 
 .dg-field {
@@ -148,7 +165,7 @@
 }
 
 .dg-input:focus {
-  border-color: var(--dg-burgundy);
+  border-color: var(--dg-primary);
   box-shadow: 0 0 0 3px var(--dg-focus);
 }
 
@@ -170,7 +187,7 @@
   color: var(--dg-ink);
   font-family: var(--dg-font-editorial);
   font-size: 32px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.025em;
   line-height: 1;
 }
@@ -181,7 +198,7 @@
 }
 
 .dg-button:focus-visible, .dg-sidebar__link:focus-visible, .dg-checkbox:focus-visible {
-  outline: 2px solid var(--dg-burgundy);
+  outline: 2px solid var(--dg-brick);
   outline-offset: 3px;
 }
 
@@ -195,12 +212,12 @@
 .dg-section-navigation { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; padding: 0 0 12px; margin: 0 0 24px; border-bottom: 1px solid var(--dg-line); }
 .dg-section-navigation__item { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 40px; padding: 8px 12px; border: 1px solid transparent; border-radius: var(--dg-radius-control); background: transparent; color: var(--dg-muted); font-size: 14px; line-height: 1.4; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .dg-section-navigation__item:hover:not(:disabled) { color: var(--dg-ink); background: var(--dg-paper); border-color: var(--dg-line); }
-.dg-section-navigation__item[aria-current="page"] { color: var(--dg-burgundy); background: var(--dg-accent-soft); font-weight: 650; }
+.dg-section-navigation__item[aria-current="page"] { color: var(--dg-primary); background: var(--dg-accent-soft); font-weight: 650; }
 .dg-section-navigation__item:disabled { opacity: .6; cursor: not-allowed; }
 .dg-section-navigation__icon { display: inline-flex; flex: none; }
 .dg-section-navigation__icon svg { width: 16px; height: 16px; }
 .dg-checkbox-field { display: flex; gap: var(--dg-space-3); align-items: start; }
-.dg-checkbox { accent-color: var(--dg-burgundy); width: 18px; height: 18px; margin: 2px 0 0; flex: none; }
+.dg-checkbox { accent-color: var(--dg-primary); width: 18px; height: 18px; margin: 2px 0 0; flex: none; }
 .dg-checkbox-field label { font-weight: 600; }
 
 .dg-dialog {
@@ -220,8 +237,8 @@ html:has(.dg-dialog[open]) { overflow: hidden; }
 .dg-dialog[role="alertdialog"] .dg-dialog__header { border-top: 3px solid var(--dg-danger); }
 
 .dg-page-header { display: flex; justify-content: space-between; align-items: start; gap: 24px; padding-bottom: 24px; }
-.dg-page-header h1 { margin: 0; font-family: var(--dg-font-editorial); font-weight: 600; font-size: clamp(32px, 4vw, 48px); letter-spacing: -.03em; line-height: 1.1; }
-.dg-eyebrow { margin: 0 0 10px; color: var(--dg-burgundy); font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.dg-page-header h1 { margin: 0; font-family: var(--dg-font-editorial); font-weight: 400; font-size: clamp(32px, 4vw, 48px); letter-spacing: -.03em; line-height: 1.1; }
+.dg-eyebrow { margin: 0 0 10px; color: var(--dg-muted); font-family: var(--dg-font-technical); font-size: 10px; font-weight: 500; letter-spacing: .11em; text-transform: uppercase; }
 .dg-page-description { color: var(--dg-muted); margin: 12px 0 0; max-width: 64ch; }
 .dg-page-header__actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .dg-feedback { padding: 24px; border: 1px solid var(--dg-line); border-radius: var(--dg-radius-surface); background: var(--dg-paper); }
@@ -241,7 +258,7 @@ html:has(.dg-dialog[open]) { overflow: hidden; }
 .dg-sidebar nav { display: grid; gap: 4px; }
 .dg-sidebar__link { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-radius: var(--dg-radius-control); color: var(--dg-muted); text-decoration: none; min-width: 0; }
 a.dg-sidebar__link:hover { background: var(--dg-canvas); color: var(--dg-ink); }
-.dg-sidebar__link[aria-current="page"] { color: var(--dg-burgundy); background: var(--dg-burgundy-wash); font-weight: 650; }
+.dg-sidebar__link[aria-current="page"] { color: var(--dg-primary); background: var(--dg-primary-wash); font-weight: 650; }
 .dg-sidebar__link[aria-disabled="true"] { color: var(--dg-muted); cursor: not-allowed; }
 .dg-sidebar__badge { font: 10px var(--dg-font-technical); }
 .dg-sidebar__footer { margin-top: auto; padding: 24px 8px 0; color: var(--dg-muted); font-size: 12px; }

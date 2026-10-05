@@ -1,6 +1,6 @@
 {
   "name": "@tealbrick/ui",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,10 @@
     "./tokens.css": "./src/tokens.css",
     "./components.css": "./src/components.css",
     "./fleet.css": "./src/fleet.css",
-    "./brand-spec": "./brand-spec.md"
+    "./brand-spec": "./brand-spec.md",
+    "./mark.svg": "./assets/tealbrick-mark.svg",
+    "./mark.png": "./assets/tealbrick-mark.png",
+    "./vite": "./vite/app-icons.mjs"
   },
   "peerDependencies": {
     "react": ">=19"

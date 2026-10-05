@@ -5,7 +5,7 @@
 .dg-sidebar__brand small { display: block; font: 10px var(--dg-font-technical); color: var(--dg-muted); margin-top: 4px; }
 .gallery-section { padding: 28px 0; border-top: 1px solid var(--dg-line); }
 .gallery-section-heading { display: flex; gap: 20px; align-items: start; margin-bottom: 24px; }
-.gallery-section-heading > span { font: 11px var(--dg-font-technical); padding-top: 5px; color: var(--dg-burgundy); }
+.gallery-section-heading > span { font: 11px var(--dg-font-technical); padding-top: 5px; color: var(--dg-primary); }
 .gallery-section-heading h2 { font-size: 18px; margin: 0 0 5px; letter-spacing: -.02em; }
 .gallery-section-heading p { color: var(--dg-muted); margin: 0; max-width: 66ch; }
 .gallery-actions { display: flex; flex-wrap: wrap; gap: 12px; }

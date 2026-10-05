@@ -1,5 +1,5 @@
 import { RefreshCw } from "lucide-react";
-import { Button, Feedback } from "@doppelganger/ui";
+import { Button, Feedback } from "@tealbrick/ui";
 
 /** Shown when the instance edge reports that the Portal browser session ended mid-use. */
 export function SessionEndedBanner({ onReload }: { onReload: () => void }) {

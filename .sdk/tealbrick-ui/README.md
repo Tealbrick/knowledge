@@ -1,7 +1,7 @@
 # `@tealbrick/ui`
 
-Canonical web tokens and low-level components for standalone Teal Brick
-Micro-apps. It is intentionally smaller than an application framework.
+Canonical web tokens, brand assets and low-level components for standalone
+Teal Brick Micro-apps. It is intentionally smaller than an application framework.
 
 Import the tokens before application CSS:
 
@@ -10,6 +10,11 @@ import "@tealbrick/ui/tokens.css";
 import "@tealbrick/ui/components.css";
 ```
 
+Brand source: the deployed Teal Brick Portal and website (see `brand-spec.md`).
+The `--dg-*` custom-property names are kept as a stable styling API; new code may
+use the `--tb-*` aliases. `@doppelganger/ui` and `.sdk/doppelganger-ui` remain
+resolvable legacy spellings only.
+
 Applications own their domain components and information architecture. This
 package owns brand assets, tokens, primitive interaction vocabulary, focus and
 motion behavior, and the small reusable components proven by reference apps.
@@ -17,6 +22,18 @@ motion behavior, and the small reusable components proven by reference apps.
 The deployed Micro-app archive already carries `apps/.sdk` beside every
 Program. Vite consumers should resolve `@tealbrick/ui` against the local or
 packaged `.sdk/tealbrick-ui` source rather than copying it.
+
+## Themes
+
+Light is the default. The dark theme follows `prefers-color-scheme: dark` unless
+the app pins `data-theme="light"`; `data-theme="dark"` forces it.
+
+## App icons and web manifest
+
+`vite/app-icons.mjs` exports `tealbrickAppIcons({ name, shortName })`, a Vite
+plugin that emits the favicon, Apple touch icon, PWA icons and
+`manifest.webmanifest`, and injects their `<link>` tags. Every icon in
+`assets/icons/` is rendered from the official `teal-brick-colour.png`.
 
 ## Unified interaction primitives
 

@@ -38,4 +38,4 @@ publication.
 
 ## Bundled fonts
 
-The public Knowledge candidate uses Inter, Cormorant Garamond and JetBrains Mono under SIL Open Font License 1.1. Their copyright and complete licence texts are included in `.sdk/tealbrick-ui/assets/fonts/licenses/`. Font files retain their original embedded ownership metadata. Switzer has been removed from this candidate; its proprietary terms are not covered by the first-party MIT licence.
+The public Knowledge candidate uses Geist and Geist Mono (Copyright (c) 2023 Vercel, in collaboration with basement.studio) under SIL Open Font License 1.1, the faces the Teal Brick Portal serves. The complete licence text is included in `.sdk/tealbrick-ui/assets/fonts/licenses/Geist-OFL.txt`. Font files retain their original embedded ownership metadata. Inter, Cormorant Garamond, JetBrains Mono and Switzer are no longer bundled. The Teal Brick mark and app icons (`.sdk/tealbrick-ui/assets/tealbrick-mark.*`, `tealbrick-tile.svg`, `icons/`) are Tealbrick brand artwork.

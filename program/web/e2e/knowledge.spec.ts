@@ -29,20 +29,24 @@ test("standalone library reads the isolated canonical fixture and developer cont
   await expect(settings.getByRole("heading", { name: "Connect your models" })).toBeVisible();
   // The browser fixture has no owner attestation: model settings explain that instead of failing silently.
   await expect(settings.getByText("Model settings are owner-only")).toBeVisible();
-  await settings.getByRole("button", { name: "Runtime" }).click();
+  // The Workspace tab is read-only: customers never switch scope by typing ids (#11).
+  await settings.getByRole("button", { name: "Workspace" }).click();
   await expect(page).toHaveURL(/section=runtime/);
+  await expect(settings.getByText("Default workspace", { exact: true })).toBeVisible();
+  await expect(settings.getByLabel("Workspace ID")).toHaveCount(0);
+  // Operators switch under Developer.
+  await settings.getByRole("button", { name: "Developer" }).click();
   await settings.getByLabel("Workspace ID").fill("team-alpha");
-  await settings.getByRole("button", { name: "Switch workspace" }).click();
+  await settings.getByRole("button", { name: "Open workspace" }).click();
   await expect(page).toHaveURL(/view=settings.*companyId=team-alpha/);
   await page.getByRole("button", { name: "Library", exact: true }).click();
   await expect(page).toHaveURL(/view=library&companyId=team-alpha/);
   await page.getByRole("button", { name: "Open settings" }).click();
   await expect(page).toHaveURL(/view=settings&companyId=team-alpha&section=models/);
-  await settings.getByRole("button", { name: "Runtime" }).click();
+  await settings.getByRole("button", { name: "Developer" }).click();
   await expect(page.getByLabel("Workspace ID")).toHaveValue("team-alpha");
   await page.reload();
   await expect(page.getByLabel("Workspace ID")).toHaveValue("team-alpha");
-  await settings.getByRole("button", { name: "Developer" }).click();
   await expect(settings.getByText("/api/companies/{companyId}/knowledge/search", { exact: true })).toBeVisible();
   await expect(settings.getByText("Connections are managed on the server")).toBeVisible();
   await expect(settings.getByText("Version control", { exact: true })).toBeVisible();
@@ -58,7 +62,8 @@ test("standalone library reads the isolated canonical fixture and developer cont
   // The memory engine is off in this fixture; the next action leads to model setup.
   await services.getByRole("button", { name: "Open Models" }).click();
   await expect(page).toHaveURL(/section=models/);
-  await expect(page.getByRole("link", { name: /^Memory/ })).toContainText("Off");
+  // Not set up is a next step, not an error (#11).
+  await expect(page.getByRole("link", { name: /^Memory/ })).toContainText("Set up");
 });
 
 test("settings deep links preserve a non-default scope through sections, reload, and history", async ({ page }) => {
@@ -68,7 +73,7 @@ test("settings deep links preserve a non-default scope through sections, reload,
   expect(new URL(page.url()).searchParams.get("companyId")).toBe("team-alpha");
   expect(new URL(page.url()).searchParams.get("section")).toBe("developer");
   await expect(page.getByRole("heading", { name: "API reference" })).toBeVisible();
-  await expect(page.getByText("team-alpha", { exact: true }).first()).toBeVisible();
+  await expect(page.getByLabel("Workspace ID")).toHaveValue("team-alpha");
 
   await page.getByRole("link", { name: "Research", exact: true }).click();
   await expect(page).toHaveURL(/\?view=research&companyId=team-alpha/);
@@ -76,15 +81,15 @@ test("settings deep links preserve a non-default scope through sections, reload,
   await expect(page).toHaveURL(/\?view=settings&companyId=team-alpha&section=models/);
   // The sidebar Settings link and the settings button open the same section.
   await expect(page.getByRole("link", { name: "Settings" })).toHaveAttribute("href", /section=models/);
-  await page.getByRole("button", { name: "Runtime" }).click();
+  await page.getByRole("button", { name: "Workspace", exact: true }).click();
   await expect(page).toHaveURL(/\?view=settings&companyId=team-alpha&section=runtime/);
   await page.reload();
-  await expect(page.getByLabel("Workspace ID")).toHaveValue("team-alpha");
+  await expect(page.locator(".contract-list").getByText("This workspace", { exact: true })).toBeVisible();
   await page.goBack();
   await expect(page).toHaveURL(/\?view=research&companyId=team-alpha/);
   await page.goForward();
   await expect(page).toHaveURL(/\?view=settings&companyId=team-alpha&section=runtime/);
-  await expect(page.getByLabel("Workspace ID")).toHaveValue("team-alpha");
+  await expect(page.locator(".contract-list").getByText("This workspace", { exact: true })).toBeVisible();
   await page.goto("/?view=settings&section=version-control&companyId=team-alpha");
   await expect(page.getByRole("heading", { name: "API reference" })).toBeVisible();
 });
@@ -100,7 +105,7 @@ test("an explicit default scope is not replaced by discovered bootstrap scope", 
   });
   await page.goto("/?view=library&companyId=default");
   await expect(page).toHaveURL(/view=library&companyId=default/);
-  await expect(page.locator(".topbar code")).toHaveText("default");
+  await expect(page.locator(".topbar-workspace")).toHaveText("Default workspace");
 });
 
 test("conflicting create remains in the editor and reports the Program response", async ({ page }) => {

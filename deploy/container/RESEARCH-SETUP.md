@@ -7,9 +7,18 @@ health check must not turn this into a Research-ready claim.
 
 ## Two distinct access paths
 
-The Portal attachment edge currently authorizes Documents and Brain operations.
-It does **not** authorize the Research routes. Do not work around that limitation
-by giving the instance-wide `KNOWLEDGE_INSTANCE_TOKEN` to Eve or another agent.
+The Portal attachment edge authorizes Documents and Brain operations and, when
+Portal issues `knowledge:research:read` / `knowledge:research:write` on the
+attachment, the Research engine routes (notebook discovery, notebook, sources,
+notes, context, source writes and receipts, chat sessions, messages and
+receipts). Chat send and chat receipts need both grants. The edge introspects
+every required grant, then forwards the call with a per-request bearer that the
+Program resolves to a principal bound to `KNOWLEDGE_COMPANY_ID` with exactly
+those capabilities; notebook mapping and workspace checks still apply. Local
+Research CRUD (`/api/research/summary`, legacy ask/chat) is not reachable by
+attachments. Portal must start issuing the `knowledge:research:*` capabilities
+before agents can use this path. Do not work around a missing grant by giving
+the instance-wide `KNOWLEDGE_INSTANCE_TOKEN` to Eve or another agent.
 
 Standalone Research has a separate, existing service-principal contract. At the
 container edge, operator diagnostics require the instance header **and** the
@@ -44,7 +53,40 @@ the operation checks below. Establish resource headroom before adding these
 services to the existing four-GiB Coolify test guest; the single Knowledge
 startup peak alone was approximately 1.1 GiB.
 
+## Models: Settings -> Models configures Research
+
+Knowledge -> Settings -> Models is the single place to set model providers.
+Saving there (and every Knowledge start, including after an upgrade) also
+configures this deployment's Open Notebook: one encrypted credential per
+provider named `tealbrick-knowledge-<provider>`, the chat and embedding models
+linked to it, and Open Notebook's default chat, transformation, tools,
+large-context and embedding models. The provider key stays on the server: it is
+sent only to Open Notebook (stored encrypted) and is never written to
+`/data/research-settings.json`, returned to a browser, or logged. The save
+response and the settings page show the Research status; a Research failure
+never undoes the memory save and is retried on the next start.
+
+- Open Notebook needs `OPEN_NOTEBOOK_ENCRYPTION_KEY` to store the key; without
+  it the status is `encryption_not_configured`.
+- Ollama maps to `ollama` (without `/v1`), llama-server to `openai_compatible`.
+- If Open Notebook already has a different default embedding model and holds
+  sources or notes, Knowledge does not switch it (status
+  `embedding_migration_required`): existing vectors would stop matching. Chat
+  still follows the new models.
+- A same-name Open Notebook model linked to another credential is replaced so
+  it uses the Knowledge key.
+- `KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID` remains an optional override; when it
+  is unset, Research chat uses the synced model without a restart.
+
 ## Bind notebooks and identity
+
+When `KNOWLEDGE_COMPANY_ID` is set and no binding exists for that workspace,
+saving models also creates a local Research notebook owned by that workspace
+and a new upstream notebook, and records the binding in
+`/data/research-settings.json`. It takes effect immediately. The steps below
+remain for extra notebooks or deployments without a bound workspace;
+`KNOWLEDGE_OPEN_NOTEBOOK_BINDINGS` is an optional addition, and the union of
+configured and saved bindings fails closed on any duplicate mapping.
 
 1. Create a local Knowledge notebook owned by the intended workspace company
    ID, and a new upstream notebook in this deployment's Open Notebook. Retain
@@ -66,12 +108,11 @@ startup peak alone was approximately 1.1 GiB.
    standalone credential changes require restart; this is not a dynamic Portal
    grant or an automatically refreshed attachment.
 
-## Enable model-backed chat separately
+## Model-backed chat
 
-Provision a supported provider in the private Open Notebook service and register
-a language model there. Its returned `model:<id>` is assigned server-side to
-`KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID`. A provider's model name alone is not that
-record ID. Keep provider keys exclusively in Open Notebook's trusted runtime.
+Settings -> Models provisions the provider and models (see above). To pin a
+different Open Notebook language model, set `KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID`
+to its `model:<id>` record ID; a provider's model name alone is not that ID.
 The caller cannot select the model or supply its own context/source IDs.
 
 Plain-text source creation can run with embedding and transformations disabled;
@@ -96,7 +137,7 @@ tokens or source bodies in shared logs.
 | Restart | Notebook mapping, source, chat ownership and receipts survive service restart with the retained volumes |
 | Isolation | Missing/wrong principal and foreign-company notebook requests denied; another principal cannot read private chat receipts |
 | Ambiguity | Held/uncertain write cannot be retried under a new key; inspect existing receipt and upstream evidence |
-| Portal attachment | Pending implementation for Research; do not replace with an instance-wide secret |
+| Portal attachment | Agent with `knowledge:research:read`/`write` reaches only its workspace's mapped notebooks; missing grant is denied; never replaced with an instance-wide secret |
 
 For exact endpoints and request shapes, use the
 [Research agent contract](../../docs/research-agent-contract.md). For the

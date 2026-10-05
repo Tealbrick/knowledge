@@ -7,7 +7,7 @@ compatibility layer. Nothing here is released.
 
 Evidence:
 
-- `gbrain-upstream-delta.md` (handoff folder) — the vendored-tree diff and
+- [gbrain-vendored-delta.md](gbrain-vendored-delta.md) — the vendored-tree diff and
   upstream server mode.
 - The integration map in this PR's description.
 

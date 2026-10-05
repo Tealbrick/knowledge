@@ -1245,12 +1245,14 @@ export async function buildKnowledgeApp(
   // Open Notebook is configured.
   const openNotebookChat = openNotebook
     ? new OpenNotebookChatAdapter({ baseUrl: config.openNotebookBaseUrl!, token: config.openNotebookToken!, timeoutMs: 30_000, maxResponseBytes: 4 * 1024 * 1024 }) : null;
+  // Writers are static service principals or a trusted host provider (e.g.
+  // Portal attachments admitted by the container edge).
+  const researchWritersPossible = Boolean(options.researchPrincipalProvider) ||
+    config.knowledgeServicePrincipals.some((principal) => principal.capabilities.includes("research:write"));
   try {
-    researchWriteLedger = openNotebook && config.researchWriteLedgerPath &&
-      config.knowledgeServicePrincipals.some((principal) => principal.capabilities.includes("research:write"))
+    researchWriteLedger = openNotebook && config.researchWriteLedgerPath && researchWritersPossible
       ? new ResearchWriteLedger(config.researchWriteLedgerPath) : null;
-    researchChatLedger = openNotebookChat && config.researchChatLedgerPath &&
-      config.knowledgeServicePrincipals.some((principal) => principal.capabilities.includes("research:write"))
+    researchChatLedger = openNotebookChat && config.researchChatLedgerPath && researchWritersPossible
       ? new ResearchChatLedger(config.researchChatLedgerPath) : null;
     await brain.start();
   } catch (error) {

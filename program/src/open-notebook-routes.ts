@@ -324,7 +324,10 @@ export function registerOpenNotebookRoutes(
     reply: FastifyReply,
     capability: string,
   ): Promise<KnowledgeServicePrincipal | null> => {
-    if (!options.researchPrincipalProvider && (!options.principals || !options.principals.configured || typeof options.principals.resolve !== "function")) {
+    const staticPrincipals = Boolean(options.principals && options.principals.configured && typeof options.principals.resolve === "function");
+    // A host provider can only admit bearer requests; without one (or without
+    // a bearer) and without static principals, Research has no authority.
+    if (!staticPrincipals && (!options.researchPrincipalProvider || request.headers.authorization === undefined)) {
       sendError(reply, 503, "principal_authority_unavailable");
       return null;
     }

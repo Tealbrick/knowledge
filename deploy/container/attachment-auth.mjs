@@ -18,7 +18,35 @@ export function attachmentRoute(method, rawUrl, companyId) {
   if (document && method === 'GET') return {capability:'knowledge:documents:read', documentId:decodeURIComponent(document[1])};
   if (method === 'POST' && ['/api/brain/context','/api/brain/recall'].includes(path)) return {capability:'knowledge:brain:read',bodyKind:'brain'};
   if (method === 'GET' && path === '/api/brain/entities') return {capability:'knowledge:brain:read'};
-  return null;
+  return researchAttachmentRoute(method, path);
+}
+
+const RESEARCH_READ = 'knowledge:research:read';
+const RESEARCH_WRITE = 'knowledge:research:write';
+const NOTEBOOK = '/api/research/notebooks/[^/]+/engine';
+const SEGMENT = '[^/]+';
+/**
+ * Research engine routes a Portal attachment may reach. `requires` lists every
+ * Portal capability the edge must verify; the Program receives a principal
+ * holding exactly those (mapped to research:read / research:write) and still
+ * applies its own notebook mapping and workspace checks.
+ */
+const RESEARCH_ROUTES = [
+  ['GET', '^/api/research/engine/notebooks$', [RESEARCH_READ]],
+  ['GET', `^${NOTEBOOK}$`, [RESEARCH_READ]],
+  ['GET', `^${NOTEBOOK}/(?:sources|notes|context)$`, [RESEARCH_READ]],
+  ['GET', `^${NOTEBOOK}/(?:sources|notes)/${SEGMENT}$`, [RESEARCH_READ]],
+  ['POST', `^${NOTEBOOK}/sources$`, [RESEARCH_WRITE]],
+  ['GET', `^${NOTEBOOK}/write-receipts/${SEGMENT}$`, [RESEARCH_WRITE]],
+  ['POST', `^${NOTEBOOK}/chat/sessions$`, [RESEARCH_WRITE]],
+  ['GET', `^${NOTEBOOK}/chat/sessions/${SEGMENT}$`, [RESEARCH_READ]],
+  ['POST', `^${NOTEBOOK}/chat/sessions/${SEGMENT}/messages$`, [RESEARCH_WRITE, RESEARCH_READ]],
+  ['GET', `^${NOTEBOOK}/chat/receipts/${SEGMENT}$`, [RESEARCH_WRITE, RESEARCH_READ]],
+].map(([method, pattern, requires]) => ({method, pattern: new RegExp(pattern, 'u'), requires}));
+
+export function researchAttachmentRoute(method, path) {
+  const route = RESEARCH_ROUTES.find(entry => entry.method === method && entry.pattern.test(path));
+  return route ? {capability: route.requires[0], research: true, requires: [...route.requires]} : null;
 }
 
 export function attachmentConfig(env) {

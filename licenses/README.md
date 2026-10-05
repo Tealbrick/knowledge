@@ -21,6 +21,6 @@ The Bun notice identifies statically linked LGPL JavaScriptCore/WebKit; the
 corresponding upstream source records and hashes are in
 `runtime-source-manifest.json`. A later image rebuild must be reconciled again.
 
-Font licences are preserved beside the fonts in `.sdk/tealbrick-ui/assets/fonts/licenses/` and copied into the web distribution.
+Font licences ship beside the fonts in the `@tealbrick/ui` package (`assets/fonts/licenses/`) and are copied into the web distribution.
 
 Native Bookworm backports retain their generated Debian source packages, upstream archives, applied patches, build recipe and checksums in the corresponding-source bundle; `archivePath` is relative to that bundle root, not a public download URL. The exact backports and build/export instructions are in `deploy/container/OS-BACKPORTS.md`. The ACL upgrade supplies safer APIs without changing legacy pathname callers.

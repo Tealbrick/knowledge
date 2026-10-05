@@ -169,7 +169,7 @@ export function ResearchSourceCreatePanel({
   if (!storageReady) return <p className="loading-state" role="status"><RefreshCw className="spin" size={16} />Checking safe source-write state…</p>;
   if (storageError && !resume.pendingKey) return <Feedback state="unavailable" title="Source writes are disabled">This tab cannot retain a scoped request key. No source write will be sent.</Feedback>;
 
-  return <section className="research-source-create" aria-label="Create Open Notebook text source">
+  return <section className="research-source-create" aria-label="Add a text source">
     <div className="subheading"><div><p className="eyebrow">Text source</p><h4>Add evidence</h4></div><Tag>Read + write</Tag></div>
     {storageError && <Feedback state="unavailable" title="Source writes are disabled">This tab cannot clear its saved request key. Keep checking the original receipt; no new source write is enabled.</Feedback>}
     {resume.pendingKey && <Feedback state="pending" title="Request awaiting confirmation"

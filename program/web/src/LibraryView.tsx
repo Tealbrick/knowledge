@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Tabs from "@radix-ui/react-tabs";
-import { AlertTriangle, Archive, ChevronRight, FileClock, FileText, Link2, MessageSquareText, Paperclip, Plus, RefreshCw, Search, ShieldCheck, Upload } from "lucide-react";
+import { AlertTriangle, Archive, ChevronRight, FileClock, FileText, FolderPlus, Link2, MessageSquareText, Paperclip, Plus, RefreshCw, Search, ShieldCheck, Trash2, Upload } from "lucide-react";
 import { Button, EmptyState, Tag } from "@doppelganger/ui";
 import { addComment, ApiError, getAccess, getAttachments, getCollections, getComments, getDocument, getLinks, getRevisions, searchDocuments } from "./api";
 import type { KnowledgeDocument, KnowledgeSearchResult } from "./types";
-import { DocumentDialog, IngestDialog } from "./LibraryDialogs";
+import { CollectionDialog, DeleteCollectionDialog, DocumentDialog, IngestDialog } from "./LibraryDialogs";
+import { errorTitle } from "./errors";
 
 function date(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : "—";
@@ -19,16 +20,7 @@ function bytes(value: number) {
 
 function ErrorNotice({ error, retry }: { error: Error; retry?: () => void }) {
   const status = error instanceof ApiError ? error.status : 0;
-  const title =
-    status === 401
-      ? "Authentication required"
-      : status === 403
-        ? "This operation is forbidden"
-        : status === 409
-          ? "The record changed"
-          : status === 503
-            ? "Dependency unavailable"
-            : "Knowledge request failed";
+  const title = errorTitle(status);
   return (
     <div className="notice" role="alert">
       <AlertTriangle size={17} />
@@ -82,11 +74,13 @@ function DocumentIndex({
   selectedId,
   onSelect,
   loading,
+  emptyHint,
 }: {
   documents: KnowledgeSearchResult[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   loading: boolean;
+  emptyHint: string;
 }) {
   if (loading) return <Loading label="Searching the library…" />;
   if (!documents.length)
@@ -94,7 +88,7 @@ function DocumentIndex({
       <div className="index-empty">
         <Archive size={22} />
         <strong>No documents found</strong>
-        <span>Try a broader search or select another collection.</span>
+        <span>{emptyHint}</span>
       </div>
     );
   return (
@@ -182,7 +176,7 @@ function DocumentWorkspace({
     <article className="document-workspace">
       <header className="document-title">
         <div>
-          <p className="eyebrow">Canonical document · {document.bodyFormat}</p>
+          <p className="eyebrow">Document · {document.bodyFormat}</p>
           <h2>{document.title}</h2>
           <div className="tag-row">
             <Tag
@@ -258,7 +252,7 @@ function DocumentWorkspace({
                 <dd>{date(document.source.syncedAt)}</dd>
               </dl>
             ) : (
-              <p>Program-owned native document.</p>
+              <p>Created in Knowledge.</p>
             )}
           </section>
         </aside>
@@ -311,8 +305,7 @@ function DocumentWorkspace({
               </div>
             ) : (
               <p className="muted-row">
-                No immutable revisions have been recorded. This Program has no
-                revision-restore contract.
+                No earlier versions have been recorded yet.
               </p>
             )}
           </Tabs.Content>
@@ -326,7 +319,7 @@ function DocumentWorkspace({
             >
               <textarea
                 aria-label="Add a document comment"
-                placeholder="Add context for operators and agents…"
+                placeholder="Add context for your team and agents…"
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
               />
@@ -449,6 +442,8 @@ export function LibraryView({ companyId }: { companyId: string }) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingExisting, setEditingExisting] = useState(false);
   const [ingestOpen, setIngestOpen] = useState(false);
+  const [collectionOpen, setCollectionOpen] = useState(false);
+  const [deleteCollectionOpen, setDeleteCollectionOpen] = useState(false);
   const collections = useQuery({
     queryKey: ["knowledge-collections", companyId],
     queryFn: () => getCollections(companyId),
@@ -481,25 +476,49 @@ export function LibraryView({ companyId }: { companyId: string }) {
     else setSelectedId(null);
   };
 
+  const hasCollections = Boolean(collections.data?.length);
+  // A new installation may have no collections (agent-scoped access) or only
+  // an empty automatic "Default" collection (owner browser). Both are first run.
+  const noCollections = collections.isSuccess && !hasCollections;
+  const firstRun = collections.isSuccess &&
+    (collections.data ?? []).reduce((total, entry) => total + (entry.documentCount ?? 0), 0) === 0;
+  const activeCollection = collections.data?.find((entry) => entry.id === collectionId) ?? null;
+  const searching = Boolean(search.trim());
+  const emptyHint = searching
+    ? "Try a broader search or select another collection."
+    : activeCollection
+      ? "This collection has no documents yet. Use New to write one or Ingest to import files."
+      : "Use New to write a document or Ingest to import files.";
+  const newCollectionButton = (
+    <Button size="small" tone={noCollections ? "primary" : "default"} onClick={() => setCollectionOpen(true)}>
+      <FolderPlus size={14} />
+      New collection
+    </Button>
+  );
+
   return (
     <section className="library-layout">
       <aside className="library-index">
         <div className="index-heading">
           <div>
-            <p className="eyebrow">Canonical record</p>
+            <p className="eyebrow">Documents</p>
             <h2>Library</h2>
           </div>
-          <Button
-            size="small"
-            onClick={() => {
-              setEditingExisting(false);
-              setEditorOpen(true);
-            }}
-            disabled={!collections.data?.length}
-          >
-            <Plus size={14} />
-            New
-          </Button>
+          <div className="header-actions">
+            {hasCollections && (
+              <Button
+                size="small"
+                onClick={() => {
+                  setEditingExisting(false);
+                  setEditorOpen(true);
+                }}
+              >
+                <Plus size={14} />
+                New
+              </Button>
+            )}
+            {newCollectionButton}
+          </div>
         </div>
         <label className="search-box">
           <Search size={15} />
@@ -528,7 +547,25 @@ export function LibraryView({ companyId }: { companyId: string }) {
             </button>
           ))}
         </div>
-        {documents.error ? (
+        {activeCollection && (
+          <div className="collection-actions">
+            <span>{activeCollection.description || "No description"}</span>
+            <Button size="small" tone="ghost" onClick={() => setDeleteCollectionOpen(true)}>
+              <Trash2 size={13} />
+              Delete collection
+            </Button>
+          </div>
+        )}
+        {collections.error && (
+          <ErrorNotice error={collections.error} retry={() => collections.refetch()} />
+        )}
+        {noCollections ? (
+          <div className="index-empty">
+            <FolderPlus size={22} />
+            <strong>Start with a collection</strong>
+            <span>Create a collection, then write or import documents into it.</span>
+          </div>
+        ) : documents.error ? (
           <ErrorNotice
             error={documents.error}
             retry={() => documents.refetch()}
@@ -539,6 +576,7 @@ export function LibraryView({ companyId }: { companyId: string }) {
             selectedId={selectedId}
             onSelect={setSelectedId}
             loading={documents.isLoading}
+            emptyHint={emptyHint}
           />
         )}
       </aside>
@@ -548,7 +586,7 @@ export function LibraryView({ companyId }: { companyId: string }) {
             <ErrorNotice error={detail.error} retry={() => detail.refetch()} />
           </div>
         ) : detail.isLoading ? (
-          <Loading label="Opening canonical document…" />
+          <Loading label="Opening document…" />
         ) : detail.data ? (
           <DocumentWorkspace
             document={detail.data}
@@ -559,11 +597,45 @@ export function LibraryView({ companyId }: { companyId: string }) {
             }}
             onIngest={() => setIngestOpen(true)}
           />
+        ) : firstRun && !searching ? (
+          <div className="workspace-state">
+            <EmptyState
+              title="Your library is empty"
+              action={
+                <div className="header-actions">
+                  {hasCollections && (
+                    <Button
+                      size="small"
+                      tone="primary"
+                      onClick={() => {
+                        setEditingExisting(false);
+                        setEditorOpen(true);
+                      }}
+                    >
+                      <Plus size={14} />
+                      Write a document
+                    </Button>
+                  )}
+                  {hasCollections && (
+                    <Button size="small" onClick={() => setIngestOpen(true)}>
+                      <Upload size={14} />
+                      Import files
+                    </Button>
+                  )}
+                  {newCollectionButton}
+                </div>
+              }
+            >
+              Knowledge keeps your team's documents in collections, ready for
+              you and your agents to search. Write or import a document, or
+              create a collection to organise them.
+            </EmptyState>
+          </div>
         ) : (
           <div className="workspace-state">
             <EmptyState title="Select a document">
-              The canonical body, revision record, access policy, links, and
-              attachments will appear here.
+              Its content, history, discussion, links, attachments, and access
+              will appear here.
             </EmptyState>
           </div>
         )}
@@ -573,7 +645,26 @@ export function LibraryView({ companyId }: { companyId: string }) {
         onOpenChange={setEditorOpen}
         document={editingExisting ? (detail.data ?? null) : null}
         collections={collections.data ?? []}
+        defaultCollectionId={collectionId}
         onSaved={refreshLibrary}
+      />
+      <CollectionDialog
+        open={collectionOpen}
+        onOpenChange={setCollectionOpen}
+        companyId={companyId}
+        onCreated={async (collection) => {
+          await refreshLibrary();
+          setCollectionId(collection.id);
+        }}
+      />
+      <DeleteCollectionDialog
+        open={deleteCollectionOpen}
+        onOpenChange={setDeleteCollectionOpen}
+        collection={activeCollection}
+        onDeleted={async () => {
+          setCollectionId(null);
+          await refreshLibrary();
+        }}
       />
       <IngestDialog
         open={ingestOpen}

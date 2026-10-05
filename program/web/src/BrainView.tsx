@@ -35,19 +35,12 @@ import type {
   BrainTimelineEvent,
   FrontendBootstrap,
 } from "./types";
+import { errorTitle } from "./errors";
+import { describeMemory } from "./service-status";
 
 function ErrorNotice({ error, retry }: { error: Error; retry?: () => void }) {
   const status = error instanceof ApiError ? error.status : 0;
-  const title =
-    status === 401
-      ? "Authentication required"
-      : status === 403
-        ? "This operation is forbidden"
-        : status === 409
-          ? "The record changed"
-          : status === 503
-            ? "Dependency unavailable"
-            : "Knowledge request failed";
+  const title = errorTitle(status);
   return (
     <div className="notice" role="alert">
       <AlertTriangle size={17} />
@@ -616,7 +609,7 @@ export function BrainEntityCardDetail({
           <ShieldCheck size={15} />
           <div>
             <strong>Fact visibility is limited</strong>
-            <p>Only world-visible facts are returned by this remote surface. An empty facts tab is not proof that private facts do not exist.</p>
+            <p>Only shared facts are shown here. Private facts may exist even when this tab is empty.</p>
           </div>
         </div>
       )}
@@ -687,34 +680,32 @@ export function BrainView({ bootstrap }: { bootstrap: FrontendBootstrap }) {
   const semanticSearchStatus = capabilityStatus(entities.data, "semanticSearch");
   const entityPagination = entities.data?.pagination;
   const entityEmpty = entities.data?.status === "ready" && entityPagination?.complete === false
-    ? "No entity pages are visible in this bounded window; the native page source did not prove the full register is empty."
+    ? "No entity pages are visible in this window. There may be more beyond it."
     : entities.data?.status === "ready"
-      ? "The engine answered successfully, but this scope has no visible entities."
-      : "Engine reachability does not prove that entity pages or extraction are available.";
+      ? "The memory engine answered, but this workspace has no entities yet."
+      : "The memory engine is running, but entity pages or extraction may not be available yet.";
   return (
     <section className="section-scroll">
-      <SectionHeader eyebrow="Knowledge memory" title="Brain">
-        Browse server-projected entities and grounded memory. Canonical
-        documents remain the source record; this read surface does not expose
-        provider credentials or infer extraction readiness from engine health.
+      <SectionHeader eyebrow="Memory engine" title="Memory">
+        Browse the people, projects, and facts Knowledge has learned from your
+        documents. Your documents remain the source of truth.
       </SectionHeader>
       <div className={`dependency-banner ${engineReachable ? "is-online" : "is-degraded"}`}>
         <Brain size={20} />
         <div>
-          <strong>{engineReachable ? "Engine reachable" : "Engine unavailable"}</strong>
+          <strong>{engineReachable ? "Memory engine running" : "Memory engine unavailable"}</strong>
           <p>
             {engineReachable
               ? "Entity pages, extraction, and semantic search report their own availability below."
-              : (typeof gbrain.detail === "string" && gbrain.detail) ||
-                "Documents and Research remain usable while Knowledge memory is unavailable."}
+              : [describeMemory(gbrain).detail, describeMemory(gbrain).nextStep].filter(Boolean).join(" ")}
           </p>
         </div>
         <Tag tone={engineReachable ? "success" : "warning"}>
           {gbrain.configured ? "Configured" : "Not configured"}
         </Tag>
       </div>
-      <div className="posture-row" aria-label="Brain capability status">
-        <div><Brain size={15} /><div><strong>Engine</strong><small>{engineReachable ? "Reachable" : "Unavailable"}</small></div></div>
+      <div className="posture-row" aria-label="Memory status">
+        <div><Brain size={15} /><div><strong>Memory engine</strong><small>{engineReachable ? "Running" : "Unavailable"}</small></div></div>
         <div><CircleUserRound size={15} /><div><strong>Entity pages</strong><small>{capabilityStatus(entities.data, "pageEnumeration")}</small></div></div>
         <div><FileText size={15} /><div><strong>Extraction</strong><small>{extractionStatus}</small></div></div>
         <div><Search size={15} /><div><strong>Semantic search</strong><small>{semanticSearchStatus}</small></div></div>
@@ -737,7 +728,7 @@ export function BrainView({ bootstrap }: { bootstrap: FrontendBootstrap }) {
               }}
             >
               <textarea
-                aria-label="Brain query"
+                aria-label="Memory query"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search retained concepts, entities, and grounded context…"
@@ -753,10 +744,10 @@ export function BrainView({ bootstrap }: { bootstrap: FrontendBootstrap }) {
           <section className="entity-panel" style={{ marginTop: 24 }}>
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Entity register</p>
+                <p className="eyebrow">Entities</p>
                 <h2>{entityHeading}</h2>
               </div>
-              <Tag>{entities.data?.facts ? `${entities.data.facts.length} facts in response` : "Native pages"}</Tag>
+              <Tag>{entities.data?.facts ? `${entities.data.facts.length} facts in response` : "Entity pages"}</Tag>
             </div>
             {entities.error ? (
               <ErrorNotice error={entities.error} retry={() => entities.refetch()} />
@@ -797,12 +788,11 @@ export function BrainView({ bootstrap }: { bootstrap: FrontendBootstrap }) {
       <div className="contract-gap">
         <ShieldCheck size={17} />
         <div>
-          <strong>Read-only browser surface</strong>
+          <strong>Read-only view</strong>
           <p>
-            Fact extraction is not exposed from this screen. The Program keeps
-            GBrain credentials server-side and reports configured extraction or
-            semantic-search availability separately from this read surface.
-            Current extraction status: {extractionStatus}. Semantic search status: {semanticSearchStatus}.
+            Fact extraction can't be started from this screen, and model keys
+            stay on the server. Extraction: {extractionStatus}. Semantic
+            search: {semanticSearchStatus}.
           </p>
         </div>
       </div>

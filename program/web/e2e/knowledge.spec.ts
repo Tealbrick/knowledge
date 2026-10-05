@@ -23,46 +23,70 @@ test("standalone library reads the isolated canonical fixture and developer cont
   await expect(page.locator(".document-workspace h2")).toHaveText("Knowledge Browser Acceptance Fixture");
   await expect(page.getByText("This document exists only inside the Playwright-managed temporary SQLite database.")).toBeVisible();
   await page.getByRole("button", { name: "Open settings" }).click();
-  await expect(page).toHaveURL(/\?view=settings&companyId=default&section=runtime/);
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page).toHaveURL(/\?view=settings&companyId=default&section=models/);
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
   const settings = page.locator(".dg-settings-page");
-  await settings.getByLabel("Company ID").fill("team-alpha");
-  await settings.getByRole("button", { name: "Apply scope" }).click();
+  await expect(settings.getByRole("heading", { name: "Connect your models" })).toBeVisible();
+  // The browser fixture has no owner attestation: model settings explain that instead of failing silently.
+  await expect(settings.getByText("Model settings are owner-only")).toBeVisible();
+  await settings.getByRole("button", { name: "Runtime" }).click();
+  await expect(page).toHaveURL(/section=runtime/);
+  await settings.getByLabel("Workspace ID").fill("team-alpha");
+  await settings.getByRole("button", { name: "Switch workspace" }).click();
   await expect(page).toHaveURL(/view=settings.*companyId=team-alpha/);
   await page.getByRole("button", { name: "Library", exact: true }).click();
   await expect(page).toHaveURL(/view=library&companyId=team-alpha/);
   await page.getByRole("button", { name: "Open settings" }).click();
-  await expect(page.getByLabel("Company ID")).toHaveValue("team-alpha");
+  await expect(page).toHaveURL(/view=settings&companyId=team-alpha&section=models/);
+  await settings.getByRole("button", { name: "Runtime" }).click();
+  await expect(page.getByLabel("Workspace ID")).toHaveValue("team-alpha");
   await page.reload();
-  await expect(page.getByLabel("Company ID")).toHaveValue("team-alpha");
+  await expect(page.getByLabel("Workspace ID")).toHaveValue("team-alpha");
   await settings.getByRole("button", { name: "Developer" }).click();
   await expect(settings.getByText("/api/companies/{companyId}/knowledge/search", { exact: true })).toBeVisible();
+  await expect(settings.getByText("Connections are managed on the server")).toBeVisible();
+  await expect(settings.getByText("Version control", { exact: true })).toBeVisible();
+  await expect(settings.getByRole("button", { name: "Version control" })).toHaveCount(0);
   await settings.getByRole("button", { name: "Dependencies" }).click();
-  await expect(settings.getByText("No browser pairing contract")).toBeVisible();
-  await settings.getByRole("button", { name: "Version control" }).click();
-  await expect(settings.getByRole("heading", { name: "No version-control endpoint" })).toBeVisible();
+  await expect(settings.getByRole("heading", { name: "Services" })).toBeVisible();
+  const services = settings.getByLabel("Services", { exact: true });
+  await expect(services.getByText("Document database", { exact: true })).toBeVisible();
+  await expect(services.getByText("Memory engine", { exact: true })).toBeVisible();
+  await expect(services).not.toContainText("knowledgeDb");
+  await expect(settings.getByLabel("Features").getByText("Research", { exact: true })).toBeVisible();
+  await expect(settings.getByLabel("Features")).toContainText("Not connected");
+  // The memory engine is off in this fixture; the next action leads to model setup.
+  await services.getByRole("button", { name: "Open Models" }).click();
+  await expect(page).toHaveURL(/section=models/);
+  await expect(page.getByRole("link", { name: /^Memory/ })).toContainText("Off");
 });
 
 test("settings deep links preserve a non-default scope through sections, reload, and history", async ({ page }) => {
   await page.goto("/?view=settings&section=developer&companyId=team-alpha");
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
   await expect(page).toHaveURL(/view=settings/);
   expect(new URL(page.url()).searchParams.get("companyId")).toBe("team-alpha");
   expect(new URL(page.url()).searchParams.get("section")).toBe("developer");
-  await expect(page.getByRole("heading", { name: "Developer contract" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "API reference" })).toBeVisible();
   await expect(page.getByText("team-alpha", { exact: true }).first()).toBeVisible();
 
   await page.getByRole("link", { name: "Research", exact: true }).click();
   await expect(page).toHaveURL(/\?view=research&companyId=team-alpha/);
   await page.getByRole("button", { name: "Open settings" }).click();
+  await expect(page).toHaveURL(/\?view=settings&companyId=team-alpha&section=models/);
+  // The sidebar Settings link and the settings button open the same section.
+  await expect(page.getByRole("link", { name: "Settings" })).toHaveAttribute("href", /section=models/);
+  await page.getByRole("button", { name: "Runtime" }).click();
   await expect(page).toHaveURL(/\?view=settings&companyId=team-alpha&section=runtime/);
   await page.reload();
-  await expect(page.getByLabel("Company ID")).toHaveValue("team-alpha");
+  await expect(page.getByLabel("Workspace ID")).toHaveValue("team-alpha");
   await page.goBack();
   await expect(page).toHaveURL(/\?view=research&companyId=team-alpha/);
   await page.goForward();
   await expect(page).toHaveURL(/\?view=settings&companyId=team-alpha&section=runtime/);
-  await expect(page.getByLabel("Company ID")).toHaveValue("team-alpha");
+  await expect(page.getByLabel("Workspace ID")).toHaveValue("team-alpha");
+  await page.goto("/?view=settings&section=version-control&companyId=team-alpha");
+  await expect(page.getByRole("heading", { name: "API reference" })).toBeVisible();
 });
 
 test("an explicit default scope is not replaced by discovered bootstrap scope", async ({ page }) => {
@@ -140,10 +164,10 @@ for (const viewport of [
 
     await page.getByRole("button", { name: "Open settings" }).click();
     const settings = page.locator(".dg-settings-page");
-    await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible();
+    await expect(settings.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
     await expectContained(settings, settings.getByRole("button", { name: "← Library" }));
     await settings.getByRole("button", { name: "Developer" }).click();
-    await expect(settings.getByRole("heading", { name: "Developer contract" })).toBeVisible();
+    await expect(settings.getByRole("heading", { name: "API reference" })).toBeVisible();
     await expectNoDocumentOverflow(page);
   });
 }
@@ -156,10 +180,10 @@ test("embed is a complete constrained Knowledge surface", async ({ page }) => {
   await expect(knowledge.getByText("Knowledge", { exact: true }).first()).toBeVisible();
   await expect(knowledge.getByRole("heading", { name: "Library" })).toBeVisible();
   await knowledge.getByRole("button", { name: "Open settings" }).click();
-  await expect(knowledge.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(knowledge.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
   const embedFrame = page.frames().find((frame) => frame.url().includes("/embed"));
   expect(embedFrame).toBeDefined();
-  await expect.poll(() => embedFrame!.url()).toMatch(/\/embed\?view=settings&companyId=default&section=runtime/);
+  await expect.poll(() => embedFrame!.url()).toMatch(/\/embed\?view=settings&companyId=default&section=models/);
 });
 
 test("extract-facts is denied cross-origin without exposing or inventing a bearer", async ({ request }) => {

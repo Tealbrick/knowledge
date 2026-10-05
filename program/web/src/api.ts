@@ -21,8 +21,11 @@ import type {
   ResearchSummary,
   ResearchWorkspace,
 } from "./types";
+import { describeErrorCode, isErrorCode } from "./errors";
 
 export class ApiError extends Error {
+  /** Machine code from the response body (for example `invalid_model_settings`), if any. */
+  readonly code: string | null;
   constructor(
     readonly status: number,
     message: string,
@@ -30,7 +33,46 @@ export class ApiError extends Error {
   ) {
     super(message);
     this.name = "ApiError";
+    const code = body && typeof body === "object" ? (body as Record<string, unknown>).error : null;
+    this.code = typeof code === "string" ? code : null;
   }
+}
+
+/**
+ * Error codes the instance edge returns when the Portal browser session is
+ * missing, expired or revoked. Research sign-in and agent authorization use
+ * different codes and must not trigger a Portal relaunch prompt. The edge's
+ * generic `request_denied` also covers failures unrelated to the session, so
+ * it is reported in place rather than as a forced relaunch.
+ */
+const SESSION_ENDED_CODES = new Set([
+  "browser_session_required",
+  "instance_auth_required",
+]);
+
+let sessionEnded = false;
+const sessionListeners = new Set<() => void>();
+
+export function isSessionEndedResponse(status: number, body: unknown) {
+  if (status !== 401 || !body || typeof body !== "object") return false;
+  const code = (body as Record<string, unknown>).error;
+  return typeof code === "string" && SESSION_ENDED_CODES.has(code);
+}
+export function markSessionEnded() {
+  if (sessionEnded) return;
+  sessionEnded = true;
+  for (const listener of sessionListeners) listener();
+}
+export const getSessionEnded = () => sessionEnded;
+export function subscribeSessionEnded(listener: () => void) {
+  sessionListeners.add(listener);
+  return () => {
+    sessionListeners.delete(listener);
+  };
+}
+/** Test hook: a new page load starts with a live session. */
+export function resetSessionEndedForTests() {
+  sessionEnded = false;
 }
 
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -50,16 +92,21 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
         ? await response.json().catch(() => null)
         : await response.text().catch(() => null);
   if (!response.ok) {
+    if (isSessionEndedResponse(response.status, body)) markSessionEnded();
     const record =
       body && typeof body === "object"
         ? (body as Record<string, unknown>)
         : null;
+    // Prefer a human sentence from the server; never show a bare machine code.
     const message =
-      typeof record?.message === "string"
+      typeof record?.message === "string" && !isErrorCode(record.message)
         ? record.message
-        : typeof record?.error === "string"
+        : typeof record?.error === "string" && !isErrorCode(record.error)
           ? record.error
-          : `Knowledge request failed (${response.status}).`;
+          : describeErrorCode(
+              typeof record?.error === "string" ? record.error : typeof record?.message === "string" ? record.message : null,
+              response.status,
+            );
     throw new ApiError(response.status, message, body);
   }
   return body as T;

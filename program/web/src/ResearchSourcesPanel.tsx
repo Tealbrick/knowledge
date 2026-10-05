@@ -80,7 +80,7 @@ export function ResearchSourcesPanel({
     if (!canRead) {
       setSources([]);
       setHasNextPage(false);
-      setError("This principal does not have Research read capability.");
+      setError("This sign-in cannot read Research sources.");
       setLoading(false);
       return () => controller.abort();
     }
@@ -123,13 +123,13 @@ export function ResearchSourcesPanel({
   }, [notebookId, principalId, companyId, canRead, selectedId, detailRefreshNonce]);
 
   if (!canRead) {
-    return <section className="research-sources-panel" aria-label="Open Notebook sources"><Feedback state="forbidden" title="Research read capability required">This principal does not have Research read capability.</Feedback></section>;
+    return <section className="research-sources-panel" aria-label="Research sources"><Feedback state="forbidden" title="Research access required">This sign-in cannot read Research sources.</Feedback></section>;
   }
 
-  return <section className="research-sources-panel" aria-label="Open Notebook sources">
+  return <section className="research-sources-panel" aria-label="Research sources">
       <div className="subheading">
         <div>
-          <p className="eyebrow">Open Notebook</p>
+          <p className="eyebrow">Research workspace</p>
           <h3>Sources</h3>
         </div>
         <div className="header-actions">
@@ -151,10 +151,10 @@ export function ResearchSourcesPanel({
     />
     {error && <Feedback state="error" title="Sources unavailable" action={<Button size="small" onClick={() => setRefreshNonce((value) => value + 1)}>Retry</Button>}>{error}</Feedback>}
     {loading ? <Loading label="Loading sources…" /> : error ? null : sources.length === 0 ? (
-      <EmptyState title="No sources on this page">This mapped notebook has no readable Open Notebook sources here.</EmptyState>
+      <EmptyState title="No sources on this page">This notebook has no sources on this page.</EmptyState>
     ) : <>
       <div className="research-source-browser">
-        <div className="simple-list" aria-label="Open Notebook source inventory">
+        <div className="simple-list" aria-label="Research source list">
           {sources.map((source) => <Button
             tone="ghost"
             className="research-source-row"

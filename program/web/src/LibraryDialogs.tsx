@@ -22,7 +22,9 @@ import {
 } from "@doppelganger/ui";
 
 import {
+  createCollection,
   createDocument,
+  deleteCollection,
   deleteDocument,
   ingestFiles,
   runRepoIngest,
@@ -68,7 +70,7 @@ function Confirmation({
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="dialog-overlay" />
         <AlertDialog.Content className="confirm-dialog">
-          <p className="eyebrow">Governed Knowledge mutation</p>
+          <p className="eyebrow">Please confirm</p>
           <AlertDialog.Title>{title}</AlertDialog.Title>
           <AlertDialog.Description>{description}</AlertDialog.Description>
           <MutationError error={error} />
@@ -92,12 +94,14 @@ export function DocumentDialog({
   onOpenChange,
   document,
   collections,
+  defaultCollectionId = null,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   document: KnowledgeDocument | null;
   collections: KnowledgeCollection[];
+  defaultCollectionId?: string | null;
   onSaved: (documentId?: string) => void;
 }) {
   type DocumentDraft = {
@@ -129,7 +133,8 @@ export function DocumentDialog({
   useEffect(() => {
     if (!open) return;
     const nextDraft: DocumentDraft = {
-      collectionId: document?.collectionId ?? collections[0]?.id ?? "",
+      collectionId: document?.collectionId ??
+        (collections.some((entry) => entry.id === defaultCollectionId) ? defaultCollectionId! : collections[0]?.id ?? ""),
       title: document?.title ?? "",
       summary: document?.summary ?? "",
       body: document?.body ?? "",
@@ -228,8 +233,8 @@ export function DocumentDialog({
         title={document ? "Edit document" : "Create document"}
         description={
           selectedCollection?.sourceConfig.provider === "native"
-            ? "The Knowledge Program owns this document body."
-            : "Repository-backed changes write to the configured source provider before updating the local Knowledge spine."
+            ? "This document is stored in Knowledge."
+            : "Changes are written to the connected repository first, then saved in Knowledge."
         }
         footer={
           <div style={{ display: "flex", gap: "var(--dg-space-3)", justifyContent: "space-between", width: "100%", flexWrap: "wrap" }}>
@@ -344,7 +349,7 @@ export function DocumentDialog({
         onOpenChange={(next) => { if (!remove.isPending && !deleteInFlight.current) setDeleteOpen(next); }}
         kind="alertdialog"
         title={`Delete ${document?.title ?? "document"}?`}
-        description="This removes the canonical document. For repository-backed collections, the Program deletes the source file first. Existing cross-record references may no longer resolve."
+        description="This permanently deletes the document. For repository-backed collections, the file is deleted from the repository first. Links from other documents may stop working."
         footer={<div className="dialog-actions"><Button autoFocus type="button" disabled={remove.isPending || deleteInFlight.current} onClick={() => setDeleteOpen(false)}>Cancel</Button><Button tone="danger" type="button" pending={remove.isPending || deleteInFlight.current} onClick={() => { if (remove.isPending || deleteInFlight.current || save.isPending || saveInFlight.current) return; deleteInFlight.current = true; remove.mutate(); }}>Delete document</Button></div>}
       >
         {remove.error && <Feedback state="error" title="Document was not deleted">{remove.error.message}</Feedback>}
@@ -416,11 +421,11 @@ export function IngestDialog({
           >
             <header className="modal-header">
               <div>
-                <p className="eyebrow">Knowledge intake</p>
+                <p className="eyebrow">Import</p>
                 <Dialog.Title>Ingest documents</Dialog.Title>
                 <Dialog.Description id="ingest-dialog-description">
-                  Files become canonical Knowledge documents, then project
-                  through the Program-owned GBrain adapter.
+                  Each file becomes a Knowledge document and is added to
+                  memory.
                 </Dialog.Description>
               </div>
               <Dialog.Close asChild>
@@ -490,7 +495,7 @@ export function IngestDialog({
                     <strong>Sync repository source</strong>
                     <small>
                       {sourceBacked
-                        ? `Read the configured ${selected?.sourceConfig.provider} collection and create, update, or skip canonical records.`
+                        ? `Read the configured ${selected?.sourceConfig.provider} collection and create, update, or skip documents.`
                         : "Select a Forgejo or GitHub-backed collection to run source sync."}
                     </small>
                   </span>
@@ -544,12 +549,148 @@ export function IngestDialog({
           if (!repoMutation.isPending) setRepoConfirm(next);
         }}
         title={`Sync ${selected?.name ?? "repository collection"}?`}
-        description="The Program will read the configured repository source and update canonical Knowledge documents. Unsupported files are skipped; accepted changes project into GBrain."
+        description="Knowledge will read the connected repository and update matching documents. Unsupported files are skipped; accepted changes are added to memory."
         confirmLabel="Run source ingest"
         pending={repoMutation.isPending}
         error={repoMutation.error}
         onConfirm={() => repoMutation.mutate()}
       />
     </>
+  );
+}
+
+/** Create a Knowledge-stored (native) collection. Repository sources are configured elsewhere. */
+export function CollectionDialog({
+  open,
+  onOpenChange,
+  companyId,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  companyId: string;
+  onCreated: (collection: KnowledgeCollection) => void;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const create = useMutation({
+    mutationFn: () =>
+      createCollection(companyId, {
+        name: name.trim(),
+        description: description.trim() || null,
+        sourceConfig: { provider: "native" },
+      }),
+    onSuccess: (collection) => {
+      onOpenChange(false);
+      onCreated(collection);
+    },
+  });
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setDescription("");
+    create.reset();
+  }, [open]);
+  const close = (next: boolean) => {
+    if (!next && create.isPending) return;
+    onOpenChange(next);
+  };
+  return (
+    <SharedDialog
+      open={open}
+      onOpenChange={close}
+      title="New collection"
+      description="Collections group related documents, such as a team handbook or a project's notes."
+      footer={
+        <div className="dialog-actions">
+          <Button type="button" disabled={create.isPending} onClick={() => close(false)}>
+            Cancel
+          </Button>
+          <Button tone="primary" type="submit" form="collection-dialog-form" pending={create.isPending} disabled={!name.trim()}>
+            {create.isPending ? "Creating…" : "Create collection"}
+          </Button>
+        </div>
+      }
+    >
+      <form
+        id="collection-dialog-form"
+        style={{ display: "grid", gap: "var(--dg-space-4)" }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!name.trim() || create.isPending) return;
+          create.mutate();
+        }}
+      >
+        <TextField
+          label="Name"
+          required
+          maxLength={120}
+          autoFocus
+          disabled={create.isPending}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+        <TextareaField
+          label="Description (optional)"
+          rows={3}
+          maxLength={500}
+          disabled={create.isPending}
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+        />
+        {create.error && <Feedback state="error" title="Collection was not created">{create.error.message}</Feedback>}
+      </form>
+    </SharedDialog>
+  );
+}
+
+export function DeleteCollectionDialog({
+  open,
+  onOpenChange,
+  collection,
+  onDeleted,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  collection: KnowledgeCollection | null;
+  onDeleted: () => void;
+}) {
+  const remove = useMutation({
+    mutationFn: () => deleteCollection(collection!.id),
+    onSuccess: () => {
+      onOpenChange(false);
+      onDeleted();
+    },
+  });
+  useEffect(() => {
+    if (open) remove.reset();
+  }, [open]);
+  const count = collection?.documentCount ?? 0;
+  return (
+    <SharedDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!remove.isPending) onOpenChange(next);
+      }}
+      kind="alertdialog"
+      title={`Delete ${collection?.name ?? "collection"}?`}
+      description={
+        count
+          ? `This permanently deletes the collection and its ${count} ${count === 1 ? "document" : "documents"}, including their history and comments. This cannot be undone.`
+          : "This permanently deletes the empty collection. This cannot be undone."
+      }
+      footer={
+        <div className="dialog-actions">
+          <Button autoFocus type="button" disabled={remove.isPending} onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button tone="danger" type="button" pending={remove.isPending} disabled={!collection} onClick={() => remove.mutate()}>
+            Delete collection
+          </Button>
+        </div>
+      }
+    >
+      {remove.error && <Feedback state="error" title="Collection was not deleted">{remove.error.message}</Feedback>}
+    </SharedDialog>
   );
 }

@@ -33,18 +33,18 @@ export function ResearchNotebookPicker({ canRead, expired, renderWorkspace }: {
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; controller.abort(); };
   }, [canRead, offset, refresh]);
-  if (!canRead) return <Feedback state="forbidden" title="Research read access required">This session cannot discover Research notebooks. Ask the deployment operator to review its grants.</Feedback>;
+  if (!canRead) return <Feedback state="forbidden" title="Research read access required">This sign-in cannot list Research notebooks. Ask your Knowledge administrator to review its access.</Feedback>;
   const selected = !loading && !error ? page?.notebooks.find(item => item.id === selectedId) : undefined;
   const navigate = (next: number) => { setPage(null); setLoading(true); setOffset(next); };
   const reload = () => { setPage(null); setLoading(true); setRefresh(value => value + 1); };
   return <div className="research-engine-discovery">
-    <div className="research-chat-session"><p className="research-chat-help">Configured Open Notebook mappings · not a live health check. Access comes from your Research session, not the app workspace selector.</p>
+    <div className="research-chat-session"><p className="research-chat-help">Notebooks set up for your Research sign-in. Access comes from your Research sign-in, not the workspace selected in Settings.</p>
       <Button size="small" disabled={loading} onClick={reload}>Refresh notebooks</Button></div>
     <p className="research-chat-help">Switching or refreshing notebooks clears unsent drafts. References for submitted requests remain saved in this tab.</p>
     {loading && <p role="status">Loading authorized notebooks…</p>}
     {error && <Feedback state="error" title="Notebook discovery unavailable" action={<Button size="small" onClick={reload}>Retry notebook discovery</Button>}>{error}</Feedback>}
     {!loading && !error && !page?.notebooks.length && <EmptyState title={offset ? "No notebooks on this page" : "No mapped Research notebooks"}>
-      {offset ? "Return to the previous page or refresh the list." : "Sign-in succeeded. The deployment operator must map a Knowledge notebook owned by your authorized workspace to Open Notebook. Local records are not substituted."}
+      {offset ? "Return to the previous page or refresh the list." : "You are signed in, but no notebook is set up for your workspace yet. Ask your Knowledge administrator to connect one."}
     </EmptyState>}
     <div className="research-engine-notebooks" aria-label="Authorized Research notebooks">
       {!loading && !error && page?.notebooks.map(notebook => <Button key={notebook.id}

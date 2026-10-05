@@ -456,9 +456,15 @@ describe("Knowledge Program", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/html");
-    expect(response.body).toContain("Knowledge Micro-app");
-    expect(response.body).toContain("Documents");
-    expect(response.body).toContain("GBrain");
+    if (response.body.includes('<div id="root">')) {
+      // After `build:web`, "/" serves the built customer shell instead.
+      expect(response.body).toContain("<title>Knowledge · Teal Brick</title>");
+      expect(response.body).not.toContain("Doppelganger");
+    } else {
+      expect(response.body).toContain("Knowledge Micro-app");
+      expect(response.body).toContain("Documents");
+      expect(response.body).toContain("GBrain");
+    }
 
     await app.close();
   });

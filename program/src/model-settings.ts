@@ -15,6 +15,51 @@ export const ModelSettingsSchema = z.object({
 }).strict();
 export type ModelSettings = z.infer<typeof ModelSettingsSchema>;
 
+/**
+ * Owner update shape: identical to ModelSettingsSchema except that an API key
+ * may be omitted (or blank) to keep the key already saved for the same
+ * provider and endpoint. Keys are never returned to the browser, so this is
+ * how an owner edits model names without re-entering secrets.
+ */
+const optionalKey = z.string().trim().max(4096).optional().transform(value => value ? value : undefined);
+const updateConnection = z.object({ baseUrl: endpoint, model: z.string().trim().min(1).max(180), apiKey: optionalKey }).strict();
+export const ModelSettingsUpdateSchema = z.object({
+  chat: updateConnection.extend({ provider: z.enum(["openai", "ollama", "openrouter"]), reasoningEffort: z.enum(["none", "minimal", "low", "medium", "high"]).optional() }),
+  embedding: updateConnection.extend({ provider: z.enum(["openai", "llama-server", "openrouter"]), dimensions: z.number().int().min(64).max(8192) }),
+  reranker: updateConnection.extend({ provider: z.enum(["llama-server-reranker", "openrouter"]).optional() }).optional(),
+}).strict();
+export type ModelSettingsUpdate = z.infer<typeof ModelSettingsUpdateSchema>;
+
+export class ModelSettingsUpdateError extends Error {
+  constructor(readonly code: "model_api_key_required" | "model_provider_conflict", readonly component: string) {
+    super(code);
+  }
+}
+
+/**
+ * Fill omitted keys from saved settings. A saved key is reused only for the
+ * same provider and exactly the same endpoint, so changing where a key is
+ * sent always requires entering it again.
+ */
+export function resolveModelSettingsUpdate(update: ModelSettingsUpdate, saved: ModelSettings | null): ModelSettings {
+  const savedConnections = saved ? [saved.chat, saved.embedding, ...(saved.reranker ? [{ ...saved.reranker, provider: saved.reranker.provider ?? "llama-server-reranker" }] : [])] : [];
+  const keyFor = (component: string, entry: { provider?: string; baseUrl: string; apiKey?: string }, provider: string) => {
+    if (entry.apiKey) return entry.apiKey;
+    const match = savedConnections.find(candidate => candidate.provider === provider && candidate.baseUrl === entry.baseUrl);
+    if (!match) throw new ModelSettingsUpdateError("model_api_key_required", component);
+    return match.apiKey;
+  };
+  const resolved = {
+    chat: { ...update.chat, apiKey: keyFor("chat", update.chat, update.chat.provider) },
+    embedding: { ...update.embedding, apiKey: keyFor("embedding", update.embedding, update.embedding.provider) },
+    ...(update.reranker ? { reranker: { ...update.reranker, apiKey: keyFor("reranker", update.reranker, update.reranker.provider ?? "llama-server-reranker") } } : {}),
+  };
+  const settings = ModelSettingsSchema.parse(resolved);
+  try { modelSettingsEnvironment(settings); }
+  catch { throw new ModelSettingsUpdateError("model_provider_conflict", "settings"); }
+  return settings;
+}
+
 export async function readModelSettings(dataDir: string): Promise<ModelSettings | null> {
   try { return ModelSettingsSchema.parse(JSON.parse(await fs.readFile(path.join(dataDir, "model-settings.json"), "utf8"))); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw new Error("Knowledge model settings are invalid; restore the server configuration"); }

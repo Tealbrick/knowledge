@@ -7,7 +7,11 @@ import { bearerToken, normalizeKnowledgePartitionKey } from "../../program/src/p
 import { customerRuntimeRoute } from "../../program/src/customer-runtime-access.js";
 import { KnowledgeInstanceClaim } from "../../program/src/instance-claim.js";
 import { attachmentConfig, attachmentRoute, introspectAttachment } from "./attachment-auth.mjs";
-import { browserConfig, browserAccess } from "./browser-auth.mjs";
+import { browserConfig, browserAccess, sendSessionEnded, wantsSessionPage } from "./browser-auth.mjs";
+
+// A caller-sized body is not an authorization failure; report it as 413 so the
+// app does not mistake an oversized upload for an ended session.
+class RequestTooLarge extends Error {}
 
 // One instance is one trust boundary. This edge does not grant tenant isolation.
 const token = process.env.KNOWLEDGE_INSTANCE_TOKEN ?? "";
@@ -104,7 +108,7 @@ const server = createServer(async (req, res) => {
           for await(const chunk of req) {
             const buffer=Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
             bytes+=buffer.length;
-            if(bytes>1_048_576) throw new Error('body limit');
+            if(bytes>1_048_576) throw new RequestTooLarge();
             chunks.push(buffer);
           }
           const parsed=JSON.parse(Buffer.concat(chunks,bytes).toString('utf8'));
@@ -129,7 +133,7 @@ const server = createServer(async (req, res) => {
     for await (const chunk of req) {
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       bytes += buffer.length;
-      if (bytes > 1_048_576) throw new Error('body limit');
+      if (bytes > 1_048_576) throw new RequestTooLarge();
       chunks.push(buffer);
     }
     replacementBody = Buffer.concat(chunks, bytes);
@@ -138,6 +142,9 @@ const server = createServer(async (req, res) => {
     if (!freshBrowser.authorized || freshBrowser.grant.userId !== browserResult.grant.userId) throw new Error('browser authorization changed');
   }
   if (!publicHealth && !instanceAuthorized && !runtimeAuthorized && !attachmentAuthorized && !browserResult.authorized) {
+    // A person opening the app without (or after) a Portal session gets a
+    // readable relaunch page; API and agent callers keep the JSON contract.
+    if (!runtimePrincipal && wantsSessionPage(req)) { sendSessionEnded(req, res, browser?.portal ?? attachment?.portal); return; }
     res.writeHead(runtimePrincipal ? 403 : 401, { "content-type": "application/json", "cache-control": "no-store" });
     res.end(JSON.stringify({ ok: false, error: runtimePrincipal ? "runtime_route_denied" : "instance_auth_required" }));
     return;
@@ -175,7 +182,13 @@ const server = createServer(async (req, res) => {
   req.on("aborted", () => upstream.destroy());
   if(replacementBody!==undefined) upstream.end(replacementBody);
   else req.pipe(upstream);
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestTooLarge) {
+      if (!res.headersSent) res.writeHead(413, { 'content-type': 'application/json', 'cache-control': 'no-store', connection: 'close' });
+      res.end('{"ok":false,"error":"request_too_large"}');
+      return;
+    }
+    if (!res.headersSent && wantsSessionPage(req)) { sendSessionEnded(req, res, browser?.portal ?? attachment?.portal); return; }
     if (!res.headersSent) res.writeHead(401, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end('{"ok":false,"error":"request_denied"}');
   }

@@ -69,25 +69,25 @@ export function ResearchNotesPanel({ notebookId, principalId, companyId, canRead
   const retryDetail = () => { setDetail(null); setDetailError(null); setDetailRefresh(value => value + 1); };
   const reload = () => { setResult(null); setDetail(null); setDetailError(null); setLoading(true); setRefresh(value => value + 1); };
   const navigate = (next: number) => { setPage(next); setSelectedId(notes?.[next * PAGE_SIZE]?.id ?? null); };
-  if (!canRead) return <Feedback state="forbidden" title="Research read capability required">This session cannot read Open Notebook notes.</Feedback>;
-  return <section className="research-notes-panel" aria-label="Open Notebook notes">
+  if (!canRead) return <Feedback state="forbidden" title="Research access required">This sign-in cannot read notes in the Research workspace.</Feedback>;
+  return <section className="research-notes-panel" aria-label="Research notes">
     <div className="subheading">
-      <div><p className="eyebrow">Open Notebook</p><h3>Notes</h3></div>
+      <div><p className="eyebrow">Research workspace</p><h3>Notes</h3></div>
       <div className="header-actions"><Tag>Read-only</Tag>
         <Button size="small" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? "Hide notes" : "Browse notes"}</Button>
       </div>
     </div>
-    <p className="research-chat-help">Notes saved in this Open Notebook workspace. Reading does not generate new content or promote it into canonical Knowledge.</p>
+    <p className="research-chat-help">Notes saved in this Research workspace. Reading them does not create new content or add them to your Library.</p>
     {open && <>
       <div className="research-chat-actions"><span className="muted-row">{notes ? `${notes.length} ${notes.length === 1 ? "note" : "notes"}` : "Notebook-scoped notes"}</span>
         <Button size="small" onClick={reload} disabled={loading}><RefreshCw size={13} />Refresh notes</Button></div>
       {loading || (!notes && !problem) ? <p role="status">Loading notes…</p> : problem ?
         <Feedback state={problem.denied ? "forbidden" : "error"} title={problem.denied ? "Notes access denied" : "Notes unavailable"}
           action={<Button size="small" onClick={reload}>Retry notes</Button>}>{problem.message}</Feedback> : !notes?.length ?
-        <EmptyState title="No Open Notebook notes">This notebook has no saved notes. Local outputs are separate and are not shown as engine notes.</EmptyState> :
+        <EmptyState title="No notes yet">This notebook has no saved notes. Older local outputs are listed separately.</EmptyState> :
         <>
           <div className="research-source-browser">
-            <div className="simple-list research-note-inventory" aria-label="Open Notebook note inventory">
+            <div className="simple-list research-note-inventory" aria-label="Research note list">
               {entries.map(note => <Button key={note.id} tone="ghost" className="research-source-row" aria-current={selectedId === note.id}
                 onClick={() => setSelectedId(note.id)}><NotebookPen size={15} /><span><strong>{label(note)}</strong><small>{provenance(note)}</small></span><ChevronRight size={14} /></Button>)}
             </div>

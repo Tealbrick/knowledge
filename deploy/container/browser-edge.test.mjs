@@ -35,13 +35,42 @@ test('actual Knowledge edge launches an owner browser, admits local document con
   assert.deepEqual(calls[0],{schema:1,product:'knowledge',deploymentId:'deployment',ticket});
   const cookie=response.headers.get('set-cookie').split(';')[0];assert.doesNotMatch(cookie,/iiiiiiii/);
   assert.equal((await launch()).status,401);
+  const html={accept:'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'};
+  // A reused launch ticket submitted by the Portal form is a page navigation: show the relaunch page.
+  const reused=await fetch(base+'/auth/launch',{method:'POST',redirect:'manual',headers:{...html,origin:portalOrigin,'content-type':'application/x-www-form-urlencoded'},body:`ticket=${ticket}`});
+  assert.equal(reused.status,401);assert.match(reused.headers.get('content-type'),/^text\/html/);
+  assert.match(await reused.text(),/Your session ended/);
+  // Unauthenticated browser navigation gets a readable page with a Portal link; API/JSON stays JSON.
+  const shell=await fetch(base+'/',{headers:html});
+  assert.equal(shell.status,401);assert.match(shell.headers.get('content-type'),/^text\/html/);
+  assert.equal(shell.headers.get('cache-control'),'no-store');
+  assert.match(shell.headers.get('content-security-policy'),/default-src 'none'/);
+  const page=await shell.text();
+  assert.match(page,/Reopen Knowledge from Teal Brick Portal/);
+  assert.ok(page.includes(`href="${portalOrigin}/"`));
+  assert.doesNotMatch(page,/<script|iiiiiiii|workspace|deployment/);
+  assert.equal((await fetch(base+'/',{method:'HEAD',headers:html})).status,401);
+  const apiHtml=await fetch(base+'/api/status',{headers:html});
+  assert.equal(apiHtml.status,401);assert.deepEqual(await apiHtml.json(),{ok:false,error:'instance_auth_required'});
+  const bootstrapHtml=await fetch(base+'/bootstrap.json',{headers:html});
+  assert.equal(bootstrapHtml.status,401);assert.match(bootstrapHtml.headers.get('content-type'),/json/);
+  const plain=await fetch(base+'/');
+  assert.equal(plain.status,401);assert.deepEqual(await plain.json(),{ok:false,error:'instance_auth_required'});
   assert.equal((await fetch(base+'/api/status',{headers:{cookie}})).status,200);
   const companyId=new URL(response.headers.get('location'),base).searchParams.get('companyId');
   const path=`/api/companies/${encodeURIComponent(companyId)}/knowledge/collections`;
   assert.equal((await fetch(base+path,{method:'POST',headers:{cookie,origin:'https://evil.invalid','content-type':'application/json'},body:'{"name":"Denied"}'})).status,401);
   assert.equal((await fetch(base+path,{method:'POST',headers:{cookie,origin:base,'content-type':'application/json'},body:'{"name":"Browser sample"}'})).status,201);
   assert.equal((await(await fetch(base+path,{headers:{cookie}})).json())[0].name,'Browser sample');
+  // An oversized write is a 413, not a 401 that the app would read as an ended session.
+  const oversized=await fetch(base+path,{method:'POST',headers:{cookie,origin:base,'content-type':'application/json'},body:JSON.stringify({name:'x'.repeat(1_100_000)})});
+  assert.equal(oversized.status,413);assert.deepEqual(await oversized.json(),{ok:false,error:'request_too_large'});
   assert.equal((await fetch(base+'/api/research/engine/notebooks',{headers:{cookie}})).status,503,'unconfigured Research remains unavailable; owner session does not invent its configuration');
-  revoked=true;assert.equal((await fetch(base+'/api/status',{headers:{cookie}})).status,401);
+  assert.equal((await fetch(base+'/',{headers:{...html,cookie}})).status,200,'a live session still opens the app shell');
+  revoked=true;
+  const expiredApi=await fetch(base+'/api/status',{headers:{cookie}});
+  assert.equal(expiredApi.status,401);assert.deepEqual(await expiredApi.json(),{error:'browser_session_required'});
+  const expiredShell=await fetch(base+'/?view=library',{headers:{...html,cookie}});
+  assert.equal(expiredShell.status,401);assert.match(await expiredShell.text(),/Your session ended/);
   assert.ok(calls.length>=7);
 });

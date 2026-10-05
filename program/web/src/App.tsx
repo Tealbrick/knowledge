@@ -1,20 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpen, Settings } from "lucide-react";
-import { BrandMark, Button, Feedback, IconButton, Sidebar, Tag } from "@doppelganger/ui";
-import { getBootstrap } from "./api";
+import { Button, Feedback, IconButton, Sidebar, Tag } from "@doppelganger/ui";
+import tealBrickMark from "./assets/teal-brick.svg";
+import { getBootstrap, getSessionEnded, subscribeSessionEnded } from "./api";
+import { SessionEndedBanner, SessionEndedSplash } from "./SessionNotice";
 import type { Section } from "./types";
 import { ActivityView } from "./ActivityView";
 import { BrainView } from "./BrainView";
 import { LibraryView } from "./LibraryView";
 import { ResearchView } from "./ResearchView";
-import { SettingsPageView, type SettingsSection } from "./SettingsPageView";
+import { DEFAULT_SETTINGS_SECTION, parseSettingsSection, SettingsPageView, type SettingsSection } from "./SettingsPageView";
+import { describeMemory } from "./service-status";
 
 const nav: Array<{ id: Section; label: string }> = [
   { id: "library", label: "Library" },
   { id: "research", label: "Research" },
-  { id: "brain", label: "Brain" },
-  { id: "activity", label: "Bindings & activity" },
+  { id: "brain", label: "Memory" },
+  { id: "activity", label: "Activity" },
 ];
 
 type AppRoute =
@@ -23,16 +26,24 @@ type AppRoute =
 
 const defaultCompanyId = "default";
 
+function capabilityFor(section: Section): string | undefined {
+  return section === "library" ? "documents" : section === "brain" ? "brain" : section === "research" ? "research" : section === "activity" ? "bindings" : undefined;
+}
+
+/** Plain status wording for the memory engine badge. */
+export function memoryLabel(status: string | undefined) {
+  if (status === "online") return "Memory ready";
+  if (status === "starting") return "Memory starting";
+  if (status === "disabled") return "Memory off";
+  return "Memory unavailable";
+}
+
 function readRoute(): AppRoute {
   const query = new URLSearchParams(window.location.search);
   const companyId = query.get("companyId")?.trim() || defaultCompanyId;
   const view = query.get("view");
   if (view === "settings") {
-    const section = query.get("section");
-    const settingsSection: SettingsSection = section === "runtime" || section === "models" || section === "connections" || section === "developer" || section === "version-control"
-      ? section
-      : "models";
-    return { kind: "settings", section: settingsSection, companyId };
+    return { kind: "settings", section: parseSettingsSection(query.get("section")), companyId };
   }
   const section = view === "research" || view === "brain" || view === "activity" ? view : "library";
   return { kind: "section", section, companyId };
@@ -54,6 +65,8 @@ export function App() {
     queryKey: ["knowledge-bootstrap"],
     queryFn: getBootstrap,
   });
+  const sessionEnded = useSyncExternalStore(subscribeSessionEnded, getSessionEnded, getSessionEnded);
+  const reload = () => window.location.reload();
   const companyId = route.companyId;
   useEffect(() => {
     const discovered = bootstrap.data?.scope.defaultCompanyId?.trim();
@@ -72,42 +85,48 @@ export function App() {
     window.history[replace ? "replaceState" : "pushState"]({}, "", routeHref(next));
     setRoute(next);
   };
+  if (sessionEnded && !bootstrap.data) return <SessionEndedSplash onReload={reload} />;
   if (bootstrap.isLoading)
-    return <div className="splash"><Feedback state="loading" title="Opening Knowledge">Loading the Program-owned surface.</Feedback></div>;
+    return <div className="splash"><Feedback state="loading" title="Opening Knowledge">Loading your documents and memory.</Feedback></div>;
   if (bootstrap.error)
     return <div className="splash"><Feedback state="error" title="Knowledge is unavailable" action={<Button onClick={() => bootstrap.refetch()}>Retry</Button>}>{bootstrap.error.message}</Feedback></div>;
   if (!bootstrap.data) return null;
   const connected = bootstrap.data.program.status === "online";
   const currentSection = route.kind === "section" ? route.section : null;
+  const memory = describeMemory(bootstrap.data.dependencies.gbrain);
+  const capabilities = bootstrap.data.capabilities ?? {};
   const sidebarItems = [...nav.map((entry) => ({
     id: entry.id,
     label: entry.label,
     href: routeHref({ kind: "section", section: entry.id, companyId }),
     current: currentSection === entry.id,
+    // A feature the installation reports as not included cannot be opened.
+    unavailable: capabilityFor(entry.id) !== undefined && capabilities[capabilityFor(entry.id)!] === false,
+    badge: entry.id === "brain" && memory.state !== "Running" ? memory.state : undefined,
   })), {
     id: "settings",
     label: "Settings",
-    href: routeHref({ kind: "settings", section: "runtime", companyId }),
+    href: routeHref({ kind: "settings", section: DEFAULT_SETTINGS_SECTION, companyId }),
     current: route.kind === "settings",
   }];
   const settingsToggle = route.kind === "settings"
     ? { kind: "section" as const, section: "library" as const, companyId }
-    : { kind: "settings" as const, section: "runtime" as const, companyId };
+    : { kind: "settings" as const, section: DEFAULT_SETTINGS_SECTION, companyId };
   return (
     <main className="app-shell">
       <Sidebar
         label="Knowledge navigation"
         brand={<>
-          <BrandMark />
+          <img className="dg-mark" src={tealBrickMark} alt="" />
           <span>
             <strong>Knowledge</strong>
-            <small>Doppelganger</small>
+            <small>Teal Brick</small>
           </span>
         </>}
         items={sidebarItems}
         footer={<>
           <div className="scope-card">
-            <p className="eyebrow">Active scope</p>
+            <p className="eyebrow">Workspace</p>
             <strong>{companyId}</strong>
             <span>
               {bootstrap.data.counts.documents ?? 0} documents ·{" "}
@@ -116,7 +135,7 @@ export function App() {
           </div>
           <div className="sidebar-status">
             <span className={`status-light ${connected ? "" : "is-warning"}`} />
-            <span>{connected ? "Program online" : "Program degraded"}</span>
+            <span>{connected ? "Knowledge is ready" : "Knowledge needs attention"}</span>
             <IconButton
               aria-label={route.kind === "settings" ? "Back to library" : "Open settings"}
               onClick={() => navigate(settingsToggle)}
@@ -127,6 +146,7 @@ export function App() {
         </>}
       />
       <section className="application-frame">
+        {sessionEnded && <SessionEndedBanner onReload={reload} />}
         <header className="topbar">
           <div>
             <strong>{route.kind === "settings" ? "Settings" : nav.find((entry) => entry.id === route.section)?.label}</strong>
@@ -141,7 +161,7 @@ export function App() {
                   : "warning"
               }
             >
-              GBrain {bootstrap.data.dependencies.gbrain?.status}
+              {memoryLabel(bootstrap.data.dependencies.gbrain?.status)}
             </Tag>
             <Button size="small" onClick={() => navigate(settingsToggle)}>
               {route.kind === "settings" ? <BookOpen size={14} /> : <Settings size={14} />}

@@ -6,6 +6,7 @@ import { createKnowledgePrincipalResolver } from "../../program/src/knowledge-pr
 import { bearerToken, normalizeKnowledgePartitionKey } from "../../program/src/partition-authority.js";
 import { customerRuntimeRoute } from "../../program/src/customer-runtime-access.js";
 import { KnowledgeInstanceClaim } from "../../program/src/instance-claim.js";
+import { createPortalPrincipalResolver, portalPrincipalConfig } from "../../program/src/portal-principal.js";
 import { attachmentConfig, attachmentRoute, introspectAttachment } from "./attachment-auth.mjs";
 import { browserConfig, browserAccess, sendSessionEnded, wantsSessionPage } from "./browser-auth.mjs";
 
@@ -30,7 +31,11 @@ if (config.knowledgeServicePrincipals.some(principal => typeof principal?.token 
 }
 const runtimePrincipals = createKnowledgePrincipalResolver(config.knowledgeServicePrincipals);
 const instanceClaim = new KnowledgeInstanceClaim(config.dataDir);
-const app = await buildKnowledgeApp({ config: { ...config, host: "127.0.0.1", port: 0 } });
+// Portal-provisioned instances resolve agent grants live against Portal; no
+// per-agent KNOWLEDGE_SERVICE_PRINCIPALS edit or redeploy is required.
+const portalBinding = portalPrincipalConfig(process.env);
+const portalPrincipals = portalBinding ? createPortalPrincipalResolver({ ...portalBinding, signer: instanceClaim }) : undefined;
+const app = await buildKnowledgeApp({ config: { ...config, host: "127.0.0.1", port: 0 }, portalPrincipals });
 await app.listen({ host: "127.0.0.1", port: 0 });
 const address = app.server.address();
 if (!address || typeof address === "string") throw new Error("Missing internal listener");
@@ -61,7 +66,8 @@ const server = createServer(async (req, res) => {
       }
       const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       const proof = instanceClaim.signChallenge(input);
-      const configuredScope = config.knowledgeServicePrincipals.some(principal =>
+      const configuredScope = (portalBinding !== null && normalizeKnowledgePartitionKey(portalBinding.companyId) === proof.companyId) ||
+        config.knowledgeServicePrincipals.some(principal =>
         normalizeKnowledgePartitionKey(principal.companyId) === proof.companyId ||
         principal.partitionGrants?.some(grant => normalizeKnowledgePartitionKey(grant.partitionKey) === proof.companyId));
       const existingScope = app.getDecorator<(companyId: string) => boolean>("knowledgeHasPartition")(proof.companyId);
@@ -69,7 +75,11 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify(proof)); return;
     } catch { res.writeHead(400); res.end('{"error":"invalid_claim_challenge"}'); return; }
   }
-  const runtimePrincipal = runtimePrincipals.resolve(bearerToken({ headers: req.headers }));
+  const suppliedBearer = bearerToken({ headers: req.headers });
+  // Only an admitted direct-runtime route may cost a Portal introspection; anything else is
+  // rejected without contacting Portal.
+  const runtimePrincipal = runtimePrincipals.resolve(suppliedBearer) ??
+    (portalPrincipals && customerRuntimeRoute(req.method ?? "", req.url ?? "") ? await portalPrincipals.resolve(suppliedBearer) : null);
   const runtimeAuthorized = !!runtimePrincipal && customerRuntimeRoute(req.method ?? "", req.url ?? "");
   let attachmentAuthorized = false;
   let dispatchGrant: {capability:string;agentId:string;orgId:string} | undefined;

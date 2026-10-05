@@ -113,6 +113,9 @@ function normalizedBinding(value: unknown): StoredBinding | null {
 
   const token = typeof record.token === "string" ? record.token.trim() : "";
   const principalId = identifier(record.principalId);
+  // Reserved for Portal-validated runtime principals: a static entry must never share their
+  // identity (native memory ownership, cursors and receipts are keyed by principalId).
+  if (principalId?.startsWith("tealbrick-agent:")) return null;
   const companyId = identifier(record.companyId);
   const grantCapabilities = capabilities(record.capabilities);
   if (!token || !principalId || !companyId || !grantCapabilities) return null;

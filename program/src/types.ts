@@ -56,6 +56,8 @@ export interface KnowledgeConfig {
 export interface BuildKnowledgeAppOptions {
   /** Trusted host injection for Research only; never supplied by an HTTP client. */
   readonly researchPrincipalProvider?: ResearchPrincipalProvider;
+  /** Trusted host injection: Portal-validated runtime principals (never client-supplied). */
+  readonly portalPrincipals?: import("./portal-principal.js").PortalPrincipalResolver;
   readonly environment?: KnowledgeEnvironment;
   readonly config?: Partial<KnowledgeConfig>;
 }

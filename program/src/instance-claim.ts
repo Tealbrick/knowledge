@@ -27,6 +27,25 @@ export class KnowledgeInstanceClaim {
     } catch { throw new Error("Invalid Knowledge claim identity storage"); }
   }
 
+  /**
+   * Bind one Portal principal introspection to this instance, the Portal
+   * audience, the bound company and the presented grant's digest. Short-lived;
+   * never an entitlement by itself.
+   */
+  signIntrospection(input: { readonly portalIssuer: string; readonly companyId: string; readonly tokenDigest: string }, now = Date.now()): string {
+    const issuer = new URL(input.portalIssuer);
+    if (issuer.origin !== input.portalIssuer || issuer.username || issuer.password ||
+      (issuer.protocol !== "https:" && !(issuer.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(issuer.hostname)))) throw new Error("invalid_introspection");
+    if (!/^[a-f0-9]{64}$/u.test(input.tokenDigest) || typeof input.companyId !== "string" || !input.companyId || input.companyId.length > 128) throw new Error("invalid_introspection");
+    const iat = Math.floor(now / 1000);
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+    const content = `${encode({ alg: "EdDSA", typ: "JWT" })}.${encode({
+      typ: "tealbrick-principal-introspection", version: 1, aud: issuer.origin, instanceId: this.instanceId,
+      companyId: input.companyId, tokenDigest: input.tokenDigest, iat, exp: iat + 60,
+    })}`;
+    return `${content}.${sign(null, Buffer.from(content), this.key).toString("base64url")}`;
+  }
+
   signChallenge(input: unknown, now = Date.now()) {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("invalid_claim_challenge");
     const value = input as Record<string, unknown>;

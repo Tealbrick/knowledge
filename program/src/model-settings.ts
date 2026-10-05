@@ -106,12 +106,26 @@ export function modelSettingsSummary(settings: ModelSettings | null) {
   return { configured: true, source: "knowledge-settings", chat: publicConnection(settings.chat), embedding: publicConnection(settings.embedding), reranker: settings.reranker ? publicConnection(settings.reranker) : null };
 }
 
+/**
+ * OpenAI rejects `max_tokens` on reasoning models and `reasoning_effort` on
+ * non-reasoning models, so send `max_completion_tokens` (accepted by every
+ * OpenAI chat model) and only the reasoning effort the owner chose.
+ */
+export function chatReadinessPayload(chat: ModelSettings["chat"]) {
+  return {
+    model: chat.model,
+    messages: [{ role: "user", content: "Reply with READY." }],
+    ...(chat.provider === "openai" ? { max_completion_tokens: 4096 } : { max_tokens: 4096 }),
+    ...(chat.reasoningEffort ? { reasoning_effort: chat.reasoningEffort } : {}),
+  };
+}
+
 /** Synthetic readiness probes. User explicitly authorizes these endpoints by saving/testing. */
 export async function testModelSettings(settings: ModelSettings) {
   const checks: { component: string; ok: boolean; error?: string }[] = [];
   for (const [component, entry, route, payload] of [
     ["embedding", settings.embedding, "/embeddings", { model: settings.embedding.model, input: EMBEDDING_CANARY_INPUTS }],
-    ["chat", settings.chat, "/chat/completions", { model: settings.chat.model, messages: [{ role: "user", content: "Reply with READY." }], max_tokens: 4096, reasoning_effort: "low" }],
+    ["chat", settings.chat, "/chat/completions", chatReadinessPayload(settings.chat)],
     ...(settings.reranker ? [["reranker", settings.reranker, "/rerank", { model: settings.reranker.model, query: "Knowledge", documents: ["Knowledge connection check"] }]] : []),
   ] as const) {
     try {

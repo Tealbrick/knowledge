@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
-import { saveModelSettings, readModelSettings, modelSettingsSummary, ModelSettingsSchema, modelSettingsEnvironment, ModelSettingsUpdateSchema, resolveModelSettingsUpdate } from "./model-settings.js";
+import { saveModelSettings, readModelSettings, modelSettingsSummary, ModelSettingsSchema, modelSettingsEnvironment, ModelSettingsUpdateSchema, resolveModelSettingsUpdate, chatReadinessPayload } from "./model-settings.js";
 import { registerModelSettingsRoutes } from "./model-settings-routes.js";
 import type { GBrainRuntime } from "./gbrain.js";
 
@@ -95,5 +95,23 @@ describe("Knowledge owner model settings", () => {
       const conflict = await app.inject({method:"PUT",url:"/api/settings/models",headers,payload:{chat:{...settings.chat,apiKey:""},embedding:{...settings.embedding,apiKey:"other"}}});
       expect(conflict.json()).toEqual({ok:false,error:"model_provider_conflict",component:"settings"});
     } finally { await app.close(); await fs.rm(root,{recursive:true,force:true}); }
+  });
+});
+
+describe("chat readiness payload", () => {
+  const chat = { provider: "openai" as const, baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", apiKey: "k" };
+  it("uses parameters every OpenAI chat model accepts", () => {
+    const payload = chatReadinessPayload(chat);
+    expect(payload).toMatchObject({ model: "gpt-4.1-mini", max_completion_tokens: 4096 });
+    expect(payload).not.toHaveProperty("max_tokens");
+    expect(payload).not.toHaveProperty("reasoning_effort");
+  });
+  it("sends only the owner's reasoning effort", () => {
+    expect(chatReadinessPayload({ ...chat, model: "gpt-5-mini", reasoningEffort: "low" })).toMatchObject({ reasoning_effort: "low", max_completion_tokens: 4096 });
+  });
+  it("keeps max_tokens for OpenAI-compatible providers", () => {
+    const payload = chatReadinessPayload({ ...chat, provider: "openrouter", baseUrl: "https://openrouter.ai/api/v1" });
+    expect(payload).toMatchObject({ max_tokens: 4096 });
+    expect(payload).not.toHaveProperty("max_completion_tokens");
   });
 });

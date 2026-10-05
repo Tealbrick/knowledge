@@ -1,5 +1,5 @@
 {
-  "$comment": "DRAFT, not published and not installable. GBrain-as-a-service variant: Knowledge (no embedded engine) + unmodified upstream GBrain (deploy/gbrain/Dockerfile, pinned 99de570 = v0.60.57.0) + private pgvector Postgres + SurrealDB + Open Notebook. Portal sets KNOWLEDGE_GBRAIN_SOURCES to kb-<sha256(normalized KNOWLEDGE_COMPANY_ID)[0:24]>. Design: docs/gbrain-upstream-service.md.",
+  "$comment": "DRAFT, not published and not installable. GBrain-as-a-service variant: Knowledge (no embedded engine) + unmodified upstream GBrain built by Railway from the protected Tealbrick/gbrain release branch (upstream v0.60.57.0 / 99de570 plus a separate tealbrick/ packaging dir) + private pgvector Postgres + SurrealDB + Open Notebook. Portal sets KNOWLEDGE_GBRAIN_SOURCES to kb-<sha256(normalized KNOWLEDGE_COMPANY_ID)[0:24]>. Design: docs/gbrain-upstream-service.md.",
   "services": {
     "2cf2e259-c3ab-47b9-ae2d-644766b34b14": {
       "name": "Knowledge",
@@ -188,7 +188,9 @@
     "gbrain": {
       "name": "GBrain",
       "source": {
-        "image": "ghcr.io/tealbrick/gbrain-upstream:0.60.57.0@sha256:<published digest of deploy/gbrain/Dockerfile at upstream 99de5707f6fc0916f43b4c167802a5f8d9ea0cf0>"
+        "repo": "Tealbrick/gbrain",
+        "branch": "release-gbrain-v0.60.57.0",
+        "rootDirectory": "/"
       },
       "deploy": {
         "healthcheckPath": "/health",
@@ -226,6 +228,9 @@
         },
         "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": {
           "defaultValue": "30"
+        },
+        "RAILWAY_DOCKERFILE_PATH": {
+          "defaultValue": "tealbrick/Dockerfile"
         }
       }
     },

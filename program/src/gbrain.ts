@@ -7,8 +7,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { managedBrainToken } from "./gbrain-managed-auth.js";
 import { nativeMemoryToken } from "./brain-native-auth.js";
-import { MEMORY_VERBS, NATIVE_MEMORY_GUIDANCE, NATIVE_MEMORY_OPERATIONS, nativeMemoryCapabilities, nativeMemoryOperation } from "./brain-native-policy.js";
+import { MEMORY_VERBS, NATIVE_MEMORY_GUIDANCE, NATIVE_MEMORY_OPERATIONS, nativeMemoryCapabilities, nativeMemoryOperation, nativeMemoryWrites } from "./brain-native-policy.js";
 import { GBrainServiceConnection, GBrainServiceError } from "./gbrain-service.js";
+import { sanitizeGBrainResult } from "./gbrain-privacy.js";
 import { readModelSettings, modelSettingsEnvironment } from "./model-settings.js";
 import { callGBrainTool } from "./gbrain-transport.js";
 import { probeGBrainHealth } from "./gbrain-health.js";
@@ -493,7 +494,7 @@ export class GBrainRuntime {
   }
 
   async projectDocument(document: KnowledgeDocument): Promise<ToolCallResult> {
-    if (this.service) return this.serviceResult("put_page", document.companyId, sourceId => this.service!.putCanonicalPage(sourceId, `knowledge-docs/${document.id}`, documentToMarkdown(document)));
+    if (this.service) return this.serviceResult("put_page", document.companyId, sourceId => this.service!.putCanonicalPage(sourceId, `knowledge-docs/${document.id}`, neutralizeFenceMarkers(documentToMarkdown(document))));
     return this.callTool("put_page", {
       ...partitionSourceArgs(document.companyId),
       slug: `knowledge-docs/${document.id}`,
@@ -505,7 +506,7 @@ export class GBrainRuntime {
   }
 
   async projectResearchSource(source: ResearchSource): Promise<ToolCallResult> {
-    if (this.service) return this.serviceResult("put_page", source.companyId, sourceId => this.service!.putCanonicalPage(sourceId, `knowledge-research/sources/${source.id}`, researchSourceToMarkdown(source)));
+    if (this.service) return this.serviceResult("put_page", source.companyId, sourceId => this.service!.putCanonicalPage(sourceId, `knowledge-research/sources/${source.id}`, neutralizeFenceMarkers(researchSourceToMarkdown(source))));
     return this.callTool("put_page", {
       ...partitionSourceArgs(source.companyId),
       slug: `knowledge-research/sources/${source.id}`,
@@ -570,6 +571,7 @@ export class GBrainRuntime {
   async nativeOperation(operation: string, args: Record<string, unknown>, partitionKey: string, principalId: string): Promise<Record<string, any>> {
     const partition = normalizeKnowledgePartitionKey(partitionKey);
     if (!partition || !principalId || !(operation === "catalog" || nativeMemoryOperation(operation))) return {ok:false,error:{error:"scope_denied",suggestion:"Use an authorized partition and advertised operation."}};
+    if (brainWritesPaused() && nativeMemoryWrites(operation)) return { ok: false, error: { error: "unavailable", message: "Memory writes are paused for maintenance", suggestion: "Retry later with the same Idempotency-Key.", protocol_version: 1 } };
     if (this.service) return this.serviceNativeOperation(operation, args, partition, principalId);
     if (!this.managedSecret || !this.baseUrl || this.state !== "online") return {ok:false,error:{error:"unavailable",suggestion:"Start the bundled managed Knowledge memory engine. External GBrain native-contract attestation is not configured."}};
     const token = nativeMemoryToken(this.managedSecret,knowledgePartitionSourceId(partition),principalId,operation);
@@ -825,10 +827,13 @@ export class GBrainRuntime {
   }
 
   private async serviceResult(tool: string, partitionKey: string | undefined, run: (sourceId: string) => Promise<unknown>): Promise<ToolCallResult> {
+    if (brainWritesPaused() && BRAIN_WRITE_TOOLS.has(tool)) return pausedResult(tool);
     const partition = partitionKey ? normalizeKnowledgePartitionKey(partitionKey) : null;
     if (!partition) return { ok: false, status: "degraded", tool, data: null, error: "brain_partition_binding_required: select an authorized Knowledge partition" };
     if (this.state !== "online") return { ok: false, status: "degraded", tool, data: null, error: this.detail ?? "GBrain service is not online" };
-    try { return { ok: true, status: "ready", tool, data: await run(knowledgePartitionSourceId(partition)) }; }
+    const sourceId = knowledgePartitionSourceId(partition);
+    // Upstream privacy gaps are closed here before any result leaves Knowledge.
+    try { return { ok: true, status: "ready", tool, data: sanitizeGBrainResult(await run(sourceId), sourceId) }; }
     catch (error) {
       const message = error instanceof GBrainServiceError ? `${error.code}: ${error.message}` : error instanceof Error ? error.message : String(error);
       return { ok: false, status: "degraded", tool, data: null, error: message };
@@ -870,7 +875,7 @@ export class GBrainRuntime {
       const data = await this.service.call(sourceId, operation, args, { principalId, timeoutMs: 600_000,
         onToolError: payload => { failure = redactNativeError(payload); return null; } });
       if (failure) return { ok: false, engine: "gbrain", engineVersion, error: failure };
-      return { ok: true, engine: "gbrain", engineVersion, operation, data, metadata: { topology: "service" } };
+      return { ok: true, engine: "gbrain", engineVersion, operation, data: sanitizeGBrainResult(data, sourceId), metadata: { topology: "service" } };
     } catch (error) {
       if (error instanceof GBrainServiceError) return { ok: false, engine: "gbrain", engineVersion, error: { error: error.code === "brain_partition_binding_required" ? "scope_denied" : "unavailable", message: error.message } };
       // Transport failures are thrown: mutating receipts must remain uncertain.
@@ -883,6 +888,7 @@ export class GBrainRuntime {
     args: Record<string, unknown>,
     partitionKey?: string,
   ): Promise<ToolCallResult> {
+    if (brainWritesPaused() && BRAIN_WRITE_TOOLS.has(name)) return pausedResult(name);
     if (this.service) {
       const { source_id: _source, ...upstreamArgs } = args;
       let retrieval: Record<string, unknown> | undefined;
@@ -965,4 +971,23 @@ function redactNativeError(payload: unknown): Record<string, unknown> {
   const secrets = Object.entries(process.env).filter(([key, value]) => /(?:TOKEN|SECRET|API_KEY|PASSWORD)/u.test(key) && value && value.length >= 8).map(([, value]) => value!);
   const text = secrets.reduce((current, secret) => current.split(secret).join("[REDACTED]"), JSON.stringify(payload));
   return JSON.parse(text) as Record<string, unknown>;
+}
+
+/**
+ * Canonical Knowledge text is content, never GBrain structure: upstream refuses remote pages
+ * containing privacy-fence markers, so literal marker text is escaped before projection.
+ */
+export function neutralizeFenceMarkers(markdown: string): string {
+  return markdown.replace(/<!---(\s*gbrain:)/giu, "&lt;!---$1");
+}
+
+/** Every GBrain tool that changes memory; frozen by KNOWLEDGE_BRAIN_WRITES=paused (migration). */
+const BRAIN_WRITE_TOOLS: ReadonlySet<string> = new Set(["put_page", "extract_facts", "delete_page", "delete_projection", "knowledge_delete_projection", "remember", "forget", "forget_fact"]);
+/** Read per call so an operator can freeze writes for a migration without code changes. */
+export function brainWritesPaused(): boolean {
+  return process.env.KNOWLEDGE_BRAIN_WRITES?.trim() === "paused";
+}
+function pausedResult(tool: string): ToolCallResult {
+  // Not-ok results keep projection ledger rows pending, so reconcile retries after the freeze.
+  return { ok: false, status: "degraded", tool, data: null, error: "brain_writes_paused" };
 }

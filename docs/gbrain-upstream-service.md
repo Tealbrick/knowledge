@@ -47,17 +47,21 @@ agent ─▶ Knowledge edge + Program (authZ, partitions, policy, mitigations)
   (delta A5).
 - Pin by commit SHA, never by `latest-stable`.
 
-### Image
+### Build (decided 5 October: Railway builds from source, no GHCR)
 
-- Upstream publishes no image.
-- `deploy/gbrain/Dockerfile` builds the **unmodified** upstream tree:
-  - fetch the pinned commit by SHA;
-  - verify that `git rev-parse HEAD` equals the pin;
-  - `bun install --frozen-lockfile`;
-  - no patches, no `COPY` of Tealbrick files.
-- A manual workflow, when approved, publishes it as
-  `ghcr.io/tealbrick/gbrain-upstream:<version>`. Portal recipes reference its
-  digest.
+- `Tealbrick/gbrain` mirrors upstream **unmodified**. Its protected, slash-free
+  release branch `release-gbrain-v0.60.57.0` is upstream `99de570` plus one
+  commit that adds only a separate `tealbrick/` root directory:
+  - `tealbrick/Dockerfile`, which builds the checked-out upstream tree;
+  - `tealbrick/entrypoint.sh`;
+  - `tealbrick/verify-unmodified.sh`, which proves no upstream file differs;
+  - a README with provenance.
+- Railway builds it the way it builds Knowledge and Marketplace: root directory
+  `/`, `RAILWAY_DOCKERFILE_PATH=tealbrick/Dockerfile`.
+- Portal pins the branch and revision and verifies at deploy time that the
+  branch is protected and resolves exactly to that revision.
+- Upgrading means a new release branch at a newer upstream tag, plus the same
+  one-directory commit.
 
 ### Run
 
@@ -117,30 +121,39 @@ one GBrain source.
     `engine_capability_unavailable`.
   - So does anything upstream lacks at the pin.
 
-### Knowledge-side mitigations until upstream PRs land
+### Privacy (decided 5 October: upstream PR + enforce in Knowledge now)
 
-| Delta | Mitigation in Knowledge |
+Unmodified upstream at the pin lacks seven of the vendored fixes. The fix bundle
+is proposed upstream, and Knowledge enforces equivalents in its access layer now
+(`program/src/gbrain-privacy.ts`, applied to every service result before it
+leaves Knowledge). So vanilla GBrain is safe behind Knowledge today.
+
+| Delta | Enforcement in Knowledge (service topology) |
 |---|---|
-| A1 remember dedupe | Reject remote `remember` with `visibility:"private"` |
-| A6 pending count | Zero `pending_consolidation_count` for agent callers |
-| A7 multi-fence strip | Re-strip every facts/takes fence from page/chunk text returned to agents (fail-closed on unclosed fences) |
-| A9 out-of-grant edges | Single source per deployment makes this unreachable; drop edges whose origin is null and not in the partition |
-| A13 open loops | Omit `open_loops` from entity cards returned to agents |
+| A1/A2/A3 remember dedupe and supersession | `remember` with `visibility:"private"` is refused. World writes can only match world targets under upstream's same-visibility rule. |
+| A4 (c)/(d) forget fence mirror | Only runs for sources with a local path. Knowledge sources are created without one, so upstream's DB-guarded path is used. |
+| A6 pending count | `pending_consolidation_count` is withheld |
+| A7 multi-fence strip | Every facts/takes fence is stripped from all returned text. Nested, overlapping or unclosed fences drop everything they could contain. Upstream also refuses remote writes containing fences, and Knowledge escapes literal marker text in canonical projections. |
+| A9 out-of-grant edges | Rows naming another source are dropped. One partition source per client. |
+| A13 open loops | Entity-card `open_loops` are withheld |
 
-**Upstream PR bundle**, which cannot be enforced outside GBrain: A1 (remote
-writes match world-only targets), A2/A3 (scoped guarded supersede and
-`expireFact`), A4 (c)/(d), A7, A9, A13, A6.
+**Upstream PR bundle**, pending approval to submit:
+
+- A1: remote writes match only world targets.
+- A2/A3: scoped, guarded supersede and `expireFact`.
+- A4 (c)/(d).
+- A6.
+- A7.
+- A9.
+- A13.
 
 **Dropped on rebase**, because upstream already fixed them: A5, A8 (verified by
 the parity suite), A10, A12, A14, and all dependency pins.
 
-Two notices problems need fixing:
+For as long as the vendored tree ships:
 
-- **C1:** `.gitignore` `output/` hid `sidecars/gbrain/src/core/output/` from
-  the published source. This is moot once the vendored tree is removed. Until
-  then it is a notices bug to fix.
-- **THIRD_PARTY_NOTICES:** document A5–A14 for as long as the vendored tree
-  ships.
+- **C1:** fixed. `sidecars/gbrain/src/core/output/` is restored.
+- **THIRD_PARTY_NOTICES:** now records A5–A14.
 
 ### Models
 
@@ -169,14 +182,27 @@ Two notices problems need fixing:
 The live instance has PGlite at `/data/gbrain-home` (v0.48.2 schema). All
 writes go through Knowledge. No data is deleted at any step.
 
-1. **Freeze writes.** Set Knowledge `KNOWLEDGE_BRAIN_WRITES=paused`. Memory
-   writes return 503 and reads continue. Knowledge's canonical documents are
-   unaffected.
+0. **Precondition.** Polygonface first runs the Knowledge 0.2.x upgrade, then
+   this release. The migration is run by the rollout session, never ad hoc.
+1. **Freeze writes.** Set Knowledge `KNOWLEDGE_BRAIN_WRITES=paused`.
+   - Every GBrain write (projection, extraction, remember/forget, delete)
+     returns `brain_writes_paused`.
+   - The projection ledger keeps those records pending and retries them after
+     the freeze.
+   - Reads continue, and Knowledge's canonical documents are unaffected.
 2. **Snapshot.** Take a Railway volume backup, plus a `tar` of
    `/data/gbrain-home` to the new GBrain volume. The original stays in place.
 3. **Upgrade a copy.** On the copy, run the pinned upstream CLI:
    1. `gbrain apply-migrations --yes`, taking v0.48.2 to v0.60.57 schema;
    2. `gbrain migrate --to postgres --url $GBRAIN_DATABASE_URL`.
+   3. **Keep private (decided 5 October).** No fact's visibility is changed.
+      Existing privately extracted facts keep `visibility='private'`. Under the
+      service topology every caller is remote, so they are retained but not
+      served. Nothing deletes them through MCP; an owner-CLI maintenance step
+      on the GBrain service removes them when their canonical record is
+      deleted.
+      New extraction under the service topology writes partition-world facts,
+      which Knowledge serves only inside the partition.
 4. **Verify.** For every `kb-*` source, counts must match between the
    pre-migration PGlite (old binary, read-only) and Postgres:
    - pages, chunks with embeddings, facts by visibility/expired, links,
@@ -202,22 +228,36 @@ writes go through Knowledge. No data is deleted at any step.
 ## Portal template variants
 
 - Knowledge recipes keep `engine: gbrain | hindsight`.
-- A GBrain service template has five services: Knowledge, GBrain
-  (`ghcr.io/tealbrick/gbrain-upstream@sha256`), pgvector Postgres, SurrealDB
-  and Open Notebook.
+- A GBrain service template has five services:
+  - Knowledge;
+  - GBrain, built from source (`Tealbrick/gbrain`, protected release branch,
+    `tealbrick/Dockerfile`);
+  - pgvector Postgres;
+  - SurrealDB;
+  - Open Notebook.
 - `validateTemplate` accepts per engine:
-  - GBrain: the existing 3-service embedded set, or the 5-service set with a
-    GBrain image and pgvector;
+  - GBrain: the existing 3-service embedded set, or the 5-service set with the
+    source-built GBrain plus pgvector;
   - Hindsight: hindsight-api plus pgvector.
-- All sidecars stay private and pinned by digest.
+- Image sidecars stay private and pinned by digest. The GBrain sidecar is
+  pinned by protected branch and revision instead.
 - The embedded set is retired once no deployment uses it.
 
 ## Work items (this PR series)
 
-1. Knowledge: `GBrainRemoteEngine`, the provisioner, the mitigations, engine
-   selection in `buildKnowledgeApp`, the opt-in parity suite, the unmodified
-   upstream Dockerfile and a template draft.
-2. Core: per-engine `validateTemplate` service sets and the GBrain image
-   allowlist.
-3. Later, after approval: publish the image, PR the upstream bundle, migrate
-   Polygonface, and remove `sidecars/gbrain`.
+1. **Knowledge (this PR):**
+   - `GBrainServiceConnection` and the service topology;
+   - the privacy enforcement layer;
+   - the write freeze;
+   - the opt-in parity suite;
+   - the template draft.
+2. **`Tealbrick/gbrain`:** the unmodified mirror plus `tealbrick/` packaging,
+   prepared. Creating the repository and protecting the branch need approval.
+3. **Core:** per-engine topologies, with the source-built GBrain sidecar
+   verified by protected branch and revision.
+4. **After approval:**
+   - submit the upstream PR bundle;
+   - publish the Railway template and add the Portal recipe;
+   - run the Polygonface migration through the rollout session, after the
+     0.2.x upgrade;
+   - remove `sidecars/gbrain`.

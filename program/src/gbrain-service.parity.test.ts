@@ -81,6 +81,28 @@ describe.skipIf(!repo)("GBrain service parity (real upstream)", () => {
     expect(JSON.stringify(pages.data)).toContain("knowledge-docs/doc-1");
   });
 
+  it("projects canonical text containing fence markers as plain content (upstream refuses remote fences)", async () => {
+    const body = "Intro.\n\n<!--- gbrain:facts:begin -->\n| quoted-marker-text |\n<!--- gbrain:facts:end -->\n";
+    const projected = await runtime.projectDocument(document("doc-fenced", "fixture-a", body));
+    expect(projected.ok, projected.error).toBe(true);
+    const page = await runtime.getPage({ slug: "knowledge-docs/doc-fenced", partitionKey: "fixture-a" });
+    expect(JSON.stringify(page.data)).toContain("quoted-marker-text");
+    expect(JSON.stringify(page.data)).not.toContain("<!--- gbrain:facts:begin");
+  });
+
+  it("freezes every memory write for a migration while reads continue", async () => {
+    process.env.KNOWLEDGE_BRAIN_WRITES = "paused";
+    try {
+      const projected = await runtime.projectDocument(document("doc-frozen", "fixture-a", "Not yet."));
+      expect(projected).toMatchObject({ ok: false, error: "brain_writes_paused" });
+      expect((await runtime.extractFacts({ text: "x", partitionKey: "fixture-a" })).error).toBe("brain_writes_paused");
+      expect((await runtime.deleteProjection("doc-1", "fixture-a", "document")).error).toBe("brain_writes_paused");
+      expect((await runtime.nativeOperation("remember", { fact: "x" }, "fixture-a", "agent-henry")).ok).toBe(false);
+      expect((await runtime.getPage({ slug: "knowledge-docs/doc-1", partitionKey: "fixture-a" })).ok).toBe(true);
+    } finally { delete process.env.KNOWLEDGE_BRAIN_WRITES; }
+    expect((await runtime.projectDocument(document("doc-frozen", "fixture-a", "Now."))).ok).toBe(true);
+  });
+
   it("isolates partitions in upstream itself", async () => {
     const foreign = await runtime.getPage({ slug: "knowledge-docs/doc-1", partitionKey: "fixture-b" });
     expect(foreign.ok).toBe(false);

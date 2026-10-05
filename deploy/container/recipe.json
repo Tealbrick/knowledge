@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "tealbrick-knowledge",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "distribution": "public-source-and-railway-template",
   "sourceContext": "standalone-repository-root",
   "dockerfile": "deploy/container/Dockerfile",

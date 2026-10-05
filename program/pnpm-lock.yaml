@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@tealbrick/ui':
+        specifier: 0.2.2
+        version: 0.2.2(react@19.2.8)
       fastify:
         specifier: 5.12.3
         version: 5.12.3
@@ -587,6 +590,11 @@ packages:
     resolution: {integrity: sha512-TYBea4OuXWD7MhaSHq069TWbFe7rcwWN6kzT7JF0OKi1K6c1gTv2IzD6A6ExJsCMozdkqBWeuIUZmu4KQg0O5A==}
     peerDependencies:
       react: ^18 || ^19
+
+  '@tealbrick/ui@0.2.2':
+    resolution: {integrity: sha512-wb8x1OdpDL/EJfaE/gHs2WXNijtrdzOkxtjaqGxsD7NjPdntFeAWe67/2nkJSYGXEr+xpuilEgarlHAP/1uxNw==}
+    peerDependencies:
+      react: '>=19'
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -1651,6 +1659,10 @@ snapshots:
   '@tanstack/react-query@5.102.8(react@19.2.8)':
     dependencies:
       '@tanstack/query-core': 5.102.8
+      react: 19.2.8
+
+  '@tealbrick/ui@0.2.2(react@19.2.8)':
+    dependencies:
       react: 19.2.8
 
   '@types/chai@5.2.3':

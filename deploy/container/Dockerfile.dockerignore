@@ -25,9 +25,6 @@
 !deploy/container/browser-auth.mjs
 !deploy/container/os-backports
 !deploy/container/os-backports/**
-!.sdk
-!.sdk/tealbrick-ui
-!.sdk/tealbrick-ui/**
 **/node_modules
 **/.git
 **/.env*

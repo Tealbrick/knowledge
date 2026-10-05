@@ -6,10 +6,6 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "paths": {
-      "@tealbrick/ui": ["../../.sdk/tealbrick-ui/src/index.tsx", "../../../.sdk/tealbrick-ui/src/index.tsx"],
-      "@tealbrick/ui/*": ["../../.sdk/tealbrick-ui/*", "../../../.sdk/tealbrick-ui/*"],
-      "@doppelganger/ui": ["../../.sdk/tealbrick-ui/src/index.tsx", "../../../.sdk/tealbrick-ui/src/index.tsx"],
-      "@doppelganger/ui/*": ["../../.sdk/tealbrick-ui/*", "../../../.sdk/tealbrick-ui/*"],
       "react": ["../node_modules/@types/react/index.d.ts"],
       "react/jsx-runtime": ["../node_modules/@types/react/jsx-runtime.d.ts"]
     },

@@ -98,7 +98,7 @@ export async function installDoppelgangerGBrainSchemaPack(
   const pack = await readDoppelgangerGBrainSchemaPack();
   if (pack.name !== DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME) {
     throw new Error(
-      `Doppelganger GBrain schema pack name mismatch: ${pack.name}`,
+      `Teal Brick GBrain schema pack name mismatch: ${pack.name}`,
     );
   }
 

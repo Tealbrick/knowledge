@@ -9,7 +9,7 @@
     "disableAllowed": true,
     "systemRole": "knowledge-substrate"
   },
-  "description": "First-party Doppelganger Knowledge Micro-app with Documents, Research, GBrain-powered Brain, Orchestrator, bindings, and primitive observer UI.",
+  "description": "First-party Teal Brick Knowledge Micro-app with Documents, Research, GBrain-powered Brain, Orchestrator, bindings, and primitive observer UI.",
   "source": {
     "type": "direct-port-plus-upstream-sidecar",
     "repo": "Source snapshot documented in SOURCE_SNAPSHOT.md",

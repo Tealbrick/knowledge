@@ -10,7 +10,7 @@ import {
   readDoppelgangerGBrainSchemaPack,
 } from "./gbrain-schema.js";
 
-describe("Doppelganger GBrain schema pack", () => {
+describe("Teal Brick GBrain schema pack", () => {
   it("declares the DG domain entity and edge types GBrain should use", async () => {
     const pack = await readDoppelgangerGBrainSchemaPack();
 

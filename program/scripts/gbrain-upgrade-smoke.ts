@@ -266,7 +266,7 @@ async function main() {
     const projectedDocument = await firstRuntime.projectDocument(document);
     assert(projectedDocument.ok, `document projection failed: ${projectedDocument.error ?? "unknown"}`);
 
-    const token = (await fs.readFile(path.join(gbrainHome, ".doppelganger-token"), "utf8")).trim();
+    const token = (await fs.readFile(path.join(gbrainHome, ".tealbrick-token"), "utf8")).trim();
     assert(token.length > 0, "managed runtime did not create a disposable token");
     await readPageWithContent(
       firstRuntime,
@@ -314,7 +314,7 @@ async function main() {
     const tokenBeforeClose = token;
     await firstRuntime.close();
     firstRuntime = null;
-    assert((await fs.readFile(path.join(gbrainHome, ".doppelganger-token"), "utf8")).trim() === tokenBeforeClose, "managed close changed the token");
+    assert((await fs.readFile(path.join(gbrainHome, ".tealbrick-token"), "utf8")).trim() === tokenBeforeClose, "managed close changed the token");
     const persistedConfig = await readJson(configPath);
     const databasePath = typeof persistedConfig.database_path === "string" ? persistedConfig.database_path : null;
     assert(databasePath, "disposable GBrain config did not expose a PGLite database_path");
@@ -326,7 +326,7 @@ async function main() {
     assert(secondStatus.status === "online", `reopened runtime did not become online: ${secondStatus.detail ?? "unknown"}`);
     assert(secondStatus.baseUrl?.startsWith("http://127.0.0.1:"), "reopened runtime was not loopback HTTP");
     const secondHealth = await readHealth(secondStatus.baseUrl, repoVersion);
-    const tokenAfterReopen = (await fs.readFile(path.join(gbrainHome, ".doppelganger-token"), "utf8")).trim();
+    const tokenAfterReopen = (await fs.readFile(path.join(gbrainHome, ".tealbrick-token"), "utf8")).trim();
     assert(tokenAfterReopen === tokenBeforeClose, "reopened runtime did not reuse the managed token");
     await readPageWithContent(
       secondRuntime,

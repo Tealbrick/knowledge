@@ -108,6 +108,26 @@ describe("Knowledge Rules policy boundary", () => {
     });
   });
 
+  it("accepts the Tealbrick rules method in responses while still emitting the legacy method", async () => {
+    const input = {
+      operation: "knowledge.document.read", targetKind: "knowledge_document", targetId: "doc", companyId: null,
+      payload: {}, actor: { id: "knowledge-program", roles: ["service"], source: "knowledge-program", companyId: null },
+    } as const;
+    await withRulesServer({
+      responseBody: { allowed: true, reason: "allow", method: "tealbrick.rules.evaluate", details: {} },
+    }, async (baseUrl, calls) => {
+      const client = new KnowledgeRulesClient({ baseUrl, authToken: "token", workspaceSlug: "test", timeoutMs: 500 });
+      await expect(client.evaluate(input)).resolves.toMatchObject({ effect: "allow" });
+      expect(calls[0]).toMatchObject({ body: { method: "doppelganger.rules.evaluate" } });
+    });
+    await withRulesServer({
+      responseBody: { allowed: true, reason: "allow", method: "other.rules.evaluate", details: {} },
+    }, async (baseUrl) => {
+      const client = new KnowledgeRulesClient({ baseUrl, authToken: "token", workspaceSlug: "test", timeoutMs: 500 });
+      await expect(client.evaluate(input)).resolves.toMatchObject({ effect: "unavailable" });
+    });
+  });
+
   it("fails closed on redirects and timeouts", async () => {
     await withRulesServer({ redirect: true }, async (baseUrl, calls) => {
       const client = new KnowledgeRulesClient({ baseUrl, authToken: "token", workspaceSlug: "test", timeoutMs: 500 });

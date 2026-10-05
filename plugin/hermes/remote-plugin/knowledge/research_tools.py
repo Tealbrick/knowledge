@@ -23,7 +23,12 @@ from typing import Any, Callable
 RESEARCH_SERVICE_TOKEN_ENV = "KNOWLEDGE_RESEARCH_SERVICE_TOKEN"
 KNOWLEDGE_BASE_URL_ENV = "KNOWLEDGE_BASE_URL"
 RUNTIME_CONNECTION_PATH = Path(__file__).with_name("runtime-connection.json")
+# Doppelganger -> Tealbrick transition: accept both connection schema ids; the
+# installer keeps writing the legacy id until every producer/consumer accepts
+# the new one. Keep in sync with tools.py, native_tools.py and
+# program/src/legacy-ids.ts (removal condition documented there).
 RUNTIME_CONNECTION_SCHEMA = "doppelganger.remote-program-connection/v1"
+RUNTIME_CONNECTION_SCHEMAS = frozenset({RUNTIME_CONNECTION_SCHEMA, "tealbrick.remote-program-connection/v1"})
 RUNTIME_CONNECTION_UNIT = "knowledge"
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 CALL_DEADLINE_SECONDS = 45.0
@@ -180,7 +185,7 @@ def _base_url() -> tuple[str, urllib.parse.SplitResult]:
         raise _ResearchFailure("service_discovery_unavailable")
     if not isinstance(value, dict) or set(value) != {"schemaVersion", "unitId", "baseUrl", "healthPath"}:
         raise _ResearchFailure("service_discovery_unavailable")
-    if value.get("schemaVersion") != RUNTIME_CONNECTION_SCHEMA or value.get("unitId") != RUNTIME_CONNECTION_UNIT or value.get("healthPath") != "/healthz":
+    if value.get("schemaVersion") not in RUNTIME_CONNECTION_SCHEMAS or value.get("unitId") != RUNTIME_CONNECTION_UNIT or value.get("healthPath") != "/healthz":
         raise _ResearchFailure("service_discovery_unavailable")
     resolved = _loopback_base_url(value.get("baseUrl"))
     if resolved is None:

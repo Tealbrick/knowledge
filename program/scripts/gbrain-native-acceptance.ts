@@ -106,7 +106,7 @@ async function main(): Promise<void> {
     assert(firstStatus.status === "online" && firstStatus.baseUrl, "real GBrain runtime did not become online");
     assert(firstStatus.baseUrl.startsWith("http://127.0.0.1:"), "real GBrain runtime was not loopback HTTP");
     await health(firstStatus.baseUrl, version);
-    const token = (await fs.readFile(path.join(gbrainHome, ".doppelganger-token"), "utf8")).trim();
+    const token = (await fs.readFile(path.join(gbrainHome, ".tealbrick-token"), "utf8")).trim();
     assert(token.length > 0, "real GBrain runtime did not create a managed token");
 
     for (const [slug, type, title, marker, aliases] of [
@@ -202,7 +202,7 @@ async function main(): Promise<void> {
     const tokenBeforeClose = token;
     await runtime.close();
     runtime = null;
-    const tokenAfterClose = (await fs.readFile(path.join(gbrainHome, ".doppelganger-token"), "utf8")).trim();
+    const tokenAfterClose = (await fs.readFile(path.join(gbrainHome, ".tealbrick-token"), "utf8")).trim();
     assert(tokenAfterClose === tokenBeforeClose, "managed close changed the disposable token");
 
     runtime = new GBrainRuntime(config);

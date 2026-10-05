@@ -350,18 +350,21 @@ describe("Knowledge Program", () => {
     delete process.env.KNOWLEDGE_DATABASE_PATH;
     delete process.env.KNOWLEDGE_DATABASE_URL;
     delete process.env.DATABASE_URL;
+    const previousHome = process.env.HOME;
+    process.env.HOME = path.join(os.tmpdir(), `knowledge-home-${process.pid}-${Date.now()}`);
     try {
       const config = loadConfig({ environment: "development" });
       expect(config.dataDir).toBe(
-        path.join(os.homedir(), ".doppelganger-knowledge"),
+        path.join(os.homedir(), ".tealbrick-knowledge"),
       );
       expect(config.knowledgeDatabasePath).toBe(
-        path.join(os.homedir(), ".doppelganger-knowledge", "knowledge.sqlite"),
+        path.join(os.homedir(), ".tealbrick-knowledge", "knowledge.sqlite"),
       );
       expect(config.gbrainHome).toBe(
-        path.join(os.homedir(), ".doppelganger-knowledge", "gbrain-home"),
+        path.join(os.homedir(), ".tealbrick-knowledge", "gbrain-home"),
       );
     } finally {
+      process.env.HOME = previousHome;
       if (previousDataDir === undefined) {
         delete process.env.KNOWLEDGE_DATA_DIR;
       } else {

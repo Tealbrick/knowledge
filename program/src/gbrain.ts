@@ -15,10 +15,11 @@ import { probeGBrainHealth } from "./gbrain-health.js";
 import type { KnowledgeDocument, ResearchSource, KnowledgeConfig } from "./types.js";
 import { knowledgePartitionSourceId, normalizeKnowledgePartitionKey } from "./partition-authority.js";
 import {
-  DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME,
-  installDoppelgangerGBrainSchemaPack,
-  type DoppelgangerGBrainSchemaInstallResult,
+  KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME,
+  installKnowledgeGBrainSchemaPack,
+  type KnowledgeGBrainSchemaInstallResult,
 } from "./gbrain-schema.js";
+import { gbrainHomeFilePath } from "./legacy-ids.js";
 
 type GBrainState = "disabled" | "starting" | "online" | "degraded";
 
@@ -40,19 +41,19 @@ export type GBrainNativeCapabilityStatus = "ready" | "unknown" | "unavailable";
 
 type GBrainSchemaPackState =
   | {
-      readonly name: typeof DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME;
+      readonly name: typeof KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME;
       readonly status: "not-managed";
       readonly detail: string;
     }
   | {
-      readonly name: typeof DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME;
+      readonly name: typeof KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME;
       readonly status: "installed";
       readonly path: string;
       readonly active: boolean;
       readonly installedDuringBootstrap: boolean;
     }
   | {
-      readonly name: typeof DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME;
+      readonly name: typeof KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME;
       readonly status: "degraded";
       readonly detail: string;
     };
@@ -128,11 +129,11 @@ async function reservePort(): Promise<number> {
 }
 
 function tokenFilePath(gbrainHome: string) {
-  return path.join(gbrainHome, ".doppelganger-token");
+  return gbrainHomeFilePath(gbrainHome, ".tealbrick-token");
 }
 
 function gbrainRuntimeFilePath(gbrainHome: string) {
-  return path.join(gbrainHome, ".doppelganger-gbrain-runtime.json");
+  return gbrainHomeFilePath(gbrainHome, ".tealbrick-gbrain-runtime.json");
 }
 
 async function isHealthyGBrainBaseUrl(baseUrl: string, timeoutMs = 1_500): Promise<boolean> {
@@ -315,7 +316,7 @@ export class GBrainRuntime {
   private managedSecret: string | null = null;
   private modelEnv: NodeJS.ProcessEnv = {};
   private schemaPack: GBrainSchemaPackState = {
-    name: DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME,
+    name: KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME,
     status: "not-managed",
     detail: "GBrain runtime has not started",
   };
@@ -345,7 +346,7 @@ export class GBrainRuntime {
         ? "GBRAIN_TOKEN is required for MCP calls"
         : health.status === "unavailable" ? `GBrain health unavailable: ${health.reason}` : null;
       this.schemaPack = {
-        name: DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME,
+        name: KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME,
         status: "not-managed",
         detail: "Configured external GBrain endpoint manages its own schema pack",
       };
@@ -355,7 +356,7 @@ export class GBrainRuntime {
       this.state = "disabled";
       this.detail = "GBrain autostart disabled";
       this.schemaPack = {
-        name: DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME,
+        name: KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME,
         status: "not-managed",
         detail: "GBrain autostart disabled",
       };
@@ -379,7 +380,7 @@ export class GBrainRuntime {
       }
       await ensureGBrainInitialized(repoPath, this.config.gbrainHome, this.modelEnv);
       this.schemaPack = schemaPackStateFromInstall(
-        await installDoppelgangerGBrainSchemaPack(this.config.gbrainHome),
+        await installKnowledgeGBrainSchemaPack(this.config.gbrainHome),
       );
       // Separate from legacy GBrain identities: never revoke or reuse one.
       const secretPath = path.join(this.config.gbrainHome, ".knowledge-managed-secret");
@@ -393,7 +394,7 @@ export class GBrainRuntime {
       this.state = "degraded";
       this.detail = error instanceof Error ? error.message : String(error);
       this.schemaPack = {
-        name: DOPPELGANGER_GBRAIN_SCHEMA_PACK_NAME,
+        name: KNOWLEDGE_GBRAIN_SCHEMA_PACK_NAME,
         status: "degraded",
         detail: this.detail,
       };
@@ -843,7 +844,7 @@ export class GBrainRuntime {
 }
 
 function schemaPackStateFromInstall(
-  result: DoppelgangerGBrainSchemaInstallResult,
+  result: KnowledgeGBrainSchemaInstallResult,
 ): GBrainSchemaPackState {
   return {
     name: result.packName,

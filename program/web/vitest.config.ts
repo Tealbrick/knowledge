@@ -4,10 +4,12 @@ import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "vitest/config";
 
+import { readTealbrickEnv } from "../src/legacy-ids.ts";
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const localSdk = path.resolve(here, "../../../.sdk/tealbrick-ui");
 const deployedSdk = path.resolve(here, "../../.sdk/tealbrick-ui");
-const sdkRoot = process.env.TEALBRICK_UI_SDK_ROOT ?? process.env.DOPPELGANGER_UI_SDK_ROOT ?? (fs.existsSync(localSdk) ? localSdk : deployedSdk);
+const sdkRoot = readTealbrickEnv("TEALBRICK_UI_SDK_ROOT") ?? (fs.existsSync(localSdk) ? localSdk : deployedSdk);
 
 export default defineConfig({
   resolve: {

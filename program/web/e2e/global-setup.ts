@@ -21,7 +21,7 @@ export default async function globalSetup(config: FullConfig) {
     "Knowledge E2E fixture server must remain on loopback",
   );
 
-  const dataDir = await mkdtemp(path.join(tmpdir(), "doppelganger-knowledge-e2e-"));
+  const dataDir = await mkdtemp(path.join(tmpdir(), "tealbrick-knowledge-e2e-"));
   const app = await buildKnowledgeApp({
     environment: "test",
     config: {

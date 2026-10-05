@@ -54,7 +54,7 @@
   "program": {
     "path": "program",
     "workspace": "pnpm",
-    "servicePackage": "@doppelganger/knowledge-program",
+    "servicePackage": "@tealbrick/knowledge-program",
     "health": "/healthz",
     "defaultHost": "127.0.0.1",
     "defaultPort": 0,
@@ -69,11 +69,11 @@
     "database": {
       "kind": "sqlite",
       "mode": "hidden-home-file",
-      "defaultPath": "~/.doppelganger-knowledge/knowledge.sqlite",
+      "defaultPath": "~/.tealbrick-knowledge/knowledge.sqlite",
       "owner": "program/src/persistence.ts"
     },
     "persistenceRoot": {
-      "defaultPath": "~/.doppelganger-knowledge",
+      "defaultPath": "~/.tealbrick-knowledge",
       "env": "KNOWLEDGE_DATA_DIR"
     },
     "canonicalSources": [
@@ -185,7 +185,7 @@
         "id": "knowledge-object-store",
         "kind": "filesystem-object-store",
         "mode": "hidden-home-directory",
-        "path": "~/.doppelganger-knowledge/knowledge-attachments"
+        "path": "~/.tealbrick-knowledge/knowledge-attachments"
       }
     ],
     "optional": [

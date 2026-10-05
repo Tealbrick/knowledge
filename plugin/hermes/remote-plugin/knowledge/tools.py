@@ -48,6 +48,11 @@ def _rules_decision_denies(result: dict[str, Any]) -> bool:
 
 RUNTIME_CONTRACT_PATH = Path(__file__).with_name("remote-runtime.json")
 RUNTIME_CONNECTION_PATH = Path(__file__).with_name("runtime-connection.json")
+# Doppelganger -> Tealbrick transition: accept both connection schema ids; the
+# installer keeps writing the legacy id until every producer/consumer accepts
+# the new one. Keep in sync with research_tools.py, native_tools.py and
+# program/src/legacy-ids.ts (removal condition documented there).
+RUNTIME_CONNECTION_SCHEMAS = frozenset({"doppelganger.remote-program-connection/v1", "tealbrick.remote-program-connection/v1"})
 
 
 def _loopback_base_url(value: Any) -> str | None:
@@ -85,7 +90,7 @@ def _connection_base_url() -> str | None:
         return None
     if not isinstance(connection, dict):
         return None
-    if connection.get("schemaVersion") != "doppelganger.remote-program-connection/v1":
+    if connection.get("schemaVersion") not in RUNTIME_CONNECTION_SCHEMAS:
         return None
     if connection.get("unitId") != "knowledge":
         return None

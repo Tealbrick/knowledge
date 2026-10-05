@@ -51,6 +51,29 @@ class KnowledgeHermesAdapterTest(unittest.TestCase):
             ):
                 self.assertIsNone(tools._base_url())
 
+    def test_adapter_accepts_tealbrick_connection_schema_alias(self):
+        with tempfile.TemporaryDirectory() as directory:
+            connection = Path(directory) / "runtime-connection.json"
+            for schema, expected in (
+                ("tealbrick.remote-program-connection/v1", "http://127.0.0.1:5311"),
+                ("unknown.remote-program-connection/v1", None),
+            ):
+                connection.write_text(
+                    json.dumps(
+                        {
+                            "schemaVersion": schema,
+                            "unitId": "knowledge",
+                            "baseUrl": "http://127.0.0.1:5311",
+                            "healthPath": "/healthz",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                with patch.dict(os.environ, {"KNOWLEDGE_BASE_URL": ""}, clear=False), patch.object(
+                    tools, "RUNTIME_CONNECTION_PATH", connection
+                ):
+                    self.assertEqual(tools._base_url(), expected)
+
     def test_ingest_run_is_governed_and_calls_the_real_program_route(self):
         calls = []
 

@@ -13,7 +13,7 @@ import path from "node:path";
  *
  * Removal condition: delete an entry (and its fallback branch) once
  *   1. every consumer listed in the PR "flip emission" plan (Portal Core,
- *      Rules Approvals, Marketplace, the Hermes plugin installer) accepts the
+ *      Rules Approvals, Marketplace) accepts the
  *      new id and emission has been flipped to it, and
  *   2. no supported install still has the legacy env var, directory or file
  *      (one release after the flip, at the earliest).

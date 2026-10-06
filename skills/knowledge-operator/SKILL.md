@@ -28,8 +28,8 @@ deployment engine's operations (GBrain or Hindsight) and current grants; pass
 `knowledge_brain_call` with `operation` and exact native `arguments`. The runtime supplies
 `KNOWLEDGE_SERVICE_TOKEN`; supply an authorized `partitionKey` or configure
 `KNOWLEDGE_PARTITION_KEY`. Do not pass upstream credentials, `source_id`,
-`bank_id`, identity, or `remote` as arguments. `brain_think` now invokes real native
-`think` with `arguments.question`, not the old scopeRef/query context alias.
+`bank_id`, identity, or `remote` as arguments. Native `think` takes
+`arguments.question`.
 
 Use remember/recall/entity/synthesize/forget/context_pack/delta (GBrain) or
 retain_memories/recall_memories/reflect (Hindsight) according to the native

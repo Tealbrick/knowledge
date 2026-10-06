@@ -98,8 +98,8 @@ The op count is large, so exposure uses discovery rather than one tool per op:
   `{"partitionKey": "...", "arguments": {<path params>, <query params>, "body": {...}}}`.
   Multipart fields take `{"filename","contentBase64","contentType"}`; binary
   results return base64.
-- The agent adapter (`knowledge_brain_tools` / `knowledge_brain_call`), the Eve
-  extension and the Hermes plugin accept any discovered operation name.
+- The agent adapter (`knowledge_brain_tools` / `knowledge_brain_call`) and the
+  Eve extension accept any discovered operation name.
 
 ## Authorization
 

@@ -99,22 +99,23 @@ unattested external runtime returns unavailable.
 - Search results are evidence candidates. Use `get_page(include_content:true)`
   or chunks before answering when a snippet is insufficient.
 
-## Hermes hookup and compatibility
+## Agent hookup and compatibility
 
-Install the updated Knowledge plugin, configure a runtime-only
-`KNOWLEDGE_SERVICE_TOKEN`, `KNOWLEDGE_BASE_URL`, and optionally
-`KNOWLEDGE_PARTITION_KEY`. Native transport permits HTTPS or loopback HTTP,
-never credential-forwarding redirects. The legacy plugin transport remains
-loopback-only. Upstream engine/provider keys never become tool arguments.
+Use the standalone agent adapter (`adapters/agent`: MCP and Eve extension)
+configured with a runtime-only `KNOWLEDGE_SERVICE_TOKEN`, `KNOWLEDGE_BASE_URL`,
+and optionally `KNOWLEDGE_PARTITION_KEY`. Native transport permits HTTPS or
+loopback HTTP, never credential-forwarding redirects. Upstream engine/provider
+keys never become tool arguments. The per-app Hermes remote plugin that also
+carried this surface was retired in favour of the unified connector and removed
+from this repository.
 
 1. Call `knowledge_brain_tools({"partitionKey":"your-partition"})`.
 2. Call `knowledge_brain_call({"operation":"recall","partitionKey":"your-partition","arguments":{"entity":"Vega"}})`.
 3. For mutations add `idempotencyKey` alongside `operation` and `arguments`.
 
-Breaking correction: old `brain_think(scopeRef, query)` was misleading context
-retrieval. It now accepts `{"partitionKey":"...","arguments":{"question":"..."}}`
-and invokes native `think`. For old context behavior use `brain_context_for_task`
-or `brain_query` explicitly. The shared thirteen-tool Research contract is unchanged.
+Breaking correction: the old `brain_think(scopeRef, query)` alias was
+misleading context retrieval. Native `think` is invoked through
+`knowledge_brain_call` with `{"operation":"think","arguments":{"question":"..."}}`.
 Other harnesses can consume the HTTP catalog/dispatch contract, but this source
 change alone does not publish or upgrade the separate Teal Brick npm packages,
 Portal attachment catalogs, or already-installed agent tools.
@@ -128,7 +129,6 @@ corepack pnpm@9.15.4 --dir program typecheck:program
 corepack pnpm@9.15.4 --dir program exec vitest run --exclude 'web/**' --maxWorkers=2
 bun program/scripts/verify-native-memory.ts
 corepack pnpm@9.15.4 --dir program exec tsx scripts/verify-native-runtime.ts
-python3 -m unittest discover -s plugin/hermes/test
 ```
 
 The two native scripts use disposable databases; the runtime script strips

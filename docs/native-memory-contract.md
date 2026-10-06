@@ -49,9 +49,10 @@ Since 6 October 2026 the operation set and each operation's read/write scope and
 CRUD capabilities come from the selected engine's policy
 (`program/src/engine-exposure.ts`): the pinned GBrain service and Hindsight
 expose their full upstream surface minus documented exclusions; the embedded
-managed worker keeps the 21 operations above. A write is also admitted for a
-principal holding `brain:native:write`, which the container edge grants for one
-request to a Portal attachment holding `knowledge:brain:write`. Every write
+managed worker keeps the 21 operations above. A read is also admitted for a
+principal holding `brain:native:read`, and a write for `brain:native:write`;
+the container edge grants these for one request to a Portal attachment holding
+`knowledge:engine:read` / `knowledge:engine:write`. Every write
 requires an idempotency key. See [memory-engines.md](memory-engines.md).
 
 The Program signs a five-minute, operation-specific internal capability bound

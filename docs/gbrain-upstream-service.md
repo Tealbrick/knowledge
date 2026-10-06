@@ -130,8 +130,10 @@ sources_admin or agent scope; 7 localOnly/cliOnly over HTTP; 5 publish-gated;
 the brain-wide skill registry, and open loops per A13). Before this change only
 the 21 native-memory v1 operations were reachable (135 unaccounted). Page
 content writes to `knowledge-docs/` and `knowledge-research/` are refused, as
-are `local_file`, `trusted_extraction` and private visibility on
-`extract_facts`. The opt-in parity suite proves upstream's own `tools/list`
+are `local_file`, `trusted_extraction`, `image_path`, non-http(s)
+`search_by_image.image_url`, `think`/`synthesize` `model`, `think.save`/`take`,
+`request_tools.surface`, explicit calibration `holder`, and private visibility on
+`extract_facts`/`ontology_propose` (`argument_refused`). The opt-in parity suite proves upstream's own `tools/list`
 lists all 88 for a read+write partition client and that none is refused for
 scope. Table: `cd program && npx tsx scripts/engine-coverage-report.ts`.
 

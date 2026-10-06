@@ -37,17 +37,19 @@ fail if any upstream operation is unaccounted for or unreachable.
 | Engine | Pin | Upstream | Exposed (read/write) | Excluded |
 |---|---|---:|---:|---:|
 | GBrain service | v0.60.57.0 | 156 | 88 (63/25) | 68 |
-| Hindsight service | v0.10.2 | 99 | 81 (48/33) | 18 |
+| Hindsight service | v0.10.2 | 99 | 80 (46/34) | 19 |
 
 The embedded managed GBrain worker (vendored v0.48.2, the default topology)
 keeps its fixed 21-operation native-memory v1 contract.
 
 Agents reach the surface through `GET /api/brain/native/tools` (discovery;
 `?operation=` describes, `?query=` searches) and
-`POST /api/brain/native/<operation>`. Portal attachments need
-`knowledge:brain:read` for reads and the new **`knowledge:brain:write`** for
-writes; Portal runtime grants keep the CRUD mapping (`brain:read`,
-`knowledge:create`/`update`/`delete`).
+`POST /api/brain/native/<operation>`. Portal attachments need the new
+**`knowledge:engine:read`** for reads and **`knowledge:engine:write`** for
+writes (`knowledge:brain:read` keeps meaning recall/context only); Portal runtime
+grants keep the CRUD mapping (`brain:read`, `knowledge:create`/`update`/`delete`).
+Argument guards, concurrency and timeout bounds: see the security notes in
+[hindsight-upstream-service.md](hindsight-upstream-service.md).
 
 ## Hindsight (vectorize-io/hindsight, MIT)
 

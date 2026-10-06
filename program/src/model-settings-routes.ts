@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import type { GBrainRuntime } from "./gbrain.js";
+import type { MemoryEngine } from "./memory-engine.js";
 import type { ResearchSyncResult } from "./research-model-sync.js";
 import { ModelSettingsUpdateError, ModelSettingsUpdateSchema, readModelSettings, resolveModelSettingsUpdate, saveModelSettings, modelSettingsSummary, testModelSettings, type ModelSettings } from "./model-settings.js";
 
@@ -10,7 +10,7 @@ export interface ModelSettingsResearchSync {
   summary(): Record<string, unknown>;
 }
 
-export function registerModelSettingsRoutes(app: FastifyInstance, input: { dataDir: string; gbrainHome: string; brain: GBrainRuntime; authority: string | undefined; research?: ModelSettingsResearchSync | null; testModels?: typeof testModelSettings }) {
+export function registerModelSettingsRoutes(app: FastifyInstance, input: { dataDir: string; gbrainHome: string; brain: MemoryEngine; authority: string | undefined; research?: ModelSettingsResearchSync | null; testModels?: typeof testModelSettings }) {
   const testModels = input.testModels ?? testModelSettings;
   // Research is configured after the memory save succeeded; it never undoes or fails that save.
   const syncResearch = async (settings: ModelSettings): Promise<ResearchSyncResult> => {

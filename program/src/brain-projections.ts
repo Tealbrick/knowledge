@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import type { KnowledgeDocument, ResearchSource } from "./types.js";
-import type { GBrainRuntime } from "./gbrain.js";
+import type { MemoryEngine } from "./memory-engine.js";
 
 type Item = { kind: "document"; value: KnowledgeDocument } | { kind: "research"; value: ResearchSource };
 type Row = { id: string; partition_key: string; kind: Item["kind"]; revision: string; state: string; error: string | null };
@@ -19,7 +19,7 @@ export class BrainProjections {
   private reconciling = false;
   private extractionTask: Promise<void> | undefined;
   private cursor = 0;
-  constructor(file: string, private readonly brain: GBrainRuntime, private readonly current: () => Item[], private readonly extract?: (item: Item) => Promise<unknown>) {
+  constructor(file: string, private readonly brain: MemoryEngine, private readonly current: () => Item[], private readonly extract?: (item: Item) => Promise<unknown>) {
     if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(file);
     this.db.exec("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS projections(id TEXT NOT NULL, partition_key TEXT NOT NULL, kind TEXT NOT NULL, revision TEXT NOT NULL, state TEXT NOT NULL, error TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(id,partition_key,kind))");

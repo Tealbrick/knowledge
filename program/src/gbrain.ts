@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { managedBrainToken } from "./gbrain-managed-auth.js";
 import { nativeMemoryToken } from "./brain-native-auth.js";
-import { MEMORY_VERBS, NATIVE_MEMORY_GUIDANCE, NATIVE_MEMORY_OPERATIONS, nativeMemoryCapabilities, nativeMemoryOperation, nativeMemoryWrites } from "./brain-native-policy.js";
+import { MEMORY_VERBS, NATIVE_MEMORY_GUIDANCE, nativeMemoryCapabilities, nativeMemoryOperation, nativeMemoryWrites } from "./brain-native-policy.js";
 import { GBrainServiceConnection, GBrainServiceError } from "./gbrain-service.js";
 import { sanitizeGBrainResult } from "./gbrain-privacy.js";
 import { readModelSettings, modelSettingsEnvironment } from "./model-settings.js";
@@ -22,6 +22,7 @@ import {
   type KnowledgeGBrainSchemaInstallResult,
 } from "./gbrain-schema.js";
 import { gbrainHomeFilePath } from "./legacy-ids.js";
+import { gbrainServiceExposure, type NativeOperationPolicy } from "./engine-exposure.js";
 
 type GBrainState = "disabled" | "starting" | "online" | "degraded";
 
@@ -60,7 +61,7 @@ type GBrainSchemaPackState =
       readonly detail: string;
     };
 
-interface ToolCallResult {
+export interface ToolCallResult {
   readonly ok: boolean;
   readonly status: "ready" | "degraded";
   readonly tool: string;
@@ -77,7 +78,7 @@ function frontmatterString(value: string | null | undefined): string {
   return JSON.stringify(value ?? "");
 }
 
-function documentToMarkdown(document: KnowledgeDocument): string {
+export function documentToMarkdown(document: KnowledgeDocument): string {
   return `---
 type: knowledge_document
 knowledge_document_id: ${frontmatterString(document.id)}
@@ -93,7 +94,7 @@ updated_at: ${frontmatterString(document.updatedAt)}
 ${document.summary ? `${document.summary}\n\n` : ""}${document.body}`;
 }
 
-function researchSourceToMarkdown(source: ResearchSource): string {
+export function researchSourceToMarkdown(source: ResearchSource): string {
   return `---
 type: research_source
 research_source_id: ${frontmatterString(source.id)}
@@ -305,6 +306,7 @@ async function ensureGBrainToken(repoPath: string, gbrainHome: string, configure
 }
 
 export class GBrainRuntime {
+  readonly engine = "gbrain" as const;
   private state: GBrainState = "disabled";
   private baseUrl: string | null = null;
   private token: string | null = null;
@@ -450,8 +452,8 @@ export class GBrainRuntime {
 
   status() {
     return {
-      status: this.state === "online" ? "online" : this.state,
-      runtime: "gbrain",
+      status: this.state === "online" ? "online" as const : this.state,
+      runtime: "gbrain" as const,
       observedVersion: this.observedVersion,
       baseUrl: this.baseUrl,
       home: this.config.gbrainHome,
@@ -567,11 +569,23 @@ export class GBrainRuntime {
     }, input.partitionKey);
   }
 
+  /**
+   * Agent-callable native operations. The separate upstream service exposes the
+   * full pinned GBrain surface minus documented exclusions (engine-exposure.ts);
+   * the embedded managed worker keeps its fixed native-memory v1 contract.
+   */
+  nativeOperationPolicy(name: string): NativeOperationPolicy | null {
+    if (this.config.gbrainServiceUrl || this.config.gbrainServiceAdminToken) return gbrainServiceExposure().exposed.get(name) ?? null;
+    if (!nativeMemoryOperation(name)) return null;
+    return { name, scope: nativeMemoryWrites(name) ? "write" : "read", capabilities: nativeMemoryCapabilities(name), destructive: name === "forget" };
+  }
+
   /** Full native memory protocol, separately attested per principal and operation. */
   async nativeOperation(operation: string, args: Record<string, unknown>, partitionKey: string, principalId: string): Promise<Record<string, any>> {
     const partition = normalizeKnowledgePartitionKey(partitionKey);
-    if (!partition || !principalId || !(operation === "catalog" || nativeMemoryOperation(operation))) return {ok:false,error:{error:"scope_denied",suggestion:"Use an authorized partition and advertised operation."}};
-    if (brainWritesPaused() && nativeMemoryWrites(operation)) return { ok: false, error: { error: "unavailable", message: "Memory writes are paused for maintenance", suggestion: "Retry later with the same Idempotency-Key.", protocol_version: 1 } };
+    const policy = operation === "catalog" ? null : this.nativeOperationPolicy(operation);
+    if (!partition || !principalId || !(operation === "catalog" || policy)) return {ok:false,error:{error:"scope_denied",suggestion:"Use an authorized partition and advertised operation."}};
+    if (brainWritesPaused() && policy?.scope === "write") return { ok: false, error: { error: "unavailable", message: "Memory writes are paused for maintenance", suggestion: "Retry later with the same Idempotency-Key.", protocol_version: 1 } };
     if (this.service) return this.serviceNativeOperation(operation, args, partition, principalId);
     if (!this.managedSecret || !this.baseUrl || this.state !== "online") return {ok:false,error:{error:"unavailable",suggestion:"Start the bundled managed Knowledge memory engine. External GBrain native-contract attestation is not configured."}};
     const token = nativeMemoryToken(this.managedSecret,knowledgePartitionSourceId(partition),principalId,operation);
@@ -854,23 +868,26 @@ export class GBrainRuntime {
       if (operation === "catalog") {
         const upstream = await this.service.tools(sourceId, principalId);
         const byName = new Map(upstream.map(tool => [tool.name, tool]));
-        const tools = NATIVE_MEMORY_OPERATIONS.flatMap(name => {
+        const exposure = gbrainServiceExposure();
+        const tools = [...exposure.exposed.values()].flatMap(policy => {
+          const name = policy.name;
           const tool = byName.get(name) as Record<string, any> | undefined;
           if (!tool) return [];
           const schema = tool.inputSchema && typeof tool.inputSchema === "object" ? tool.inputSchema as Record<string, any> : { type: "object", properties: {} };
           const { source_id: _source, ...properties } = (schema.properties ?? {}) as Record<string, unknown>;
           return [{ name, description: tool.description, inputSchema: { ...schema, properties, required: (schema.required ?? []).filter((key: string) => key !== "source_id") },
-            annotations: tool.annotations, scope: name === "remember" || name === "forget" ? "write" : "read", requiredCapabilities: nativeMemoryCapabilities(name),
+            annotations: tool.annotations, scope: policy.scope, requiredCapabilities: policy.capabilities,
+            portalCapability: policy.scope === "write" ? "knowledge:brain:write" : "knowledge:brain:read",
             protocolVersion: (MEMORY_VERBS as readonly string[]).includes(name) ? 1 : null }];
         });
-        const missing = NATIVE_MEMORY_OPERATIONS.filter(name => !byName.has(name));
+        const missing = [...exposure.exposed.keys()].filter(name => !byName.has(name));
         return { ok: true, data: { engine: "gbrain", engineVersion, contract: "knowledge.native-memory/v1", trust: "remote-source-bound", topology: "service", tools,
-          unavailable: missing.map(name => ({ name, error: "engine_capability_unavailable" })), guidance: NATIVE_MEMORY_GUIDANCE,
+          unavailable: missing.map(name => ({ name, error: "engine_capability_unavailable" })),
+          excluded: [...exposure.excluded].map(([name, reason]) => ({ name, reason })), guidance: NATIVE_MEMORY_GUIDANCE,
           sourceSelection: "The OAuth client is bound to the authorized partition's GBrain source; caller source_id is rejected" } };
       }
-      if (Object.hasOwn(args, "source_id")) return { ok: false, error: { error: "invalid_params", message: "source_id is selected by Knowledge", suggestion: "Omit source_id.", protocol_version: 1 } };
-      // Private facts are unreachable for every service caller; refuse to create write-only memory.
-      if (operation === "remember" && args.visibility === "private") return { ok: false, error: { error: "invalid_params", message: "Private visibility is not available through Knowledge", suggestion: "Omit visibility; partition memory is shared within its Knowledge partition.", protocol_version: 1 } };
+      const refused = gbrainServiceArgumentRefusal(operation, args);
+      if (refused) return { ok: false, error: { error: "invalid_params", message: refused, suggestion: "Read the native schema; Knowledge owns source selection and its canonical projection pages.", protocol_version: 1 } };
       let failure: Record<string, unknown> | null = null;
       const data = await this.service.call(sourceId, operation, args, { principalId, timeoutMs: 600_000,
         onToolError: payload => { failure = redactNativeError(payload); return null; } });
@@ -963,6 +980,23 @@ function schemaPackStateFromInstall(
     active: result.activated,
     installedDuringBootstrap: result.installed,
   };
+}
+
+/** Knowledge-owned canonical projection namespaces: agents read them, never rewrite or delete them. */
+const RESERVED_PAGE_PREFIXES = ["knowledge-docs/", "knowledge-research/"];
+const PAGE_CONTENT_WRITES = new Set(["put_page", "delete_page", "restore_page", "edit_page", "revert_version", "capture", "put_raw_data"]);
+
+/** Argument guards the service topology applies before any upstream call; null when admitted. */
+export function gbrainServiceArgumentRefusal(operation: string, args: Record<string, unknown>): string | null {
+  if (Object.hasOwn(args, "source_id") || Object.hasOwn(args, "source_ids")) return "source_id is selected by Knowledge";
+  // Private facts are unreachable for every service caller; refuse to create write-only memory.
+  if ((operation === "remember" || operation === "extract_facts") && args.visibility === "private") return "Private visibility is not available through Knowledge; partition memory is shared within its Knowledge partition";
+  if (operation === "capture" && Object.hasOwn(args, "local_file")) return "local_file reads the GBrain host filesystem and is not delegated";
+  if (operation === "extract_entities" && args.trusted_extraction === true) return "trusted_extraction bypasses upstream review and is not delegated";
+  if (PAGE_CONTENT_WRITES.has(operation) && typeof args.slug === "string" && RESERVED_PAGE_PREFIXES.some(prefix => args.slug!.toString().toLowerCase().startsWith(prefix))) {
+    return "Pages under knowledge-docs/ and knowledge-research/ are Knowledge's canonical projections; change the Knowledge document or source instead";
+  }
+  return null;
 }
 
 /** Keep upstream's native error fields, never a credential that leaked into a message. */

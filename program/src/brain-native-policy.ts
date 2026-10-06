@@ -1,3 +1,6 @@
+import { authorizeKnowledgePartition } from "./partition-authority.js";
+import { BRAIN_NATIVE_WRITE, type NativeOperationPolicy } from "./engine-exposure.js";
+import type { KnowledgeServicePrincipal } from "./knowledge-principal.js";
 /** Public memory surface, not the engine's host-administration surface.
  * Schemas/descriptions/results come from upstream operations, never copies here.
  */
@@ -25,3 +28,18 @@ Use remember with provenance and entity for durable facts; forget expires an own
 Use context_pack at session start/after compaction; delta for changes since a cursor. Session cursors are isolated by authenticated principal, partition and session_id. A delta cursor is delivery state, not an exactly-once guarantee.
 This surface follows native REMOTE semantics: world-visible facts within your partition only; private is native local-owner-only. include_private does not widen access. Legacy Knowledge private-memory endpoints remain separate. No host SQL, filesystem, credentials, source management or local-only administration is delegated.
 Research tools retain their own notebook/source/chat contracts. Use them for research, and deliberately promote verified findings to documents/memory. Never claim missing or unconfigured capabilities succeeded.`;
+
+/**
+ * A native operation is authorized when the principal holds every CRUD-derived
+ * capability the engine policy lists for it, or, for a write, the dedicated
+ * `brain:native:write` capability a Portal `knowledge:brain:write` attachment
+ * maps to. Reads always need `brain:read`.
+ */
+export function nativeOperationAuthorized(
+  principal: KnowledgeServicePrincipal | null | undefined,
+  partitionKey: string,
+  policy: Pick<NativeOperationPolicy, "scope" | "capabilities">,
+): boolean {
+  const all = (capabilities: readonly string[]) => capabilities.every(capability => authorizeKnowledgePartition(principal, partitionKey, capability).allowed);
+  return all(policy.capabilities) || (policy.scope === "write" && all([BRAIN_NATIVE_WRITE]));
+}

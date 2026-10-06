@@ -123,6 +123,18 @@ one GBrain source.
     `engine_capability_unavailable`.
   - So does anything upstream lacks at the pin.
 
+**Implemented 6 October 2026.** Coverage at the pin: 156 upstream operations,
+88 exposed (63 read, 25 write), 68 excluded with reasons (43 need admin,
+sources_admin or agent scope; 7 localOnly/cliOnly over HTTP; 5 publish-gated;
+13 policy exclusions: source enumeration, OAuth-client identity, `request_tools`,
+the brain-wide skill registry, and open loops per A13). Before this change only
+the 21 native-memory v1 operations were reachable (135 unaccounted). Page
+content writes to `knowledge-docs/` and `knowledge-research/` are refused, as
+are `local_file`, `trusted_extraction` and private visibility on
+`extract_facts`. The opt-in parity suite proves upstream's own `tools/list`
+lists all 88 for a read+write partition client and that none is refused for
+scope. Table: `cd program && npx tsx scripts/engine-coverage-report.ts`.
+
 ### Privacy (decided 5 October: upstream PR + enforce in Knowledge now)
 
 Unmodified upstream at the pin lacks seven of the vendored fixes. The fix bundle

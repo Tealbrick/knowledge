@@ -45,6 +45,15 @@ partition enforcement is disabled. Read/catalog operations require `brain:read`;
 can supersede; `forget` requires `knowledge:delete`. Legacy `knowledge:write`
 explicitly covers C/U/D. Each capability must also fit the partition grant.
 
+Since 6 October 2026 the operation set and each operation's read/write scope and
+CRUD capabilities come from the selected engine's policy
+(`program/src/engine-exposure.ts`): the pinned GBrain service and Hindsight
+expose their full upstream surface minus documented exclusions; the embedded
+managed worker keeps the 21 operations above. A write is also admitted for a
+principal holding `brain:native:write`, which the container edge grants for one
+request to a Portal attachment holding `knowledge:brain:write`. Every write
+requires an idempotency key. See [memory-engines.md](memory-engines.md).
+
 The Program signs a five-minute, operation-specific internal capability bound
 to the partition-derived source and a hashed principal identity. The worker
 does not receive a browser identity assertion or a caller-selected source.

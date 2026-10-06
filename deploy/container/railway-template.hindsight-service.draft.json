@@ -1,5 +1,5 @@
 {
-  "$comment": "DRAFT, not published and not installable. Hindsight memory-engine variant of tealbrick-knowledge-source. Hindsight (vectorize-io/hindsight, MIT; trademark of Vectorize AI) is pulled unmodified from GHCR and is private-only: agents reach memory exclusively through the Knowledge edge. Requires the HindsightMemoryEngine wiring (see docs/memory-engines.md) before a Portal recipe may reference it.",
+  "$comment": "DRAFT, not published and not installable. Hindsight-as-a-service variant of tealbrick-knowledge-source: Knowledge (KNOWLEDGE_MEMORY_ENGINE=hindsight, no embedded GBrain) + unmodified upstream Hindsight pulled by digest (vectorize-io/hindsight v0.10.2, tag commit 5fc4ce20917b916240cef27c212c387a177f115b; MIT; 'Hindsight' is a trademark of Vectorize AI) + private pgvector Postgres. Hindsight has no per-bank access control, so it is private-only: agents reach it exclusively through the Knowledge edge, which derives the bank from the authorized partition. HINDSIGHT_API_RERANKER_PROVIDER must be a provider the pin accepts ('none' fails startup at 0.10.2; 'rrf' needs no model). Portal model setup writes HINDSIGHT_API_LLM_* / _EMBEDDINGS_*. Design: docs/hindsight-upstream-service.md.",
   "services": {
     "knowledge": {
       "name": "Knowledge",
@@ -127,10 +127,25 @@
           "defaultValue": "<set by Portal model setup>"
         },
         "HINDSIGHT_API_EMBEDDINGS_PROVIDER": {
-          "defaultValue": "<set by Portal model setup>"
+          "defaultValue": "<set by Portal model setup, e.g. openai>"
         },
         "HINDSIGHT_API_RERANKER_PROVIDER": {
-          "defaultValue": "none"
+          "defaultValue": "rrf"
+        },
+        "HINDSIGHT_API_EMBEDDINGS_OPENAI_API_KEY": {
+          "defaultValue": "<set by Portal model setup>"
+        },
+        "HINDSIGHT_API_EMBEDDINGS_OPENAI_MODEL": {
+          "defaultValue": "<set by Portal model setup>"
+        },
+        "HINDSIGHT_API_ENABLE_BANK_LLM_HEALTH": {
+          "defaultValue": "false"
+        },
+        "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS": {
+          "defaultValue": "0"
+        },
+        "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": {
+          "defaultValue": "30"
         }
       }
     },

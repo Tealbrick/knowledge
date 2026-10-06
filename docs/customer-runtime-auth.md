@@ -121,6 +121,7 @@ grants continue to support the existing hierarchical model.
 | GET `/api/research/engine/notebooks` | `research:read` | Existing mapped notebook discovery contract |
 | GET/POST `/api/research/notebooks/:notebookId/engine/...` | Existing `research:read`/`research:write` contract | Mapping, ownership and idempotency/receipt checks unchanged |
 | GET `/api/brain/entities`, POST `/api/brain/context`, POST `/api/brain/recall` | `brain:read` | Explicit permitted `companyId`/`partitionKey`/`scopeRef` |
+| GET `/api/brain/native/tools`, POST `/api/brain/native/:operation` | `brain:read` for reads; the operation's CRUD capabilities for writes (engine policy) | `{ "partitionKey": "...", "arguments": {...} }`; writes need `Idempotency-Key` ([memory-engines.md](memory-engines.md)) |
 
 The direct edge does not expose global status/events, generic collection listing,
 Boardstate/admin routes, access-policy mutation, repository source configuration,

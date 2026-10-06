@@ -42,7 +42,9 @@ const attachmentResearch = attachment
   ? createAttachmentResearchAuthority({ companyId: attachment.companyId, fallback: runtimePrincipals.configured ? runtimePrincipals : null })
   : null;
 const app = await buildKnowledgeApp({ config: { ...config, host: "127.0.0.1", port: 0 }, portalPrincipals,
-  ...(attachmentResearch ? { researchPrincipalProvider: attachmentResearch.provider } : {}) });
+  ...(attachmentResearch ? { researchPrincipalProvider: attachmentResearch.provider, brainPrincipalProvider: attachmentResearch.provider } : {}) });
+// The selected engine's read/write policy per native operation (Portal knowledge:brain:read / :write).
+const nativeOperationPolicy = app.getDecorator<(operation: string) => { scope: "read" | "write" } | null>("knowledgeNativeOperationPolicy");
 await app.listen({ host: "127.0.0.1", port: 0 });
 const address = app.server.address();
 if (!address || typeof address === "string") throw new Error("Missing internal listener");
@@ -89,13 +91,13 @@ const server = createServer(async (req, res) => {
     (portalPrincipals && customerRuntimeRoute(req.method ?? "", req.url ?? "") ? await portalPrincipals.resolve(suppliedBearer) : null);
   const runtimeAuthorized = !!runtimePrincipal && customerRuntimeRoute(req.method ?? "", req.url ?? "");
   let attachmentAuthorized = false;
-  let dispatchGrant: {capability:string;agentId:string;orgId:string;requires:string[];expiresAt:number} | undefined;
+  let dispatchGrant: {capability:string;agentId:string;orgId:string;requires:string[];optional:string[];expiresAt:number;native:boolean} | undefined;
   let researchBearer: string | null = null;
   let replacementBody: string | Buffer | undefined;
   let replacementUrl: string | undefined;
   if (!publicHealth && !instanceAuthorized && !runtimeAuthorized && !browserResult.authorized && attachment) {
     try {
-      const route = attachmentRoute(req.method, req.url, attachment.companyId);
+      const route = attachmentRoute(req.method, req.url, attachment.companyId, { nativeOperationPolicy });
       const grant=route ? await introspectAttachment(attachment,req.headers,route.capability) : null;
       // Research routes may need more than one capability (chat send needs read and write).
       let researchAdmitted = !route?.research;
@@ -110,12 +112,12 @@ const server = createServer(async (req, res) => {
       }
       if(route && grant && researchAdmitted) {
         attachmentAuthorized = true;
-        dispatchGrant={capability:route.capability,agentId:grant.agentId,orgId:grant.orgId,requires:route.requires ?? [route.capability],expiresAt};
+        dispatchGrant={capability:route.capability,agentId:grant.agentId,orgId:grant.orgId,requires:route.requires ?? [route.capability],optional:route.optional ?? [],expiresAt,native:route.native===true};
         // Admission and dispatch must use the same parsed path, including
         // encoded company IDs and normalized segments.
         const url = new URL(req.url!, 'http://knowledge.invalid');
         replacementUrl = `${url.pathname}${url.search}`;
-        if (route.capability === 'knowledge:brain:read') {
+        if (route.capability === 'knowledge:brain:read' || route.native) {
           const partition = normalizeKnowledgePartitionKey(attachment.companyId);
           if (!partition) throw new Error('invalid bound partition');
           const selectors = url.searchParams.getAll('partitionKey');
@@ -143,9 +145,13 @@ const server = createServer(async (req, res) => {
           const parsed=JSON.parse(Buffer.concat(chunks,bytes).toString('utf8'));
           if(!parsed || typeof parsed!=='object' || Array.isArray(parsed)) throw new Error('object required');
           const fields = route.bodyKind==='collection' ? ['name','description'] : route.bodyKind==='document'
-            ? ['title','body','bodyFormat','status','summary'] : ['query','scopeRef','purpose','sourceIds'];
+            ? ['title','body','bodyFormat','status','summary'] : route.bodyKind==='native' ? ['partitionKey','arguments'] : ['query','scopeRef','purpose','sourceIds'];
           if(Object.keys(parsed).some(key=>!fields.includes(key))) throw new Error('unsupported fields');
-          replacementBody=JSON.stringify(route.bodyKind==='brain' ? {...parsed,scopeRef:attachment.companyId,partitionKey:normalizeKnowledgePartitionKey(attachment.companyId)}
+          const boundPartition=normalizeKnowledgePartitionKey(attachment.companyId);
+          // Native memory is always the bound partition; a foreign selector is refused, never rewritten.
+          if(route.bodyKind==='native' && parsed.partitionKey!==undefined && normalizeKnowledgePartitionKey(parsed.partitionKey)!==boundPartition) throw new Error('partition mismatch');
+          replacementBody=JSON.stringify(route.bodyKind==='brain' ? {...parsed,scopeRef:attachment.companyId,partitionKey:boundPartition}
+            : route.bodyKind==='native' ? {partitionKey:boundPartition,arguments:parsed.arguments}
             : route.bodyKind==='document' ? {...parsed,actor:{kind:'agent',id:grant.agentId}} : parsed);
         }
       }
@@ -159,8 +165,14 @@ const server = createServer(async (req, res) => {
       attachmentAuthorized=!!current && current.agentId===dispatchGrant.agentId && current.orgId===dispatchGrant.orgId;
       if(!attachmentAuthorized) break;
     }
-    if(attachmentAuthorized && attachmentResearch && dispatchGrant.requires.some(capability => capability.startsWith('knowledge:research:'))) {
-      researchBearer=attachmentResearch.issue({agentId:dispatchGrant.agentId,orgId:dispatchGrant.orgId,capabilities:dispatchGrant.requires,expiresAt:dispatchGrant.expiresAt});
+    if(attachmentAuthorized && attachmentResearch && (dispatchGrant.native || dispatchGrant.requires.some(capability => capability.startsWith('knowledge:research:')))) {
+      // Optional grants (native discovery: knowledge:brain:write) widen only what the catalog lists.
+      const granted=[...dispatchGrant.requires];
+      for(const capability of dispatchGrant.optional) {
+        const extra=await introspectAttachment(attachment,req.headers,capability);
+        if(extra && extra.agentId===dispatchGrant.agentId && extra.orgId===dispatchGrant.orgId) granted.push(capability);
+      }
+      researchBearer=attachmentResearch.issue({agentId:dispatchGrant.agentId,orgId:dispatchGrant.orgId,capabilities:granted,expiresAt:dispatchGrant.expiresAt}, dispatchGrant.native ? 'brain' : 'research');
       attachmentAuthorized=researchBearer!==null;
     }
   }

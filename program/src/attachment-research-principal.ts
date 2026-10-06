@@ -3,7 +3,7 @@ import type { KnowledgePrincipalResolver, KnowledgeServicePrincipal } from "./kn
 import type { ResearchPrincipalProvider } from "./portal-research-principal.js";
 
 /**
- * Portal attachment grants for Research, issued by the container edge.
+ * Portal attachment grants for Research and native memory, issued by the container edge.
  *
  * The edge introspects the agent's Portal attachment for
  * `knowledge:research:read` / `knowledge:research:write`, then forwards the
@@ -17,6 +17,16 @@ import type { ResearchPrincipalProvider } from "./portal-research-principal.js";
 export const ATTACHMENT_RESEARCH_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
   "knowledge:research:read": "research:read",
   "knowledge:research:write": "research:write",
+});
+
+/**
+ * Native memory route only: the edge mints a "brain" bearer solely for
+ * /api/brain/native/* after verifying the operation's Portal capability.
+ * `brain:native:write` authorizes native memory writes and nothing else.
+ */
+export const ATTACHMENT_BRAIN_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
+  "knowledge:brain:read": "brain:read",
+  "knowledge:brain:write": "brain:native:write",
 });
 
 const TOKEN_PATTERN = /^kedge_[A-Za-z0-9_-]{43}$/u;
@@ -33,8 +43,8 @@ export interface AttachmentResearchGrant {
 }
 
 export interface AttachmentResearchAuthority {
-  /** Mint a per-request bearer; returns null when the grant carries no Research capability. */
-  issue(grant: AttachmentResearchGrant): string | null;
+  /** Mint a per-request bearer; returns null when the grant carries no capability of that surface. */
+  issue(grant: AttachmentResearchGrant, surface?: "research" | "brain"): string | null;
   revoke(token: string): void;
   readonly provider: ResearchPrincipalProvider;
 }
@@ -56,9 +66,10 @@ export function createAttachmentResearchAuthority(options: {
   const active = new Map<string, { principal: KnowledgeServicePrincipal; expiresAt: number }>();
   const sweep = () => { const at = now(); for (const [key, entry] of active) if (entry.expiresAt <= at) active.delete(key); };
   return {
-    issue(grant) {
+    issue(grant, surface = "research") {
       sweep();
-      const capabilities = [...new Set(grant.capabilities.map((name) => ATTACHMENT_RESEARCH_CAPABILITIES[name]).filter((name): name is string => Boolean(name)))].sort();
+      const mapping = surface === "brain" ? ATTACHMENT_BRAIN_CAPABILITIES : ATTACHMENT_RESEARCH_CAPABILITIES;
+      const capabilities = [...new Set(grant.capabilities.map((name) => mapping[name]).filter((name): name is string => Boolean(name)))].sort();
       if (!capabilities.length || !grant.agentId || !grant.orgId || !Number.isFinite(grant.expiresAt) || grant.expiresAt <= now()) return null;
       const token = `kedge_${randomBytes(32).toString("base64url")}`;
       active.set(digest(token), {

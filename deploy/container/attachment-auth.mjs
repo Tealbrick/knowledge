@@ -1,4 +1,24 @@
-export function attachmentRoute(method, rawUrl, companyId) {
+export const BRAIN_READ = 'knowledge:brain:read';
+export const BRAIN_WRITE = 'knowledge:brain:write';
+const NATIVE_OPERATION = /^\/api\/brain\/native\/([a-z][a-z_]{0,63})$/u;
+
+/**
+ * Native memory (the selected engine's full agent surface). Discovery needs
+ * knowledge:brain:read; each operation needs knowledge:brain:read or
+ * knowledge:brain:write by the engine's own read/write policy. An operation
+ * the engine does not expose is rejected before Portal is contacted.
+ */
+export function nativeAttachmentRoute(method, path, nativeOperationPolicy) {
+  // Discovery lists writes too when the attachment also holds knowledge:brain:write.
+  if (method === 'GET' && path === '/api/brain/native/tools') return {capability:BRAIN_READ, native:true, optional:[BRAIN_WRITE]};
+  const native = NATIVE_OPERATION.exec(path);
+  if (!native || method !== 'POST' || typeof nativeOperationPolicy !== 'function') return null;
+  const policy = nativeOperationPolicy(native[1]);
+  if (!policy || (policy.scope !== 'read' && policy.scope !== 'write')) return null;
+  return {capability: policy.scope === 'write' ? BRAIN_WRITE : BRAIN_READ, native:true, operation:native[1], bodyKind:'native'};
+}
+
+export function attachmentRoute(method, rawUrl, companyId, options = {}) {
   if (typeof rawUrl !== 'string' || !rawUrl.startsWith('/') || rawUrl.startsWith('//')) return null;
   let url;
   try { url = new URL(rawUrl, 'http://knowledge.invalid'); } catch { return null; }
@@ -16,6 +36,7 @@ export function attachmentRoute(method, rawUrl, companyId) {
   if (collection && method === 'POST') return {capability:'knowledge:documents:write', collectionId:decodeURIComponent(collection[1]),bodyKind:'document'};
   const document = /^\/api\/knowledge\/documents\/([^/]+)$/u.exec(path);
   if (document && method === 'GET') return {capability:'knowledge:documents:read', documentId:decodeURIComponent(document[1])};
+  if (path.startsWith('/api/brain/native/')) return nativeAttachmentRoute(method, path, options.nativeOperationPolicy);
   if (method === 'POST' && ['/api/brain/context','/api/brain/recall'].includes(path)) return {capability:'knowledge:brain:read',bodyKind:'brain'};
   if (method === 'GET' && path === '/api/brain/entities') return {capability:'knowledge:brain:read'};
   return researchAttachmentRoute(method, path);

@@ -22,16 +22,18 @@ Rules preflight is required because optional Rules policy is Program-owned.
 Report a fail-closed result instead of retrying around missing authority,
 missing grants, an unavailable Program endpoint, or an ambiguous write.
 
-For native memory, start with `knowledge_brain_tools` to discover the bundled
-GBrain operation schemas and current grants. Invoke `knowledge_brain_call`
-with `operation` and exact native `arguments`. The runtime supplies
+For native memory, start with `knowledge_brain_tools` to discover the
+deployment engine's operations (GBrain or Hindsight) and current grants; pass
+`operation` for one operation's full schema or `query` to search. Invoke
+`knowledge_brain_call` with `operation` and exact native `arguments`. The runtime supplies
 `KNOWLEDGE_SERVICE_TOKEN`; supply an authorized `partitionKey` or configure
 `KNOWLEDGE_PARTITION_KEY`. Do not pass upstream credentials, `source_id`,
-identity, or `remote` as arguments. `brain_think` now invokes real native
+`bank_id`, identity, or `remote` as arguments. `brain_think` now invokes real native
 `think` with `arguments.question`, not the old scopeRef/query context alias.
 
-Use remember/recall/entity/synthesize/forget/context_pack/delta according to
-the native catalog. Every remember/forget needs a stable `idempotencyKey`.
+Use remember/recall/entity/synthesize/forget/context_pack/delta (GBrain) or
+retain_memories/recall_memories/reflect (Hindsight) according to the native
+catalog. Every write needs a stable `idempotencyKey`.
 Preserve native warnings, `degraded_dedup`, synthesis status and evidence gaps;
 success is not correctness. Native remote calls see world-visible data inside
 the authorized partition; `private` remains local-owner-only. Do not silently

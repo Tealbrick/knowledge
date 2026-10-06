@@ -39,8 +39,10 @@ URL query parameters, project files or source control. HTTPS is required except
 for loopback development. Remote private endpoints must be reachable from the
 customer machine running MCP, not from Portal.
 
-MCP exposes `knowledge_brain_tools({})` and
-`knowledge_brain_call({operation, arguments, idempotencyKey?})`. The fixed
+MCP exposes `knowledge_brain_tools({operation?, query?})` and
+`knowledge_brain_call({operation, arguments, idempotencyKey?})`. The operation
+set is the deployment engine's (GBrain or Hindsight), discovered at runtime;
+every write needs an `idempotencyKey`. The fixed
 partition is runtime configuration, not model-controlled input. Discover the
 native schemas, use `query`/`search`, then `get_page`/`get_chunks` to read the
 answer-bearing source. Native errors and uncertain-write receipts remain errors.

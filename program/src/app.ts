@@ -7,7 +7,8 @@ import Fastify from "fastify";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
 
-import { GBrainRuntime } from "./gbrain.js";
+import { createMemoryEngine, type MemoryEngine } from "./memory-engine.js";
+import { nativeOperationAuthorized } from "./brain-native-policy.js";
 import { BrainProjections } from "./brain-projections.js";
 import { BrainExtractions } from "./brain-extractions.js";
 import { registerNativeMemoryRoutes } from "./brain-native-routes.js";
@@ -507,7 +508,7 @@ function normalizeBrainEntityCard(value: unknown): Record<string, unknown> | nul
 
 function brainCapabilityGap(
   operation: string,
-  result: Awaited<ReturnType<GBrainRuntime["listEntities"]>>,
+  result: Awaited<ReturnType<MemoryEngine["listEntities"]>>,
 ) {
   return {
     code: "native_operation_unavailable",
@@ -517,7 +518,7 @@ function brainCapabilityGap(
 }
 
 function observedBrainCapabilities(
-  readiness: ReturnType<GBrainRuntime["nativeCapabilityReadiness"]>,
+  readiness: ReturnType<MemoryEngine["nativeCapabilityReadiness"]>,
   observed: Record<string, boolean>,
 ) {
   return Object.fromEntries(
@@ -534,11 +535,11 @@ function observedBrainCapabilities(
 }
 
 function buildBrainPageEnumerationResponse(input: {
-  readonly result: Awaited<ReturnType<GBrainRuntime["listPages"]>>;
+  readonly result: Awaited<ReturnType<MemoryEngine["listPages"]>>;
   readonly kind: BrainEntityKind;
   readonly limit: number;
   readonly offset: number;
-  readonly readiness: ReturnType<GBrainRuntime["nativeCapabilityReadiness"]>;
+  readonly readiness: ReturnType<MemoryEngine["nativeCapabilityReadiness"]>;
   readonly factsVisibility?: "partition_private" | "world_only";
 }) {
   const { result, kind, limit, offset, readiness } = input;
@@ -975,7 +976,7 @@ function bodyFormatFromSourcePath(sourcePath: string, contentType?: string) {
 function buildStatus(
   config: KnowledgeConfig,
   store: KnowledgeStore,
-  brain: GBrainRuntime,
+  brain: MemoryEngine,
 ) {
   const brainStatus = brain.status();
   const gbrainConfigured =
@@ -1038,7 +1039,7 @@ function buildStatus(
 function renderObserverUi(
   config: KnowledgeConfig,
   store: KnowledgeStore,
-  brain: GBrainRuntime,
+  brain: MemoryEngine,
 ) {
   const status = buildStatus(config, store, brain);
   const rows = [
@@ -1218,7 +1219,8 @@ export async function buildKnowledgeApp(
   const store = new KnowledgeStore(persistence, {
     defaultKnowledgeCollectionSourceConfig: config.defaultDocsSourceConfig,
   });
-  const brain = new GBrainRuntime(config);
+  // One memory engine per deployment (KNOWLEDGE_MEMORY_ENGINE; GBrain when unset).
+  const brain = createMemoryEngine(config);
   const extractions = new BrainExtractions(config.knowledgeDatabasePath ? path.join(config.dataDir, "brain-extractions.sqlite") : ":memory:");
   const extractCanonical = async (item: ReturnType<KnowledgeStore["brainProjectionInputs"]>[number]) => {
     const text = item.kind === "document" ? [item.value.title, item.value.summary, item.value.body].filter(Boolean).join("\n\n") : [item.value.title, item.value.summary, item.value.content].filter(Boolean).join("\n\n");
@@ -1276,6 +1278,8 @@ export async function buildKnowledgeApp(
   // Internal host seam only; never an HTTP endpoint and never creates a partition.
   app.decorate("knowledgeHasPartition", (companyId: string) =>
     store.listKnowledgeCollections(companyId, false).length > 0 || store.listResearchNotebooks(companyId).length > 0);
+  // Internal host seam: the edge maps a native operation to its Portal capability (read/write).
+  app.decorate("knowledgeNativeOperationPolicy", (operation: string) => brain.nativeOperationPolicy(operation));
   const recordAuthorization = (request: FastifyRequest, decision: "admitted" | "denied", capability: string | null, partitionKey: string | null) => {
     authorizationAuditIds.set(request, authorizationAudit.record({
       principalId: request.knowledgePrincipal?.principalId ?? null, partitionKey,
@@ -1656,8 +1660,11 @@ export async function buildKnowledgeApp(
     // URL can encode static path bytes and still dispatch to this same route.
     const policyPathname = request.routeOptions.url ?? pathname;
     const suppliedBearer = bearerToken(request);
+    const nativeRoute = policyPathname.startsWith("/api/brain/native/");
     const requestPrincipal = request.knowledgePrincipal ?? researchPrincipals.resolve(suppliedBearer) ??
-      (portalPrincipals ? await portalPrincipals.resolve(suppliedBearer) : null);
+      (portalPrincipals ? await portalPrincipals.resolve(suppliedBearer) : null) ??
+      // Edge-minted, per-request bearers for Portal attachments with knowledge:brain:* grants.
+      (nativeRoute && options.brainPrincipalProvider ? await options.brainPrincipalProvider(request, "brain:native") : null);
     if (requestPrincipal) request.knowledgePrincipal = requestPrincipal;
     const partitionProtected = partitionProtectedPath(policyPathname);
     // Engine routes own their existing bearer/browser/provider and mapping checks.
@@ -1677,10 +1684,15 @@ export async function buildKnowledgeApp(
           reply.code(400).send({ ok: false, error: "partition_key_required" });
           return;
         }
-        const capability = partitionCapabilityForRequest(request.method, policyPathname);
+        // Native operations authorize against the selected engine's per-operation policy.
+        const nativePolicy = policyPathname === "/api/brain/native/:operation"
+          ? brain.nativeOperationPolicy(String((request.params as Record<string, unknown> | undefined)?.operation ?? ""))
+          // Discovery is a native read: brain:read or an attachment's brain:native:read.
+          : policyPathname === "/api/brain/native/tools" ? { scope: "read" as const, capabilities: ["brain:read"] } : null;
+        const capability = nativePolicy ? nativePolicy.capabilities[0]! : partitionCapabilityForRequest(request.method, policyPathname);
         const authorization = authorizeKnowledgePartition(requestPrincipal, partitionKey, capability);
         const body = request.body && typeof request.body === "object" ? request.body as Record<string, unknown> : {};
-        const additionalCapabilities = policyPathname.startsWith("/api/brain/native/") ? nativeMemoryCapabilities(policyPathname.split("/").at(-1) ?? "").slice(1) : policyPathname.includes("/ingest-") ? ["knowledge:update"]
+        const additionalCapabilities = policyPathname.startsWith("/api/brain/native/") ? [] : policyPathname.includes("/ingest-") ? ["knowledge:update"]
           : policyPathname === "/api/research/chat" ? ["research:read"]
           : /^\/api\/research\/(?:notebooks|sources|entries|outputs)\/[^/]+$/u.test(policyPathname) && ["PATCH", "DELETE"].includes(request.method) ? ["research:read"]
           : /^\/api\/research\/notebooks\/[^/]+\/entries$/u.test(policyPathname) && request.method === "POST"
@@ -1690,7 +1702,9 @@ export async function buildKnowledgeApp(
               ]
           : /^\/api\/research\/outputs\/[^/]+\/promote$/u.test(policyPathname)
             ? ["research:read", body.documentId ? "knowledge:update" : "knowledge:create"] : [];
-        if (!authorization.allowed || additionalCapabilities.some(required => !authorizeKnowledgePartition(requestPrincipal, partitionKey, required).allowed)) {
+        const admitted = nativePolicy ? nativeOperationAuthorized(requestPrincipal, partitionKey, nativePolicy)
+          : authorization.allowed && !additionalCapabilities.some(required => !authorizeKnowledgePartition(requestPrincipal, partitionKey, required).allowed);
+        if (!admitted) {
           recordAuthorization(request, "denied", capability, partitionKey);
           reply.code(403).send({ ok: false, error: "partition_scope_denied" });
           return;

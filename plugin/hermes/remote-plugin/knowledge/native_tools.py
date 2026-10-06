@@ -1,6 +1,6 @@
-"""Native GBrain through Knowledge; runtime credentials never become tool arguments.
+"""Native memory (GBrain or Hindsight, per deployment) through Knowledge; runtime credentials never become tool arguments.
 
-Discover the pinned engine's real schemas, then dispatch native arguments intact.
+Discover the pinned engine's real operations and schemas, then dispatch native arguments intact.
 No automatic retry, redirects, browser tokens, or local Rules bypass.
 """
 import http.client
@@ -27,7 +27,7 @@ def _call(args, operation=None, catalog=False):
             return json.dumps({"ok": False, "error": "service_auth_unavailable"})
         if not isinstance(args, dict):
             raise ValueError()
-        allowed = {"partitionKey"} if catalog else {"partitionKey", "arguments", "idempotencyKey"} | ({"operation"} if operation is None else set())
+        allowed = {"partitionKey", "operation", "query"} if catalog else {"partitionKey", "arguments", "idempotencyKey"} | ({"operation"} if operation is None else set())
         if set(args) - allowed:
             raise ValueError()
         partition = args.get("partitionKey") or os.environ.get("KNOWLEDGE_PARTITION_KEY")
@@ -46,7 +46,12 @@ def _call(args, operation=None, catalog=False):
         headers = {"Authorization": "Bearer " + token, "Accept": "application/json"}
         body = None
         if catalog:
-            path = "/api/brain/native/tools?" + urllib.parse.urlencode({"partitionKey": partition})
+            selector = {key: args[key] for key in ("operation", "query") if args.get(key) is not None}
+            if any(not isinstance(value, str) or not value or len(value) > 200 for value in selector.values()):
+                raise ValueError()
+            if "operation" in selector and not re.fullmatch(r"[a-z][a-z_]{0,63}", selector["operation"]):
+                raise ValueError()
+            path = "/api/brain/native/tools?" + urllib.parse.urlencode({"partitionKey": partition, **selector})
         else:
             operation = operation or args.get("operation")
             if not isinstance(operation, str) or not re.fullmatch(r"[a-z][a-z_]{0,63}", operation):
@@ -98,7 +103,7 @@ def _schema(name, description, properties, required):
 PARTITION = {"type": "string", "description": "Authorized Knowledge partition; omit only if configured in KNOWLEDGE_PARTITION_KEY."}
 ARGUMENTS = {"type": "object", "description": "Exact native arguments from knowledge_brain_tools; do not add source_id, identity or auth."}
 NATIVE_TOOLS = (
-    ("knowledge_brain_tools", _schema("knowledge_brain_tools", "Discover all native memory schemas, grants and usage guidance from the pinned GBrain engine. Research has separate tools.", {"partitionKey": PARTITION}, []), lambda args=None, **kw: _call(args or {}, catalog=True)),
-    ("knowledge_brain_call", _schema("knowledge_brain_call", "Invoke a discovered native memory operation unchanged, including remember, recall, entity, synthesize, forget, context_pack, delta, query, graph and page reads. Writes require a stable idempotencyKey; never automatically retry uncertain writes.", {"partitionKey": PARTITION, "operation": {"type": "string"}, "arguments": ARGUMENTS, "idempotencyKey": {"type": "string"}}, ["operation", "arguments"]), lambda args=None, **kw: _call(args or {})),
+    ("knowledge_brain_tools", _schema("knowledge_brain_tools", "Discover every native memory operation, its grants and usage guidance from the deployment's pinned engine (GBrain or Hindsight). Pass operation for one operation's full input schema, or query to search. Research has separate tools.", {"partitionKey": PARTITION, "operation": {"type": "string"}, "query": {"type": "string"}}, []), lambda args=None, **kw: _call(args or {}, catalog=True)),
+    ("knowledge_brain_call", _schema("knowledge_brain_call", "Invoke a discovered native memory operation unchanged (GBrain: remember, recall, entity, synthesize, forget, context_pack, delta, query, graph and page reads and more; Hindsight: retain_memories, recall_memories, reflect, mental models, documents and more). Every write requires a stable idempotencyKey; never automatically retry uncertain writes.", {"partitionKey": PARTITION, "operation": {"type": "string"}, "arguments": ARGUMENTS, "idempotencyKey": {"type": "string"}}, ["operation", "arguments"]), lambda args=None, **kw: _call(args or {})),
     ("brain_think", _schema("brain_think", "Run GBrain's actual think synthesis, NOT context retrieval. First discover think's native schema. Supply arguments.question; inspect synthesis status and gaps. Native remote mode cannot persist a take or page.", {"partitionKey": PARTITION, "arguments": ARGUMENTS}, ["arguments"]), lambda args=None, **kw: _call(args or {}, operation="think")),
 )

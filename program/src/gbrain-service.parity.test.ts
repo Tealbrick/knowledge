@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GBrainRuntime } from "./gbrain.js";
 import { loadConfig } from "./config.js";
 import { knowledgePartitionSourceId } from "./partition-authority.js";
+import { gbrainServiceExposure } from "./engine-exposure.js";
 import type { KnowledgeDocument } from "./types.js";
 
 /**
@@ -120,6 +121,26 @@ describe.skipIf(!repo)("GBrain service parity (real upstream)", () => {
     for (const verb of ["remember", "recall", "entity", "synthesize", "forget", "context_pack", "delta"]) expect(names).toContain(verb);
     for (const tool of catalog.data.tools) expect(Object.keys(tool.inputSchema.properties ?? {})).not.toContain("source_id");
   });
+
+  it("lists every exposed operation from upstream's own tools/list for a read+write partition client", async () => {
+    const catalog = await runtime.nativeOperation("catalog", {}, "fixture-a", "agent-henry");
+    expect(catalog.data.unavailable).toEqual([]);
+    expect(catalog.data.tools.map((tool: { name: string }) => tool.name).sort()).toEqual([...gbrainServiceExposure().exposed.keys()].sort());
+  });
+
+  it("dispatches every exposed operation to upstream without a scope or unknown-tool refusal", async () => {
+    const refusals: string[] = [];
+    for (const op of gbrainServiceExposure().exposed.values()) {
+      // Empty arguments: upstream validates and answers per operation; nothing is written.
+      if (["mute_notice", "cancel_write_request"].includes(op.name)) continue;
+      let result: Record<string, any>;
+      try { result = await runtime.nativeOperation(op.name, {}, "fixture-a", "agent-henry"); }
+      catch (error) { refusals.push(`${op.name}: ${String(error)}`); continue; }
+      const code = typeof result.error === "object" ? result.error?.error : result.error;
+      if (["scope_denied", "permission_denied", "unknown_tool", "cli_only", "local_only"].includes(code)) refusals.push(`${op.name}: ${code}`);
+    }
+    expect(refusals).toEqual([]);
+  }, 300_000);
 
   it("remembers, recalls and forgets per partition and principal; refuses private and source overrides", async () => {
     const schema = (await runtime.nativeOperation("catalog", {}, "fixture-a", "agent-henry")).data.tools.find((tool: { name: string }) => tool.name === "remember").inputSchema;

@@ -25,6 +25,12 @@ export interface KnowledgeConfig {
   /** Separate upstream GBrain service (`gbrain serve --http`); Knowledge provisions per-source OAuth clients. */
   readonly gbrainServiceUrl: string | null;
   readonly gbrainServiceAdminToken: string | null;
+  /** KNOWLEDGE_MEMORY_ENGINE: one engine per deployment; GBrain when unset. */
+  readonly memoryEngine: "gbrain" | "hindsight";
+  /** Private Hindsight service origin (KNOWLEDGE_HINDSIGHT_URL), e.g. http://hindsight.railway.internal:8888. */
+  readonly hindsightUrl: string | null;
+  /** Hindsight HINDSIGHT_API_TENANT_API_KEY shared only with Knowledge (KNOWLEDGE_HINDSIGHT_API_KEY). */
+  readonly hindsightApiKey: string | null;
   /** Optional server-only source-scoped GBrain credentials by partition. */
   readonly gbrainPartitionTokens: readonly KnowledgeGBrainPartitionToken[];
   /** Optional server-to-server credential for the broker's extract-facts hook. */
@@ -59,6 +65,11 @@ export interface KnowledgeConfig {
 export interface BuildKnowledgeAppOptions {
   /** Trusted host injection for Research only; never supplied by an HTTP client. */
   readonly researchPrincipalProvider?: ResearchPrincipalProvider;
+  /**
+   * Trusted host injection: resolves edge-minted per-request bearers for Portal
+   * attachments on the native engine route (knowledge:engine:read/write).
+   */
+  readonly brainPrincipalProvider?: ResearchPrincipalProvider;
   /** Trusted host injection: Portal-validated runtime principals (never client-supplied). */
   readonly portalPrincipals?: import("./portal-principal.js").PortalPrincipalResolver;
   readonly environment?: KnowledgeEnvironment;

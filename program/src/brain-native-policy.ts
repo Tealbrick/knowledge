@@ -1,3 +1,6 @@
+import { authorizeKnowledgePartition } from "./partition-authority.js";
+import { BRAIN_NATIVE_READ, BRAIN_NATIVE_WRITE, type NativeOperationPolicy } from "./engine-exposure.js";
+import type { KnowledgeServicePrincipal } from "./knowledge-principal.js";
 /** Public memory surface, not the engine's host-administration surface.
  * Schemas/descriptions/results come from upstream operations, never copies here.
  */
@@ -25,3 +28,19 @@ Use remember with provenance and entity for durable facts; forget expires an own
 Use context_pack at session start/after compaction; delta for changes since a cursor. Session cursors are isolated by authenticated principal, partition and session_id. A delta cursor is delivery state, not an exactly-once guarantee.
 This surface follows native REMOTE semantics: world-visible facts within your partition only; private is native local-owner-only. include_private does not widen access. Legacy Knowledge private-memory endpoints remain separate. No host SQL, filesystem, credentials, source management or local-only administration is delegated.
 Research tools retain their own notebook/source/chat contracts. Use them for research, and deliberately promote verified findings to documents/memory. Never claim missing or unconfigured capabilities succeeded.`;
+
+/**
+ * A native operation is authorized when the principal holds every CRUD-derived
+ * capability the engine policy lists for it (reads: `brain:read`), or the
+ * dedicated native capability a Portal attachment maps to for one request:
+ * `brain:native:read` (knowledge:engine:read) for reads,
+ * `brain:native:write` (knowledge:engine:write) for writes.
+ */
+export function nativeOperationAuthorized(
+  principal: KnowledgeServicePrincipal | null | undefined,
+  partitionKey: string,
+  policy: Pick<NativeOperationPolicy, "scope" | "capabilities">,
+): boolean {
+  const all = (capabilities: readonly string[]) => capabilities.every(capability => authorizeKnowledgePartition(principal, partitionKey, capability).allowed);
+  return all(policy.capabilities) || all([policy.scope === "write" ? BRAIN_NATIVE_WRITE : BRAIN_NATIVE_READ]);
+}

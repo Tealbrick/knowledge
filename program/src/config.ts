@@ -1,4 +1,5 @@
 import path from "node:path";
+import { memoryEngineKind } from "./memory-engine-kind.js";
 import { fileURLToPath } from "node:url";
 
 import type {
@@ -177,6 +178,9 @@ export function loadConfig(options: BuildKnowledgeAppOptions = {}): KnowledgeCon
     gbrainServiceUrl: options.config?.gbrainServiceUrl ?? optionalEnv(process.env.KNOWLEDGE_GBRAIN_URL),
     gbrainServiceAdminToken: options.config?.gbrainServiceAdminToken ?? optionalEnv(process.env.KNOWLEDGE_GBRAIN_ADMIN_TOKEN),
     gbrainPartitionTokens: options.config?.gbrainPartitionTokens ?? configuredGbrainPartitionTokens(),
+    memoryEngine: memoryEngineKind(options.config?.memoryEngine ?? process.env.KNOWLEDGE_MEMORY_ENGINE),
+    hindsightUrl: options.config?.hindsightUrl ?? optionalEnv(process.env.KNOWLEDGE_HINDSIGHT_URL),
+    hindsightApiKey: options.config?.hindsightApiKey ?? optionalEnv(process.env.KNOWLEDGE_HINDSIGHT_API_KEY),
     brainExtractionToken:
       options.config?.brainExtractionToken !== undefined
         ? optionalEnv(options.config.brainExtractionToken ?? undefined)

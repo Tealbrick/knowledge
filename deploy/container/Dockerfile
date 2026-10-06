@@ -11,6 +11,12 @@ RUN chmod +x /tmp/os-backports/build.sh && /tmp/os-backports/build.sh
 FROM scratch AS os-backports-artifacts
 COPY --from=os-backports-build /out/ /
 
+# Prebuilt os-backports-artifacts, published by .github/workflows/os-backports-image.yml
+# from the same inputs and pinned by digest, so Railway source builds copy the
+# patched .deb files instead of compiling them (about 30 minutes) on every deploy.
+# Rebuild locally with: docker buildx build --target os-backports-artifacts .
+FROM ghcr.io/tealbrick/knowledge-os-backports@sha256:aee2cba23f0ba3dd2a256908017e87816acab867dcbe2944269e85f8d3fb5e7a AS os-backports-prebuilt
+
 FROM node-base AS build
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
@@ -45,8 +51,10 @@ RUN node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync("pa
 
 FROM node-base AS runtime
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=5310 KNOWLEDGE_DATA_DIR=/data KNOWLEDGE_GBRAIN_HOME=/data/gbrain-home KNOWLEDGE_GBRAIN_AUTOSTART=true
-COPY --from=os-backports-build /out/runtime/ /tmp/os-backports/runtime/
-RUN apt-get update \
+COPY --from=os-backports-prebuilt /runtime/ /tmp/os-backports/runtime/
+COPY --from=os-backports-prebuilt /metadata/SHA256SUMS /tmp/os-backports/metadata/SHA256SUMS
+RUN cd /tmp/os-backports && grep ' \./runtime/' metadata/SHA256SUMS | sha256sum -c --strict - \
+    && apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends ca-certificates \
     && apt-get install -y --no-install-recommends /tmp/os-backports/runtime/*.deb \

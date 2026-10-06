@@ -1,0 +1,69 @@
+name: Publish Knowledge OS backports image
+
+# Builds the patched Bookworm packages (deploy/container/os-backports) once and
+# publishes them as a scratch OCI image, so Railway source builds copy pinned
+# .deb files instead of compiling them on every deploy.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - deploy/container/os-backports/**
+      - .github/workflows/os-backports-image.yml
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: knowledge-os-backports-image
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/tealbrick/knowledge-os-backports
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - name: Content tag (backports inputs + pinned node-base)
+        id: tag
+        run: |
+          inputs="$(git ls-files -s deploy/container/os-backports | sha256sum | cut -c1-16)"
+          base="$(grep -m1 'AS node-base' deploy/container/Dockerfile | sha256sum | cut -c1-8)"
+          echo "tag=inputs-${inputs}-base-${base}" >> "$GITHUB_OUTPUT"
+      - name: Authenticate only the publisher job to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build and publish the backports artifacts image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --file deploy/container/Dockerfile \
+            --target os-backports-artifacts \
+            --tag "$IMAGE:${{ steps.tag.outputs.tag }}" \
+            --tag "$IMAGE:sha-${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.description=Patched Debian Bookworm packages for Tealbrick Knowledge (see deploy/container/OS-BACKPORTS.md)" \
+            --provenance=mode=max \
+            --sbom=true \
+            --push \
+            .
+      - name: Request public package visibility (operator-approved)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method PATCH -H 'Accept: application/vnd.github+json' \
+            "/orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/knowledge-os-backports" -f visibility=public \
+            || echo 'Package published; set its visibility to public in the package settings.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Record immutable digest
+        run: |
+          digest="$(docker buildx imagetools inspect "$IMAGE:${{ steps.tag.outputs.tag }}" --format '{{json .Manifest}}' | node -e 'const fs=require("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync(0,"utf8")).digest)')"
+          echo "Pin in deploy/container/Dockerfile: FROM $IMAGE@$digest AS os-backports-prebuilt" >> "$GITHUB_STEP_SUMMARY"
+          echo "$IMAGE@$digest"

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { hindsightExposure, hindsightOpenApi, hindsightOperationSpecs, PORTAL_BRAIN_READ, PORTAL_BRAIN_WRITE,
+import { hindsightExposure, hindsightOpenApi, hindsightOperationSpecs, portalCapabilityForScope,
   type HindsightOperationSpec, type NativeOperationPolicy } from "./engine-exposure.js";
 import { brainWritesPaused, documentToMarkdown, researchSourceToMarkdown, type ToolCallResult } from "./gbrain.js";
 import { deterministicRequestId } from "./gbrain-service.js";
@@ -27,7 +27,13 @@ import type { KnowledgeConfig, KnowledgeDocument, ResearchSource } from "./types
 type State = "disabled" | "online" | "degraded";
 
 const RESERVED_DOCUMENT_PREFIXES = ["knowledge-doc:", "knowledge-research:"];
-const NATIVE_TIMEOUT_MS = 600_000;
+/** Upstream timeouts for native operations: 60 s, or 300 s for the documented long-running ones. */
+const NATIVE_TIMEOUT_MS = 60_000;
+const LONG_NATIVE_TIMEOUT_MS = 300_000;
+export const HINDSIGHT_LONG_OPERATIONS: ReadonlySet<string> = new Set([
+  "reflect", "retain_memories", "file_retain", "dry_run_extract_memories", "create_mental_model", "refresh_mental_model",
+  "import_documents", "import_bank_template",
+]);
 const MAX_DETAIL_CHARS = 2_000;
 
 export const HINDSIGHT_NATIVE_GUIDANCE = `Knowledge memory is served by Hindsight for this deployment; Open Notebook research is separate.
@@ -70,6 +76,14 @@ function documentIds(value: unknown, depth = 0, found: string[] = []): string[] 
 }
 
 const reservedDocument = (id: string) => RESERVED_DOCUMENT_PREFIXES.some(prefix => id.toLowerCase().startsWith(prefix));
+
+/** True when a bank-config payload names audit_log_enabled (field or HINDSIGHT_API_* env form), at any depth. */
+function namesAuditLog(value: unknown, depth = 0): boolean {
+  if (depth > 32) return false;
+  if (Array.isArray(value)) return value.some(item => namesAuditLog(item, depth + 1));
+  if (!isRecord(value)) return false;
+  return Object.entries(value).some(([key, item]) => key.toLowerCase().replace(/^hindsight_api_/u, "") === "audit_log_enabled" || namesAuditLog(item, depth + 1));
+}
 
 function pathValueRefusal(name: string, value: unknown): string | null {
   if (typeof value !== "string" || !value || value.length > 1024) return `${name} must be a non-empty string`;
@@ -269,7 +283,7 @@ export class HindsightMemoryEngine {
       const text = `${spec.summary}${spec.description && spec.description !== spec.summary ? `\n\n${spec.description}` : ""}`;
       return {
         name: policy.name, tag: spec.tag, scope: policy.scope, requiredCapabilities: policy.capabilities,
-        portalCapability: policy.scope === "write" ? PORTAL_BRAIN_WRITE : PORTAL_BRAIN_READ,
+        portalCapability: portalCapabilityForScope(policy.scope),
         description: describe ? text : text.length > 400 ? `${text.slice(0, 400)}…` : text,
         annotations: { readOnlyHint: policy.scope === "read", destructiveHint: policy.destructive, openWorldHint: false },
         http: { method: spec.method, path: spec.path.replace("{bank_id}", "<partition bank>"), bankScoped: spec.bankScoped, body: spec.body, response: spec.response },
@@ -296,14 +310,17 @@ export class HindsightMemoryEngine {
     const bank = hindsightBankForPartition(partition);
     const invalid = (message: string) => ({ ok: false, engine: "hindsight", engineVersion: this.observedVersion, error: { error: "invalid_params", message,
       suggestion: "Read the operation's inputSchema (GET /api/brain/native/tools?operation=<name>). The bank is selected by Knowledge." } });
+    // Isolation and policy guards: a well-formed argument Knowledge does not delegate.
+    const refused = (message: string) => ({ ok: false, engine: "hindsight", engineVersion: this.observedVersion, error: { error: "argument_refused", message,
+      suggestion: "Omit or change the refused argument. The bank, canonical projections and audit settings are owned by Knowledge." } });
 
     // ---- argument validation and isolation guards (before any upstream call)
     const allowed = new Set([...spec.pathParams, ...spec.queryParams.map(q => q.name), ...(spec.body ? ["body"] : [])]);
     for (const key of Object.keys(args)) {
-      if (key === "bank_id" || key === "target_bank_id") return invalid(`${key} is selected by Knowledge`);
+      if (key === "bank_id" || key === "target_bank_id") return refused(`${key} is selected by Knowledge`);
       if (!allowed.has(key)) return invalid(`Unknown argument: ${key}`);
     }
-    for (const name of spec.pathParams) { const refused = pathValueRefusal(name, args[name]); if (refused) return invalid(refused); }
+    for (const name of spec.pathParams) { const reason = pathValueRefusal(name, args[name]); if (reason) return refused(reason); }
     for (const query of spec.queryParams) {
       const value = args[query.name];
       if (value === undefined) { if (query.required) return invalid(`Missing query parameter: ${query.name}`); continue; }
@@ -313,18 +330,20 @@ export class HindsightMemoryEngine {
     if (args.body !== undefined && !(isRecord(args.body) || (spec.body === "json" && Array.isArray(args.body)))) return invalid("body must be an object");
     if (policy!.scope === "write" && documentIds({ path: Object.fromEntries(spec.pathParams.map(name => [name, args[name]])), body: args.body }).some(reservedDocument)
       || (policy!.scope === "write" && spec.pathParams.includes("document_id") && reservedDocument(String(args.document_id)))) {
-      return invalid("Documents knowledge-doc:* and knowledge-research:* are Knowledge's canonical projections; change the Knowledge document or source instead");
+      return refused("Documents knowledge-doc:* and knowledge-research:* are Knowledge's canonical projections; change the Knowledge document or source instead");
     }
-    if (operation === "get_chunk" && !String(args.chunk_id).startsWith(`${bank}_`)) return invalid("chunk_id must belong to this partition's bank");
+    if (operation === "get_chunk" && !String(args.chunk_id).startsWith(`${bank}_`)) return refused("chunk_id must belong to this partition's bank");
     if (operation === "download_file") {
       const parts = String(args.key).split("/");
       const keyBank = parts[0] === "tenants" && parts[2] === "banks" ? decodeURIComponent(parts[3] ?? "") : parts[0] === "banks" ? parts[1] : null;
-      if (keyBank !== bank) return invalid("key must be a storage key of this partition's bank");
+      if (keyBank !== bank) return refused("key must be a storage key of this partition's bank");
     }
-    if (operation === "import_bank_transfer") {
-      if (args.mode !== "merge") return invalid("Only mode=merge (into this partition's bank) is delegated; restore mode creates a caller-named bank");
-      for (const key of ["include_data", "include_bank_config", "include_history"]) if (args[key] !== undefined) return invalid(`${key} applies to restore mode only`);
+    // Imports and merges may skip or re-id conflicting rows, never overwrite existing ones.
+    for (const query of spec.queryParams) {
+      if (/conflict/u.test(query.name) && args[query.name] !== undefined && !["skip", "new-id"].includes(String(args[query.name]))) return refused(`${query.name} must be skip or new-id; replace is not delegated`);
     }
+    // The bank's audit log is an operator control.
+    if ((operation === "update_bank_config" || operation === "import_bank_template") && namesAuditLog(args.body)) return refused("audit_log_enabled is an operator setting and is not delegated");
 
     // ---- request
     let path = spec.path.replace("{bank_id}", encodeURIComponent(bank));
@@ -337,7 +356,7 @@ export class HindsightMemoryEngine {
     const target = `${path}${search.size ? `?${search}` : ""}`;
     const resolved = new URL(target, "http://hindsight.invalid").pathname;
     const prefix = `/v1/default/banks/${encodeURIComponent(bank)}`;
-    if (spec.bankScoped && resolved !== prefix && !resolved.startsWith(`${prefix}/`)) return invalid("Arguments may not leave this partition's bank");
+    if (spec.bankScoped && resolved !== prefix && !resolved.startsWith(`${prefix}/`)) return refused("Arguments may not leave this partition's bank");
     let payload: { json?: unknown; form?: FormData } = {};
     if (spec.body === "json" && args.body !== undefined) payload = { json: args.body };
     if (spec.body === "multipart" && isRecord(args.body)) {
@@ -354,7 +373,7 @@ export class HindsightMemoryEngine {
     }
 
     // ---- call (transport failures throw so mutating receipts stay uncertain)
-    const response = await this.client.invoke(target, spec.method, payload, NATIVE_TIMEOUT_MS);
+    const response = await this.client.invoke(target, spec.method, payload, HINDSIGHT_LONG_OPERATIONS.has(operation) ? LONG_NATIVE_TIMEOUT_MS : NATIVE_TIMEOUT_MS);
     const engineVersion = this.observedVersion;
     const text = () => response.bytes.toString("utf8");
     if (response.status >= 500) return { ok: false, engine: "hindsight", engineVersion, error: { error: "unavailable", status: response.status, suggestion: "Inspect the Hindsight service. Do not retry a write with a new key." } };

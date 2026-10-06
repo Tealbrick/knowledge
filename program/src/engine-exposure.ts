@@ -20,7 +20,7 @@ export interface NativeOperationPolicy {
   /**
    * Program capabilities a CRUD-derived principal (Portal runtime grant,
    * static service principal) needs, all of them. A Portal attachment with
-   * `knowledge:brain:write` reaches every write through `brain:native:write`.
+   * `knowledge:engine:write` reaches every write through `brain:native:write`.
    */
   readonly capabilities: readonly string[];
   readonly destructive: boolean;
@@ -41,14 +41,19 @@ export interface EngineExposure {
   readonly excluded: ReadonlyMap<string, string>;
 }
 
-/** Portal attachment capabilities for the native memory route. */
-export const PORTAL_BRAIN_READ = "knowledge:brain:read";
-export const PORTAL_BRAIN_WRITE = "knowledge:brain:write";
-/** Program capability an attachment's knowledge:brain:write is mapped to. */
+/**
+ * Portal attachment capabilities for the native engine route. Deliberately new:
+ * `knowledge:brain:read` keeps meaning Brain recall/context only and never
+ * reaches the engine surface.
+ */
+export const PORTAL_ENGINE_READ = "knowledge:engine:read";
+export const PORTAL_ENGINE_WRITE = "knowledge:engine:write";
+/** Program capabilities the edge maps knowledge:engine:read / :write to; native route only. */
+export const BRAIN_NATIVE_READ = "brain:native:read";
 export const BRAIN_NATIVE_WRITE = "brain:native:write";
 
 export function portalCapabilityForScope(scope: NativeScope): string {
-  return scope === "write" ? PORTAL_BRAIN_WRITE : PORTAL_BRAIN_READ;
+  return scope === "write" ? PORTAL_ENGINE_WRITE : PORTAL_ENGINE_READ;
 }
 
 const READ = ["brain:read"] as const;
@@ -193,10 +198,11 @@ export function hindsightOperationSpecs(): ReadonlyMap<string, HindsightOperatio
 /** POSTs that only read (synthesis, previews, dry runs, exports of this bank). */
 const HINDSIGHT_READ_POSTS = new Set([
   "recall_memories", "reflect", "dry_run_extract_memories", "preview_prompt", "test_bank_llm",
-  "dry_run_refresh_mental_model", "preview_consolidation_strategies", "export_documents", "export_bank_transfer",
+  "dry_run_refresh_mental_model", "preview_consolidation_strategies",
 ]);
+// export_documents / export_bank_transfer stay writes: they create an operation and a stored archive.
 /** Writes that may create or replace (upsert semantics). */
-const HINDSIGHT_UPSERTS = new Set(["retain_memories", "file_retain", "import_documents", "import_bank_transfer", "import_bank_template", "create_or_update_bank"]);
+const HINDSIGHT_UPSERTS = new Set(["retain_memories", "file_retain", "import_documents", "import_bank_template", "create_or_update_bank"]);
 /** POST actions on existing objects. */
 const HINDSIGHT_UPDATE_POSTS = new Set([
   "refresh_mental_model", "clear_mental_model", "regenerate_entity_observations", "reprocess_document", "retry_operation",
@@ -212,6 +218,7 @@ const HINDSIGHT_EXCLUSIONS: Readonly<Record<string, string>> = {
   delete_bank: "Admin/destructive: deletes the partition's whole bank. Partition lifecycle is owned by Knowledge and its operator.",
   clear_bank_memories: "Admin/destructive: wipes every memory in the partition, including Knowledge's canonical document projections. A partition reset is an operator action.",
   clone_bank: "Writes a caller-named target bank (target_bank_id), which could be another partition's derived bank.",
+  import_bank_transfer: "Upstream restore inserts archive rows verbatim with their own bank_id when target==manifest source → cross-bank write (all Knowledge partitions share one Hindsight schema).",
   create_bank_alias: "Aliases are a global namespace resolved before bank lookup; an alias could capture another partition's derived bank id.",
   set_bank_alias_primary: "Aliases are a global namespace resolved before bank lookup; an alias could capture another partition's derived bank id.",
   delete_bank_alias: "Aliases are a global namespace; alias management is not delegated (only listing this bank's aliases is).",

@@ -1,21 +1,22 @@
-export const BRAIN_READ = 'knowledge:brain:read';
-export const BRAIN_WRITE = 'knowledge:brain:write';
+/** Native engine route only; knowledge:brain:read keeps meaning recall/context. */
+export const ENGINE_READ = 'knowledge:engine:read';
+export const ENGINE_WRITE = 'knowledge:engine:write';
 const NATIVE_OPERATION = /^\/api\/brain\/native\/([a-z][a-z_]{0,63})$/u;
 
 /**
  * Native memory (the selected engine's full agent surface). Discovery needs
- * knowledge:brain:read; each operation needs knowledge:brain:read or
- * knowledge:brain:write by the engine's own read/write policy. An operation
+ * knowledge:engine:read; each operation needs knowledge:engine:read or
+ * knowledge:engine:write by the engine's own read/write policy. An operation
  * the engine does not expose is rejected before Portal is contacted.
  */
 export function nativeAttachmentRoute(method, path, nativeOperationPolicy) {
-  // Discovery lists writes too when the attachment also holds knowledge:brain:write.
-  if (method === 'GET' && path === '/api/brain/native/tools') return {capability:BRAIN_READ, native:true, optional:[BRAIN_WRITE]};
+  // Discovery lists writes too when the attachment also holds knowledge:engine:write.
+  if (method === 'GET' && path === '/api/brain/native/tools') return {capability:ENGINE_READ, native:true, optional:[ENGINE_WRITE]};
   const native = NATIVE_OPERATION.exec(path);
   if (!native || method !== 'POST' || typeof nativeOperationPolicy !== 'function') return null;
   const policy = nativeOperationPolicy(native[1]);
   if (!policy || (policy.scope !== 'read' && policy.scope !== 'write')) return null;
-  return {capability: policy.scope === 'write' ? BRAIN_WRITE : BRAIN_READ, native:true, operation:native[1], bodyKind:'native'};
+  return {capability: policy.scope === 'write' ? ENGINE_WRITE : ENGINE_READ, native:true, operation:native[1], bodyKind:'native'};
 }
 
 export function attachmentRoute(method, rawUrl, companyId, options = {}) {

@@ -1,5 +1,5 @@
 import { authorizeKnowledgePartition } from "./partition-authority.js";
-import { BRAIN_NATIVE_WRITE, type NativeOperationPolicy } from "./engine-exposure.js";
+import { BRAIN_NATIVE_READ, BRAIN_NATIVE_WRITE, type NativeOperationPolicy } from "./engine-exposure.js";
 import type { KnowledgeServicePrincipal } from "./knowledge-principal.js";
 /** Public memory surface, not the engine's host-administration surface.
  * Schemas/descriptions/results come from upstream operations, never copies here.
@@ -31,9 +31,10 @@ Research tools retain their own notebook/source/chat contracts. Use them for res
 
 /**
  * A native operation is authorized when the principal holds every CRUD-derived
- * capability the engine policy lists for it, or, for a write, the dedicated
- * `brain:native:write` capability a Portal `knowledge:brain:write` attachment
- * maps to. Reads always need `brain:read`.
+ * capability the engine policy lists for it (reads: `brain:read`), or the
+ * dedicated native capability a Portal attachment maps to for one request:
+ * `brain:native:read` (knowledge:engine:read) for reads,
+ * `brain:native:write` (knowledge:engine:write) for writes.
  */
 export function nativeOperationAuthorized(
   principal: KnowledgeServicePrincipal | null | undefined,
@@ -41,5 +42,5 @@ export function nativeOperationAuthorized(
   policy: Pick<NativeOperationPolicy, "scope" | "capabilities">,
 ): boolean {
   const all = (capabilities: readonly string[]) => capabilities.every(capability => authorizeKnowledgePartition(principal, partitionKey, capability).allowed);
-  return all(policy.capabilities) || (policy.scope === "write" && all([BRAIN_NATIVE_WRITE]));
+  return all(policy.capabilities) || all([policy.scope === "write" ? BRAIN_NATIVE_WRITE : BRAIN_NATIVE_READ]);
 }

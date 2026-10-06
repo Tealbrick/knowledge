@@ -67,7 +67,7 @@ export interface BuildKnowledgeAppOptions {
   readonly researchPrincipalProvider?: ResearchPrincipalProvider;
   /**
    * Trusted host injection: resolves edge-minted per-request bearers for Portal
-   * attachments on the native memory route (knowledge:brain:read/write).
+   * attachments on the native engine route (knowledge:engine:read/write).
    */
   readonly brainPrincipalProvider?: ResearchPrincipalProvider;
   /** Trusted host injection: Portal-validated runtime principals (never client-supplied). */

@@ -7,9 +7,12 @@ import {normalizeKnowledgePartitionKey} from "./partition-authority.js";
 import {nativeOperationAuthorized} from "./brain-native-policy.js";
 
 const requestSchema=z.object({partitionKey:z.string().min(1).max(256),arguments:z.record(z.string(),z.unknown())}).strict();
+/** Native engine operations one principal may have in flight; beyond it the route answers 429. */
+export const NATIVE_MAX_IN_FLIGHT_PER_PRINCIPAL=4;
 export function registerNativeMemoryRoutes(app: FastifyInstance, options: {brain: MemoryEngine; dataDir: string; persistent: boolean}) {
   const receipts=new BrainExtractions(options.persistent?path.join(options.dataDir,"brain-native-receipts.sqlite"):":memory:");
   app.addHook("onClose",()=>receipts.close());
+  const inFlight=new Map<string,number>();
   app.get("/api/brain/native/tools",async(request,reply)=>{
     reply.header("cache-control","no-store");
     const principal=request.knowledgePrincipal, partition=request.knowledgePartitionKey;
@@ -37,6 +40,13 @@ export function registerNativeMemoryRoutes(app: FastifyInstance, options: {brain
     const writes=policy.scope==="write";
     const input=requestSchema.parse(request.body);
     if(normalizeKnowledgePartitionKey(input.partitionKey)!==partition) return reply.code(403).send({ok:false,error:"partition_scope_denied"});
+    const owner=principal.principalId, running=inFlight.get(owner)??0;
+    if(running>=NATIVE_MAX_IN_FLIGHT_PER_PRINCIPAL) {
+      reply.header("retry-after","1");
+      return reply.code(429).send({ok:false,error:"too_many_requests",suggestion:`At most ${NATIVE_MAX_IN_FLIGHT_PER_PRINCIPAL} native operations may run at once per principal. Retry a write only with the same Idempotency-Key.`});
+    }
+    inFlight.set(owner,running+1);
+    try {
     const execute=async()=>{
       const value=await options.brain.nativeOperation(operation,input.arguments,partition,principal.principalId);
       // A handler/storage failure may follow a partial write. Hold the receipt;
@@ -54,8 +64,9 @@ export function registerNativeMemoryRoutes(app: FastifyInstance, options: {brain
     }
     if(!result.ok) {
       const code=typeof result.error==="object"?result.error?.error:result.error;
-      reply.code(["invalid_params","provenance_required","invalid_idempotency_key","rejected"].includes(code)?400:code==="not_found"||code==="page_not_found"?404:code==="scope_denied"?403:code==="idempotency_conflict"||code==="conflict"?409:["upstream_auth_failed","invalid_response"].includes(code)?502:503);
+      reply.code(["invalid_params","argument_refused","provenance_required","invalid_idempotency_key","rejected"].includes(code)?400:code==="not_found"||code==="page_not_found"?404:code==="scope_denied"?403:code==="idempotency_conflict"||code==="conflict"?409:["upstream_auth_failed","invalid_response"].includes(code)?502:503);
     }
     return result;
+    } finally { const left=(inFlight.get(owner)??1)-1; if(left>0) inFlight.set(owner,left); else inFlight.delete(owner); }
   });
 }

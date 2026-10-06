@@ -22,11 +22,12 @@ export const ATTACHMENT_RESEARCH_CAPABILITIES: Readonly<Record<string, string>> 
 /**
  * Native memory route only: the edge mints a "brain" bearer solely for
  * /api/brain/native/* after verifying the operation's Portal capability.
- * `brain:native:write` authorizes native memory writes and nothing else.
+ * `brain:native:read` / `brain:native:write` authorize native engine operations
+ * and nothing else (not Brain recall/context, not documents).
  */
 export const ATTACHMENT_BRAIN_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
-  "knowledge:brain:read": "brain:read",
-  "knowledge:brain:write": "brain:native:write",
+  "knowledge:engine:read": "brain:native:read",
+  "knowledge:engine:write": "brain:native:write",
 });
 
 const TOKEN_PATTERN = /^kedge_[A-Za-z0-9_-]{43}$/u;

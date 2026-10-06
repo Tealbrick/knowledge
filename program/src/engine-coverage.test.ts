@@ -25,7 +25,8 @@ const gbrainAdmin = "gbrain-admin-token-fixture-0123456789abcd";
 const principals = [
   { token: "fixture-reader", principalId: "reader", companyId: partition, capabilities: ["brain:read"] },
   { token: "fixture-crud", principalId: "crud", companyId: partition, capabilities: ["brain:read", "knowledge:create", "knowledge:update", "knowledge:delete"] },
-  // What the edge mints for a Portal attachment holding only knowledge:brain:write.
+  // What the edge mints for a Portal attachment holding only knowledge:engine:read / :write.
+  { token: "fixture-native-reader", principalId: "native-reader", companyId: partition, capabilities: ["brain:native:read"] },
   { token: "fixture-native-writer", principalId: "native-writer", companyId: partition, capabilities: ["brain:native:write"] },
 ];
 
@@ -44,7 +45,7 @@ describe.each([
   it("maps every exposed operation to one Portal capability at the edge and refuses excluded ones before Portal", () => {
     const e: EngineExposure = exposure();
     const nativeOperationPolicy = (name: string) => e.exposed.get(name) ?? null;
-    expect(attachmentRoute("GET", "/api/brain/native/tools", "Fixture-A", { nativeOperationPolicy })).toMatchObject({ capability: "knowledge:brain:read", native: true });
+    expect(attachmentRoute("GET", "/api/brain/native/tools", "Fixture-A", { nativeOperationPolicy })).toMatchObject({ capability: "knowledge:engine:read", native: true });
     for (const op of e.exposed.values()) {
       expect(attachmentRoute("POST", `/api/brain/native/${op.name}`, "Fixture-A", { nativeOperationPolicy }), op.name)
         .toMatchObject({ capability: portalCapabilityForScope(op.scope), native: true, bodyKind: "native" });
@@ -89,8 +90,10 @@ describe("agent path through the Program to a fake pinned upstream", () => {
         const spec = specs.get(op.name)!;
         const args = hindsightSampleArguments(spec, partition);
         const write = op.scope === "write";
+        if (!write) expect((await call(knowledge, "fixture-native-reader", op.name, args, false)).statusCode, `${op.name} engine reader`).toBe(200);
         if (write) {
           expect((await call(knowledge, "fixture-reader", op.name, args, true)).statusCode, `${op.name} reader`).toBe(403);
+          expect((await call(knowledge, "fixture-native-reader", op.name, args, true)).statusCode, `${op.name} engine reader`).toBe(403);
           const before = fake.calls.length;
           const viaAttachment = await call(knowledge, "fixture-native-writer", op.name, args, true);
           expect(viaAttachment.statusCode, `${op.name} ${viaAttachment.body}`).toBe(200);
@@ -121,8 +124,9 @@ describe("agent path through the Program to a fake pinned upstream", () => {
       expect(names).not.toContain("sources_list");
       for (const op of gbrainServiceExposure().exposed.values()) {
         const write = op.scope === "write";
+        if (write) expect((await call(knowledge, "fixture-native-reader", op.name, {}, true)).statusCode, `${op.name} engine reader`).toBe(403);
         if (write) expect((await call(knowledge, "fixture-reader", op.name, {}, true)).statusCode, `${op.name} reader`).toBe(403);
-        const response = await call(knowledge, write ? "fixture-native-writer" : "fixture-reader", op.name, {}, write);
+        const response = await call(knowledge, write ? "fixture-native-writer" : "fixture-native-reader", op.name, {}, write);
         expect(response.statusCode, `${op.name}: ${response.body}`).toBe(200);
         const sent = fake.calls.at(-1)!;
         expect(sent).toMatchObject({ name: op.name, source: knowledgePartitionSourceId(partition), scopes: "read write" });

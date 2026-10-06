@@ -3,8 +3,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { startFakeHindsight } from "../scripts/fixtures/fake-engines.mjs";
 import { loadConfig } from "./config.js";
 import { GBrainRuntime } from "./gbrain.js";
-import { hindsightBankForPartition } from "./hindsight-client.js";
-import { HindsightMemoryEngine } from "./hindsight-engine.js";
+import { HindsightClient, hindsightBankForPartition } from "./hindsight-client.js";
+import { HINDSIGHT_LONG_OPERATIONS, HindsightMemoryEngine } from "./hindsight-engine.js";
 import { createMemoryEngine } from "./memory-engine.js";
 import type { KnowledgeDocument } from "./types.js";
 
@@ -76,18 +76,52 @@ describe("Hindsight partition scoping", () => {
       ["get_chunk", { chunk_id: `${other}_doc_0` }],
       ["download_file", { key: `banks/${other}/exports/a.zip` }],
       ["download_file", { key: `tenants/public/banks/${other}/exports/a.zip` }],
-      ["import_bank_transfer", { mode: "restore", body: { file: { contentBase64: "UEs=" } } }],
-      ["import_bank_transfer", { mode: "merge", include_bank_config: true, body: { file: { contentBase64: "UEs=" } } }],
-      ["list_memories", { unknown: 1 }],
-      ["list_memories", { limit: { nested: true } }],
     ] as const) {
-      expect(await native(runtime, op, args as Record<string, unknown>), `${op} ${JSON.stringify(args)}`).toMatchObject({ ok: false, error: { error: "invalid_params" } });
+      expect(await native(runtime, op, args as Record<string, unknown>), `${op} ${JSON.stringify(args)}`).toMatchObject({ ok: false, error: { error: "argument_refused" } });
+    }
+    for (const args of [{ unknown: 1 }, { limit: { nested: true } }]) {
+      expect(await native(runtime, "list_memories", args)).toMatchObject({ ok: false, error: { error: "invalid_params" } });
     }
     expect(fake.calls.length).toBe(before);
     // A chunk whose content says it belongs to another bank is withheld even if the id matched.
     expect(await native(runtime, "get_chunk", { chunk_id: `${bank}_doc_0` })).toMatchObject({ ok: true });
     expect(await native(runtime, "list_banks", {})).toMatchObject({ ok: false, error: { error: "scope_denied" } });
     expect(await native(runtime, "delete_bank", {})).toMatchObject({ ok: false, error: { error: "scope_denied" } });
+    // Restore inserts archive rows with their own bank_id: excluded outright.
+    expect(await native(runtime, "import_bank_transfer", { mode: "merge", body: { file: { contentBase64: "UEs=" } } })).toMatchObject({ ok: false, error: { error: "scope_denied" } });
+  });
+
+  it("refuses overwriting imports and audit-log changes, and keeps exports as writes", async () => {
+    const runtime = await engine();
+    const archive = { file: { filename: "a.zip", contentBase64: "UEs=" } };
+    const before = fake.calls.length;
+    for (const [op, args] of [
+      ["import_documents", { on_conflict: "replace", body: archive }],
+      ["import_documents", { on_conflict: "REPLACE", body: archive }],
+      ["update_bank_config", { body: { updates: { audit_log_enabled: false } } }],
+      ["update_bank_config", { body: { updates: { HINDSIGHT_API_AUDIT_LOG_ENABLED: "false" } } }],
+      ["import_bank_template", { body: { version: "1", bank: { audit_log_enabled: false } } }],
+    ] as const) {
+      expect(await native(runtime, op, args as Record<string, unknown>), `${op} ${JSON.stringify(args)}`).toMatchObject({ ok: false, error: { error: "argument_refused" } });
+    }
+    expect(fake.calls.length).toBe(before);
+    for (const mode of ["skip", "new-id"]) expect(await native(runtime, "import_documents", { on_conflict: mode, body: archive })).toMatchObject({ ok: true });
+    expect(await native(runtime, "update_bank_config", { body: { updates: { retain_chunk_size: 800 } } })).toMatchObject({ ok: true });
+    expect(runtime.nativeOperationPolicy("export_documents")?.scope).toBe("write");
+    expect(runtime.nativeOperationPolicy("export_bank_transfer")?.scope).toBe("write");
+  });
+
+  it("bounds upstream time: 60 s for ordinary operations, 300 s only for documented long ones", async () => {
+    const runtime = await engine();
+    const invoke = vi.spyOn(HindsightClient.prototype, "invoke");
+    try {
+      await native(runtime, "list_memories", {});
+      await native(runtime, "recall_memories", { body: { query: "x" } });
+      await native(runtime, "reflect", { body: { query: "x" } });
+      await native(runtime, "retain_memories", { body: { items: [{ content: "x", document_id: "agent-timeout" }] } });
+      expect(invoke.mock.calls.map(call => call[3])).toEqual([60_000, 60_000, 300_000, 300_000]);
+      expect([...HINDSIGHT_LONG_OPERATIONS].every(name => runtime.nativeOperationPolicy(name))).toBe(true);
+    } finally { invoke.mockRestore(); }
   });
 
   it("protects Knowledge's canonical projections from agent rewrites and deletes", async () => {
@@ -98,7 +132,7 @@ describe("Hindsight partition scoping", () => {
       ["retain_memories", { body: { items: [{ content: "x", document_id: "knowledge-doc:doc-1" }] } }],
       ["file_retain", { body: { files: [{ contentBase64: "eA==" }], request: JSON.stringify({ files_metadata: [{ document_id: "knowledge-doc:doc-1" }] }) } }],
     ] as const) {
-      expect(await native(runtime, op, args as Record<string, unknown>), op).toMatchObject({ ok: false, error: { error: "invalid_params" } });
+      expect(await native(runtime, op, args as Record<string, unknown>), op).toMatchObject({ ok: false, error: { error: "argument_refused" } });
     }
     expect(await native(runtime, "get_document", { document_id: "knowledge-doc:doc-1" })).toMatchObject({ ok: true });
     expect(await native(runtime, "retain_memories", { body: { items: [{ content: "Henry drafts the recap", document_id: "agent-note-1" }] } })).toMatchObject({ ok: true });
@@ -164,12 +198,12 @@ describe("Hindsight Program surfaces", () => {
   it("publishes a discovery catalog: compact list, per-operation describe with resolvable schemas, exclusions", async () => {
     const runtime = await engine();
     const catalog = await native(runtime, "catalog", {});
-    expect(catalog.data.tools).toHaveLength(81);
-    expect(catalog.data.excluded.map((item: { name: string }) => item.name)).toContain("delete_bank");
+    expect(catalog.data.tools).toHaveLength(80);
+    expect(catalog.data.excluded.map((item: { name: string }) => item.name)).toEqual(expect.arrayContaining(["delete_bank", "import_bank_transfer"]));
     expect(catalog.data.tools.every((tool: Record<string, unknown>) => !("inputSchema" in tool))).toBe(true);
     const described = await native(runtime, "catalog", { operation: "retain_memories" });
     const tool = described.data.tools[0];
-    expect(tool).toMatchObject({ name: "retain_memories", scope: "write", portalCapability: "knowledge:brain:write" });
+    expect(tool).toMatchObject({ name: "retain_memories", scope: "write", portalCapability: "knowledge:engine:write" });
     expect(tool.inputSchema.required).toEqual(["body"]);
     expect(tool.inputSchema.properties.body.$ref).toBe("#/$defs/RetainRequest");
     const refs = JSON.stringify(tool.inputSchema).match(/#\/\$defs\/[A-Za-z0-9_]+/gu) ?? [];

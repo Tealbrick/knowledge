@@ -22,7 +22,7 @@ import {
   type KnowledgeGBrainSchemaInstallResult,
 } from "./gbrain-schema.js";
 import { gbrainHomeFilePath } from "./legacy-ids.js";
-import { gbrainServiceExposure, type NativeOperationPolicy } from "./engine-exposure.js";
+import { gbrainServiceExposure, portalCapabilityForScope, type NativeOperationPolicy } from "./engine-exposure.js";
 
 type GBrainState = "disabled" | "starting" | "online" | "degraded";
 
@@ -877,7 +877,7 @@ export class GBrainRuntime {
           const { source_id: _source, ...properties } = (schema.properties ?? {}) as Record<string, unknown>;
           return [{ name, description: tool.description, inputSchema: { ...schema, properties, required: (schema.required ?? []).filter((key: string) => key !== "source_id") },
             annotations: tool.annotations, scope: policy.scope, requiredCapabilities: policy.capabilities,
-            portalCapability: policy.scope === "write" ? "knowledge:brain:write" : "knowledge:brain:read",
+            portalCapability: portalCapabilityForScope(policy.scope),
             protocolVersion: (MEMORY_VERBS as readonly string[]).includes(name) ? 1 : null }];
         });
         const missing = [...exposure.exposed.keys()].filter(name => !byName.has(name));
@@ -887,9 +887,9 @@ export class GBrainRuntime {
           sourceSelection: "The OAuth client is bound to the authorized partition's GBrain source; caller source_id is rejected" } };
       }
       const refused = gbrainServiceArgumentRefusal(operation, args);
-      if (refused) return { ok: false, error: { error: "invalid_params", message: refused, suggestion: "Read the native schema; Knowledge owns source selection and its canonical projection pages.", protocol_version: 1 } };
+      if (refused) return { ok: false, error: { error: "argument_refused", message: refused, suggestion: "Omit or change the refused argument; Knowledge owns source selection, model selection, host access and its canonical projection pages.", protocol_version: 1 } };
       let failure: Record<string, unknown> | null = null;
-      const data = await this.service.call(sourceId, operation, args, { principalId, timeoutMs: 600_000,
+      const data = await this.service.call(sourceId, operation, args, { principalId, timeoutMs: GBRAIN_LONG_OPERATIONS.has(operation) ? 300_000 : 60_000,
         onToolError: payload => { failure = redactNativeError(payload); return null; } });
       if (failure) return { ok: false, engine: "gbrain", engineVersion, error: failure };
       return { ok: true, engine: "gbrain", engineVersion, operation, data: sanitizeGBrainResult(data, sourceId), metadata: { topology: "service" } };
@@ -982,17 +982,36 @@ function schemaPackStateFromInstall(
   };
 }
 
+/** Native operations allowed 300 s upstream (model synthesis, extraction, hybrid retrieval); all others get 60 s. */
+export const GBRAIN_LONG_OPERATIONS: ReadonlySet<string> = new Set([
+  "think", "synthesize", "query", "assemble_evidence", "extract_facts", "extract_entities", "remember", "capture", "put_page",
+]);
+
 /** Knowledge-owned canonical projection namespaces: agents read them, never rewrite or delete them. */
 const RESERVED_PAGE_PREFIXES = ["knowledge-docs/", "knowledge-research/"];
 const PAGE_CONTENT_WRITES = new Set(["put_page", "delete_page", "restore_page", "edit_page", "revert_version", "capture", "put_raw_data"]);
 
 /** Argument guards the service topology applies before any upstream call; null when admitted. */
 export function gbrainServiceArgumentRefusal(operation: string, args: Record<string, unknown>): string | null {
+  const present = (key: string) => Object.hasOwn(args, key) && args[key] !== undefined && args[key] !== null;
   if (Object.hasOwn(args, "source_id") || Object.hasOwn(args, "source_ids")) return "source_id is selected by Knowledge";
   // Private facts are unreachable for every service caller; refuse to create write-only memory.
-  if ((operation === "remember" || operation === "extract_facts") && args.visibility === "private") return "Private visibility is not available through Knowledge; partition memory is shared within its Knowledge partition";
+  if (["remember", "extract_facts", "ontology_propose"].includes(operation) && args.visibility === "private") return "Private visibility is not available through Knowledge; partition memory is shared within its Knowledge partition";
   if (operation === "capture" && Object.hasOwn(args, "local_file")) return "local_file reads the GBrain host filesystem and is not delegated";
   if (operation === "extract_entities" && args.trusted_extraction === true) return "trusted_extraction bypasses upstream review and is not delegated";
+  // Host files: upstream loadImageInput reads paths and file:// URLs from the GBrain host.
+  if (present("image_path")) return "image_path reads the GBrain host filesystem and is not delegated";
+  if (operation === "search_by_image" && present("image_url")) {
+    let protocol = "";
+    try { protocol = new URL(String(args.image_url)).protocol; } catch { protocol = ""; }
+    if (protocol !== "http:" && protocol !== "https:") return "image_url must be an http(s) URL";
+  }
+  // Paid model and host CLI selection stays with the deployment's model settings.
+  if ((operation === "think" || operation === "synthesize") && present("model")) return "model selection is owned by the deployment's model settings";
+  // Remote think may not persist takes or pages.
+  if (operation === "think" && ((present("save") && args.save !== false) || (present("take") && args.take !== false))) return "think save/take persistence is not delegated";
+  if (operation === "request_tools" && present("surface")) return "request_tools surface changes persist on Knowledge's OAuth client and are not delegated";
+  if (operation === "get_calibration_profile" && present("holder")) return "Only the default calibration holder is delegated";
   if (PAGE_CONTENT_WRITES.has(operation) && typeof args.slug === "string" && RESERVED_PAGE_PREFIXES.some(prefix => args.slug!.toString().toLowerCase().startsWith(prefix))) {
     return "Pages under knowledge-docs/ and knowledge-research/ are Knowledge's canonical projections; change the Knowledge document or source instead";
   }

@@ -43,7 +43,7 @@ const attachmentResearch = attachment
   : null;
 const app = await buildKnowledgeApp({ config: { ...config, host: "127.0.0.1", port: 0 }, portalPrincipals,
   ...(attachmentResearch ? { researchPrincipalProvider: attachmentResearch.provider, brainPrincipalProvider: attachmentResearch.provider } : {}) });
-// The selected engine's read/write policy per native operation (Portal knowledge:brain:read / :write).
+// The selected engine's read/write policy per native operation (Portal knowledge:engine:read / :write).
 const nativeOperationPolicy = app.getDecorator<(operation: string) => { scope: "read" | "write" } | null>("knowledgeNativeOperationPolicy");
 await app.listen({ host: "127.0.0.1", port: 0 });
 const address = app.server.address();
@@ -166,7 +166,7 @@ const server = createServer(async (req, res) => {
       if(!attachmentAuthorized) break;
     }
     if(attachmentAuthorized && attachmentResearch && (dispatchGrant.native || dispatchGrant.requires.some(capability => capability.startsWith('knowledge:research:')))) {
-      // Optional grants (native discovery: knowledge:brain:write) widen only what the catalog lists.
+      // Optional grants (native discovery: knowledge:engine:write) widen only what the catalog lists.
       const granted=[...dispatchGrant.requires];
       for(const capability of dispatchGrant.optional) {
         const extra=await introspectAttachment(attachment,req.headers,capability);

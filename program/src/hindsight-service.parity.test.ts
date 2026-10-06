@@ -82,8 +82,8 @@ describe.skipIf(!url || !key)("Hindsight service parity (real upstream)", () => 
 
   it("refuses excluded and cross-partition operations, and hard-deletes a projection", async () => {
     expect(await native("list_banks", {})).toMatchObject({ ok: false, error: { error: "scope_denied" } });
-    expect(await native("get_chunk", { chunk_id: `${hindsightBankForPartition(partitionB)}_x_0` })).toMatchObject({ ok: false, error: { error: "invalid_params" } });
-    expect(await native("delete_document", { document_id: "knowledge-doc:doc-1" })).toMatchObject({ ok: false, error: { error: "invalid_params" } });
+    expect(await native("get_chunk", { chunk_id: `${hindsightBankForPartition(partitionB)}_x_0` })).toMatchObject({ ok: false, error: { error: "argument_refused" } });
+    expect(await native("delete_document", { document_id: "knowledge-doc:doc-1" })).toMatchObject({ ok: false, error: { error: "argument_refused" } });
     expect((await engine.deleteProjection("doc-1", partitionA, "document")).ok).toBe(true);
     expect(await native("get_document", { document_id: "knowledge-doc:doc-1" })).toMatchObject({ ok: false, error: { error: "not_found" } });
   });

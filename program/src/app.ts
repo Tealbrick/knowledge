@@ -1686,7 +1686,9 @@ export async function buildKnowledgeApp(
         }
         // Native operations authorize against the selected engine's per-operation policy.
         const nativePolicy = policyPathname === "/api/brain/native/:operation"
-          ? brain.nativeOperationPolicy(String((request.params as Record<string, unknown> | undefined)?.operation ?? "")) : null;
+          ? brain.nativeOperationPolicy(String((request.params as Record<string, unknown> | undefined)?.operation ?? ""))
+          // Discovery is a native read: brain:read or an attachment's brain:native:read.
+          : policyPathname === "/api/brain/native/tools" ? { scope: "read" as const, capabilities: ["brain:read"] } : null;
         const capability = nativePolicy ? nativePolicy.capabilities[0]! : partitionCapabilityForRequest(request.method, policyPathname);
         const authorization = authorizeKnowledgePartition(requestPrincipal, partitionKey, capability);
         const body = request.body && typeof request.body === "object" ? request.body as Record<string, unknown> : {};

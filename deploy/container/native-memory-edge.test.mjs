@@ -12,7 +12,7 @@ import { startFakeGBrainService, startFakeHindsight } from '../../program/script
 /**
  * Coverage/parity through the real Portal attachment path: for every operation
  * each pinned engine exposes, an agent holding only a Portal attachment reaches
- * it through the instance edge (route -> knowledge:brain:read|write
+ * it through the instance edge (route -> knowledge:engine:read|write
  * introspection -> per-request principal -> Program -> MemoryEngine -> fake
  * upstream in the bound partition). Excluded operations are refused before
  * Portal is contacted.
@@ -74,7 +74,7 @@ async function proveEngine({ base, introspections, denied }, engine, upstreamCal
   const catalog = await fetch(`${base}/api/brain/native/tools`, { headers: agent });
   assert.equal(catalog.status, 200);
   assert.deepEqual((await catalog.json()).data.tools.map(tool => tool.name).sort(), engine.exposed.map(op => op.name).sort(), `${engine.engine} catalog is the full exposed surface`);
-  denied.add('knowledge:brain:write');
+  denied.add('knowledge:engine:write');
   const readOnly = await (await fetch(`${base}/api/brain/native/tools`, { headers: agent })).json();
   assert.deepEqual(readOnly.data.tools.map(tool => tool.name).sort(), engine.exposed.filter(op => op.scope === 'read').map(op => op.name).sort(), 'a read-only grant discovers reads only');
   denied.clear();
@@ -97,14 +97,19 @@ async function proveEngine({ base, introspections, denied }, engine, upstreamCal
   // A read grant does not admit writes, and the partition is fixed by the attachment.
   const write = engine.exposed.find(op => op.scope === 'write');
   const read = engine.exposed.find(op => op.scope === 'read');
-  denied.add('knowledge:brain:write');
-  assert.equal((await call(base, write.name, write.arguments, true)).status, 401, 'write needs knowledge:brain:write');
+  denied.add('knowledge:engine:write');
+  assert.equal((await call(base, write.name, write.arguments, true)).status, 401, 'write needs knowledge:engine:write');
   assert.equal((await call(base, read.name, read.arguments, false)).status, 200, 'read still admitted');
   denied.clear();
   assert.equal((await call(base, read.name, read.arguments, false, { partitionKey: 'other-company' })).status, 401, 'foreign partition refused');
   assert.equal((await call(base, read.name, read.arguments, false, { partitionKey: company })).status, 200, 'own partition accepted');
-  denied.add('knowledge:brain:read');
-  assert.equal((await fetch(`${base}/api/brain/native/tools`, { headers: agent })).status, 401, 'discovery needs knowledge:brain:read');
+  // No silent widening: knowledge:brain:read (recall/context) never reaches the engine surface.
+  denied.add('knowledge:engine:read');
+  introspections.length = 0;
+  assert.equal((await fetch(`${base}/api/brain/native/tools`, { headers: agent })).status, 401, 'discovery needs knowledge:engine:read');
+  assert.equal((await call(base, read.name, read.arguments, false)).status, 401, 'engine reads need knowledge:engine:read');
+  assert.ok(!introspections.includes('knowledge:brain:read'), 'the native route never asks Portal for knowledge:brain:read');
+  assert.equal((await fetch(`${base}/api/brain/recall`, { method: 'POST', headers: agent, body: JSON.stringify({ query: 'x' }) })).status !== 401, true, 'recall keeps knowledge:brain:read');
   denied.clear();
 }
 

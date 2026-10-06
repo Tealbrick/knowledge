@@ -25,6 +25,26 @@ const REFUSED: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ["search_by_image", { image_url: "/etc/hosts" }],
   ["search_by_image", { image_url: "file:///etc/hosts" }],
   ["search_by_image", { image_url: "ftp://example.test/a.png" }],
+  ["search_by_image", { image_url: "FILE:///etc/hosts" }],
+  ["search_by_image", { image_url: "File:///etc/hosts" }],
+  ["search_by_image", { image_url: " https://example.test/a.png" }],
+  ["search_by_image", { image_url: "https://example.test/a.png\n" }],
+  ["search_by_image", { image_url: "\thttps://example.test/a.png" }],
+  ["search_by_image", { image_url: "HTTPS://example.test/a.png" }],
+  ["search_by_image", { image_url: "~/secret.png" }],
+  ["search_by_image", { image_url: "../../etc/hosts" }],
+  ["search_by_image", { image_url: "./a.png" }],
+  ["search_by_image", { image_url: "https:/etc/hosts" }],
+  ["search_by_image", { image_url: "https:///etc/hosts" }],
+  ["search_by_image", { image_url: "https:\\\\host\\a.png" }],
+  ["search_by_image", { image_url: "%2Fetc%2Fhosts" }],
+  ["search_by_image", { image_url: "file%3A%2F%2F%2Fetc%2Fhosts" }],
+  ["search_by_image", { image_url: "\\\\host\\share\\a.png" }],
+  ["search_by_image", { image_url: "data:image/png;base64,aGk=" }],
+  ["search_by_image", { image_url: "javascript:alert(1)" }],
+  ["search_by_image", { image_url: "C:\\Windows\\win.ini" }],
+  ["search_by_image", { image_url: 42 }],
+  ["query", { query: "x", image_url: "/etc/hosts" }],
   ["search_by_image", { image_path: "/etc/hosts" }],
   ["think", { question: "x", model: "claude-cli" }],
   ["synthesize", { question: "x", model: "gpt-5" }],
@@ -105,5 +125,16 @@ describe("native route resource bounds", () => {
       releases.at(-1)!();
       expect((await after).statusCode).toBe(200);
     } finally { await app.close(); }
+  });
+});
+
+describe("GBrain image errors never reach agents raw", () => {
+  it("replaces upstream image-loader errors (file bytes, size, existence) with a generic code", async () => {
+    const runtime = new GBrainRuntime(loadConfig({ environment: "test", config: { dataDir, gbrainServiceUrl: fake.baseUrl, gbrainServiceAdminToken: admin } }));
+    await runtime.start();
+    const result = await runtime.nativeOperation("search_by_image", { image_url: "https://example.test/leak.png" }, "fixture-a", "agent");
+    expect(result).toMatchObject({ ok: false, error: { error: "image_input_rejected" } });
+    const text = JSON.stringify(result);
+    for (const fragment of ["23230a23", "Magic bytes", "1234", "/etc/hosts", "not found"]) expect(text).not.toContain(fragment);
   });
 });

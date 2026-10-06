@@ -891,7 +891,8 @@ export class GBrainRuntime {
       let failure: Record<string, unknown> | null = null;
       const data = await this.service.call(sourceId, operation, args, { principalId, timeoutMs: GBRAIN_LONG_OPERATIONS.has(operation) ? 300_000 : 60_000,
         onToolError: payload => { failure = redactNativeError(payload); return null; } });
-      if (failure) return { ok: false, engine: "gbrain", engineVersion, error: failure };
+      // Upstream image errors carry file bytes, sizes and existence hints; never relay them.
+      if (failure) return { ok: false, engine: "gbrain", engineVersion, error: imageOperation(operation, args) ? IMAGE_INPUT_ERROR : failure };
       return { ok: true, engine: "gbrain", engineVersion, operation, data: sanitizeGBrainResult(data, sourceId), metadata: { topology: "service" } };
     } catch (error) {
       if (error instanceof GBrainServiceError) return { ok: false, engine: "gbrain", engineVersion, error: { error: error.code === "brain_partition_binding_required" ? "scope_denied" : "unavailable", message: error.message } };
@@ -1001,10 +1002,17 @@ export function gbrainServiceArgumentRefusal(operation: string, args: Record<str
   if (operation === "extract_entities" && args.trusted_extraction === true) return "trusted_extraction bypasses upstream review and is not delegated";
   // Host files: upstream loadImageInput reads paths and file:// URLs from the GBrain host.
   if (present("image_path")) return "image_path reads the GBrain host filesystem and is not delegated";
-  if (operation === "search_by_image" && present("image_url")) {
-    let protocol = "";
-    try { protocol = new URL(String(args.image_url)).protocol; } catch { protocol = ""; }
-    if (protocol !== "http:" && protocol !== "https:") return "image_url must be an http(s) URL";
+  // Upstream fetches only when the raw string starts with lowercase "http://" or "https://"
+  // and reads the host filesystem for file:// URIs and absolute paths, so require that exact
+  // prefix on the raw value (no whitespace, other casing or encodings) before any URL parsing.
+  if (present("image_url")) {
+    const raw = args.image_url;
+    let parsed: URL | null = null;
+    try { parsed = typeof raw === "string" ? new URL(raw) : null; } catch { parsed = null; }
+    if (typeof raw !== "string" || !/^https?:\/\/[^\s/?#\\]/u.test(raw) || /[\s\u0000-\u001f\u007f]/u.test(raw)
+      || !parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname) {
+      return "image_url must be an http(s) URL";
+    }
   }
   // Paid model and host CLI selection stays with the deployment's model settings.
   if ((operation === "think" || operation === "synthesize") && present("model")) return "model selection is owned by the deployment's model settings";
@@ -1017,6 +1025,12 @@ export function gbrainServiceArgumentRefusal(operation: string, args: Record<str
   }
   return null;
 }
+
+/** Operations that load an image upstream (by URL or inline data). */
+function imageOperation(operation: string, args: Record<string, unknown>): boolean {
+  return operation === "search_by_image" || ["image_url", "image_data", "image", "image_path"].some(key => Object.hasOwn(args, key));
+}
+const IMAGE_INPUT_ERROR = Object.freeze({ error: "image_input_rejected", message: "The image could not be loaded or processed.", suggestion: "Pass a reachable public http(s) image URL or inline image_data.", protocol_version: 1 });
 
 /** Keep upstream's native error fields, never a credential that leaked into a message. */
 function redactNativeError(payload: unknown): Record<string, unknown> {

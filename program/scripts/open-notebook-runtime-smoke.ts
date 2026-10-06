@@ -20,8 +20,6 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
 import { buildKnowledgeApp } from "../src/app.js";
 import type { KnowledgeConfig } from "../src/types.js";
@@ -74,37 +72,6 @@ type KnowledgeWriteReceipt = {
 
 function isObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-async function hermesSmoke(baseUrl: string, token: string, siblingToken: string, otherToken: string, input: JsonObject): Promise<JsonObject> {
-  const script = fileURLToPath(new URL("./open-notebook-hermes-smoke.py", import.meta.url));
-  const child = spawn("python3", [script], { env: {
-    PATH: process.env.PATH, TMPDIR: process.env.TMPDIR, PYTHONDONTWRITEBYTECODE: "1",
-    KNOWLEDGE_OPEN_NOTEBOOK_FIXTURE: "disposable", KNOWLEDGE_BASE_URL: baseUrl,
-    KNOWLEDGE_RESEARCH_SERVICE_TOKEN: token, KNOWLEDGE_FIXTURE_SIBLING_TOKEN: siblingToken,
-    KNOWLEDGE_FIXTURE_OTHER_COMPANY_TOKEN: otherToken,
-  }, stdio: ["pipe", "pipe", "ignore"] });
-  let output = "";
-  let exceeded = false;
-  const timer = setTimeout(() => { exceeded = true; child.kill("SIGKILL"); }, 45_000);
-  try {
-    const code = await new Promise<number | null>((resolve, reject) => {
-      child.on("error", () => reject(new SmokeError("request_failed", "Hermes fixture process failed")));
-      child.stdout.on("data", (chunk: Buffer) => {
-        output += chunk.toString("utf8");
-        if (Buffer.byteLength(output) > 1024 * 1024) { exceeded = true; child.kill("SIGKILL"); }
-      });
-      child.once("close", resolve);
-      child.stdin.on("error", () => undefined);
-      child.stdin.end(JSON.stringify(input));
-    });
-    if (exceeded) throw new SmokeError("timeout", "Hermes fixture exceeded deadline or output bound");
-    let result: unknown;
-    try { result = JSON.parse(output); } catch { throw new SmokeError("malformed_response", "Hermes fixture result was not JSON"); }
-    const detail = isObject(result) && typeof result.error === "string" && /^handler_[a-z_]+_failed_[a-z_]+_(?:[0-9]+|none)$/.test(result.error) ? result.error : "hermes_fixture_failed";
-    assert(code === 0 && isObject(result) && result.ok === true, detail);
-    return result;
-  } finally { clearTimeout(timer); }
 }
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -360,7 +327,6 @@ async function main(): Promise<void> {
   let successSummary: JsonObject | null = null;
   let chatFixture: ChatModelFixture | null = null;
   const upstreamChatSessions: string[] = [];
-  const extraUpstreamSources: string[] = [];
   const upstreamNotes: string[] = [];
 
   const cleanup = async () => {
@@ -387,9 +353,6 @@ async function main(): Promise<void> {
     }
     if (created.upstreamSource) {
       try { await deleteKnown(baseUrl, upstreamToken, `/api/sources/${pathPart(created.upstreamSource)}`, "source cleanup", cleanupDeadline); } catch { errors.push("upstream source cleanup failed"); }
-    }
-    for (const id of extraUpstreamSources) {
-      try { await deleteKnown(baseUrl, upstreamToken, `/api/sources/${pathPart(id)}`, "Hermes source cleanup", cleanupDeadline); } catch { errors.push("Hermes upstream source cleanup failed"); }
     }
     for (const id of upstreamChatSessions) {
       try { await deleteKnown(baseUrl, upstreamToken, `/api/chat/sessions/${pathPart(id)}`, "chat cleanup", cleanupDeadline); } catch { errors.push("upstream chat cleanup failed"); }
@@ -639,8 +602,8 @@ async function main(): Promise<void> {
     assert(disconnectReplay.statusCode === 409 && chatFixture.providerCalls.length === callsAfterDisconnect, "Knowledge retried ambiguous disconnect");
 
     chatFixture.setFailureMode("none");
-    // Seed after the original context/chat regression, but before the harness
-    // invocation so it must discover and retrieve real saved note content.
+    // Seed after the original context/chat regression so the notes routes must
+    // discover and retrieve real saved note content.
     const noteBody = `${marker}: saved note body omitted from upstream list`;
     const savedNote = await writeJson(baseUrl, upstreamToken, "/api/notes", {
       notebook_id: created.upstreamNotebookA, title: "Explicit provider-free note title",
@@ -649,16 +612,6 @@ async function main(): Promise<void> {
     const savedNoteId = jsonId(savedNote);
     if (!savedNoteId) throw new SmokeError("ambiguous_write", "upstream note creation returned no ID; no retry was attempted");
     upstreamNotes.push(savedNoteId);
-    const knowledgeUrl = await app.listen({ host: "127.0.0.1", port: 0 });
-    const harness = await hermesSmoke(knowledgeUrl, localPrincipalTokenA, siblingToken, localPrincipalTokenB, {
-      notebookId: created.localNotebook, sourceId: created.upstreamSource, marker, writeReceiptKey: idempotencyKey,
-      noteId: savedNoteId, noteBody,
-    });
-    if (typeof harness.sourceId === "string") extraUpstreamSources.push(harness.sourceId);
-    const harnessSessions = await request(baseUrl, upstreamToken, "GET", `/api/chat/sessions?notebook_id=${encodeURIComponent(created.upstreamNotebookA)}`, deadline);
-    for (const session of jsonArray(harnessSessions.body)) if (typeof session.id === "string" && !upstreamChatSessions.includes(session.id)) upstreamChatSessions.push(session.id);
-    assert(chatFixture.providerCalls.length === callsAfterDisconnect + 1, "Hermes replay or denial invoked an extra provider call");
-
     const notesPath = `/api/research/notebooks/${pathPart(created.localNotebook)}/engine/notes`;
     const noteHeaders = { authorization: `Bearer ${localPrincipalTokenA}` };
     const notesInventory = await app.inject({ url: notesPath, headers: noteHeaders });
@@ -671,7 +624,7 @@ async function main(): Promise<void> {
     const foreignNoteMembership = await app.inject({ url: `/api/research/notebooks/${pathPart(created.localNotebookB)}/engine/notes/${pathPart(savedNoteId)}`, headers: { authorization: `Bearer ${localPrincipalTokenB}` } });
     assert(missingNoteAuth.statusCode === 401 && foreignNoteCompany.statusCode === 403, "note detail authentication/company isolation failed");
     assert(foreignNoteMembership.statusCode >= 400 && !foreignNoteMembership.body.includes(noteBody), "foreign notebook detail disclosed saved note body");
-    assert(chatFixture.providerCalls.length === callsAfterDisconnect + 1, "saved-note read unexpectedly invoked a model");
+    assert(chatFixture.providerCalls.length === callsAfterDisconnect, "saved-note read unexpectedly invoked a model");
 
     successSummary = {
       ok: true,
@@ -681,7 +634,6 @@ async function main(): Promise<void> {
       knowledge: { localNotebookA: created.localNotebook, localNotebookB: created.localNotebookB, missingBearerStatus: missingBearer.statusCode, missingWriteBearerStatus: missingWriteBearer.statusCode, writeStatus: 201, replayStatus: 200, replayed: replayResult.replayed, replayAfterKnowledgeRestart: true, filteredSourceStatus: routeSources.statusCode, sourceDetailStatus: routeDetail.statusCode, emptyBStatus: routeBSources.statusCode, crossCompanyStatus: crossCompany.statusCode, crossCompanyWriteStatus: crossCompanyWrite.statusCode },
       scope: { sourceAContainsMarker: true, sourceBContainsMarker: false, sourceDetailBoundToA: true },
       context: { status: contextResponse.statusCode, fullTextMatches: true, emptyBStatus: emptyContext.statusCode, crossCompanyStatus: crossContext.statusCode, forgedSelectorStatus: forgedContext.statusCode, modelInvoked: false },
-      harness: { ...harness, providerCalls: 1, transport: "registered Hermes handlers over real Knowledge HTTP; disposable upstream" },
       notes: { inventoryStatus: notesInventory.statusCode, inventoryOmitsBody: true, detailStatus: noteDetail.statusCode, savedBodyMatches: true, missingBearerStatus: missingNoteAuth.statusCode, crossCompanyStatus: foreignNoteCompany.statusCode, foreignMembershipStatus: foreignNoteMembership.statusCode, modelInvoked: false },
       chat: { sessionStatus: 201, answerStatus: 201, scopedSourceReachedProvider: true, historyMessages: 2, replayAfterKnowledgeRestart: true, sameCompanyOtherPrincipalStatus: sibling.statusCode, crossCompanyStatus: foreign.statusCode, forgedContextStatus: forgedChat.statusCode, uncertainFailureStatus: failure.statusCode, heldReplayStatus: heldReplay.statusCode, heldNewTurnStatus: heldNewTurn.statusCode, providerCalls: callsAfterDisconnect, sdkDisconnectAttempts, disconnectReplayStatus: disconnectReplay.statusCode, provider: "disposable loopback fixture; no paid model", providerRetryPolicy: "upstream-controlled" },
     };

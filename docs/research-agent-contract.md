@@ -1,15 +1,18 @@
 # Knowledge Research agent contract
 
 This is the agent-facing contract for the thirteen authenticated `knowledge_research_*`
-tools. It describes the executable Knowledge Program routes and separately
-registered Hermes adapter. Fresh installation, actual registered-handler calls
-over Knowledge HTTP, and a disposable Open Notebook/provider round-trip are
-tested. Those fixtures do not prove live Hermes/Eve/Codex discovery, a real
-agent conversation, production deployment, or browser UI completion.
+operations. It describes the executable Knowledge Program routes. The per-app
+Hermes plugin that once registered these as tools was retired with the unified
+connector decision and removed from this repository; the `knowledge_research_*`
+names below are now only logical operation names for a connector or other
+client to map onto the routes. Route behavior over Knowledge HTTP and a
+disposable Open Notebook/provider round-trip are tested. Those fixtures do not
+prove live Eve/Codex discovery, a real agent conversation, production
+deployment, or browser UI completion.
 
 ## Authority and connection
 
-The adapter talks to the Knowledge Program, not directly to Open Notebook,
+A client talks to the Knowledge Program, not directly to Open Notebook,
 GBrain, or Rules. Resolve the Program from `KNOWLEDGE_BASE_URL`, which must be
 a validated loopback origin, or from the installed Knowledge
 `runtime-connection.json` topology. Do not accept a URL, token, model, company,
@@ -25,7 +28,7 @@ select another identity in a tool call.
 
 `KNOWLEDGE_RESEARCH_SERVICE_TOKEN` is an independently provisioned Knowledge
 service-principal credential. It is not the Open Notebook upstream token and
-not a GBrain token. The adapter sends it as the Knowledge bearer credential;
+not a GBrain token. The client sends it as the Knowledge bearer credential;
 the Program resolves it to a server-attested principal, company, and capability
 set. The Program's current resolver rejects missing, malformed, duplicate, or
 unknown principal bindings and fails closed when principal authority is not
@@ -43,7 +46,7 @@ covered operation.
 
 ## Tool surface
 
-Every tool name starts with `knowledge_research_`. Arguments below are the
+Every operation name starts with `knowledge_research_`. Arguments below are the
 complete public shape. Do not add `actor`, `companyId`, `context`, `modelId`,
 `url`, `token`, or upstream IDs to a call.
 
@@ -161,7 +164,7 @@ company, local notebook, mapped upstream notebook, and (for chat) model ID.
 ## Bounded hook-up procedure
 
 1. Start or connect a private Knowledge Program and prove `/healthz` from the
-   adapter host. A health response proves reachability only, not Research tool
+   client host. A health response proves reachability only, not Research operation
    discovery or successful invocation.
 2. Configure the Program's Open Notebook base URL/token, explicit mapped
    bindings and, for chat, an explicit `model:<id>` plus the dedicated ledger.

@@ -40,6 +40,8 @@ export function createPortalResearchPrincipalProvider(options: {
     const authorization = input.headers.authorization;
     if (typeof attachment !== 'string' || !attachment || typeof authorization !== 'string') return null;
     const headers = new Headers({ authorization });
+    // The legacy x-kybernesis-bundle header is still accepted by the Portal verifier
+    // (@tealbrick/portal legacyBundleHeader); keep forwarding it for older installs.
     for (const name of ['x-tealbrick-bundle', 'x-kybernesis-bundle']) {
       const value = input.headers[name];
       if (Array.isArray(value)) return null;

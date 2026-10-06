@@ -680,7 +680,7 @@ describe("Knowledge Program", () => {
           payload: {
             scopeRef: "task:KYB-287",
             purpose: "task",
-            query: "HDDA acceptance fixtures",
+            query: "Knowledge acceptance fixtures",
           },
         });
 
@@ -1064,7 +1064,7 @@ describe("Knowledge Program", () => {
     );
   });
 
-  it("exposes a GBrain extract-facts endpoint for Hermes turn-end hooks", async () => {
+  it("exposes a GBrain extract-facts endpoint for agent turn-end hooks", async () => {
     await withFakeGBrain(async ({ baseUrl, calls }) => {
       const app = await buildKnowledgeApp({
         environment: "test",
@@ -1079,7 +1079,7 @@ describe("Knowledge Program", () => {
         url: "/api/brain/extract-facts",
         payload: {
           text: "User: remember that GBrain owns Product memory.",
-          sessionId: "stored-hermes-session",
+          sessionId: "stored-agent-session",
           entityHints: ["GBrain", "Product memory"],
         },
       });
@@ -1096,7 +1096,7 @@ describe("Knowledge Program", () => {
           name: "extract_facts",
           arguments: expect.objectContaining({
             turn_text: "User: remember that GBrain owns Product memory.",
-            session_id: "stored-hermes-session",
+            session_id: "stored-agent-session",
             entity_hints: ["GBrain", "Product memory"],
             visibility: "private",
           }),
@@ -1222,7 +1222,7 @@ describe("Knowledge Program", () => {
       url: `/api/knowledge/collections/${collection.id}/documents`,
       payload: {
         title: "Operator decision",
-        body: "Created in the HDDA App.",
+        body: "Created in the Knowledge App.",
         actor: { kind: "app", id: "operator-1" },
       },
     });
@@ -1239,13 +1239,13 @@ describe("Knowledge Program", () => {
       payload: {
         title: "Agent observation",
         body: "Created by the agent.",
-        actor: { kind: "agent", id: "hermes-session-1" },
+        actor: { kind: "agent", id: "agent-session-1" },
       },
     });
     expect(agentCreateResponse.statusCode).toBe(201);
     const agentDocument = agentCreateResponse.json() as { id: string };
     expect(agentCreateResponse.json()).toMatchObject({
-      createdByAgentId: "hermes-session-1",
+      createdByAgentId: "agent-session-1",
       createdByUserId: null,
     });
     const agentRevisions = await app.inject({
@@ -1253,7 +1253,7 @@ describe("Knowledge Program", () => {
       url: `/api/knowledge/documents/${agentDocument.id}/revisions`,
     });
     expect(agentRevisions.json()).toMatchObject([
-      { version: 1, createdByAgentId: "hermes-session-1", createdByUserId: null },
+      { version: 1, createdByAgentId: "agent-session-1", createdByUserId: null },
     ]);
 
     const updateResponse = await app.inject({
@@ -1261,7 +1261,7 @@ describe("Knowledge Program", () => {
       url: `/api/knowledge/documents/${document.id}`,
       payload: {
         body: "Expanded by the Agent.",
-        actor: { kind: "agent", id: "hermes-session-1" },
+        actor: { kind: "agent", id: "agent-session-1" },
       },
     });
     expect(updateResponse.statusCode).toBe(200);
@@ -1274,7 +1274,7 @@ describe("Knowledge Program", () => {
       url: `/api/knowledge/documents/${document.id}/revisions`,
     });
     expect(revisions.json()).toMatchObject([
-      { version: 2, createdByAgentId: "hermes-session-1", createdByUserId: null },
+      { version: 2, createdByAgentId: "agent-session-1", createdByUserId: null },
       { version: 1, createdByAgentId: null, createdByUserId: "app:operator-1" },
     ]);
     await app.close();

@@ -20,6 +20,12 @@ Local dependency security overrides (2026-09-25) pin `@ai-sdk/provider-utils` 4.
 
 Copyright (c) 2026 Garry Tan. MIT licensed. The full required text is retained at [sidecars/gbrain/LICENSE](sidecars/gbrain/LICENSE) and must accompany source and image distributions containing this component. Other nested component licences also remain applicable.
 
+## Vendored engine interface snapshots
+
+`program/src/engine-surfaces/hindsight-0.10.2.openapi.json` is the unmodified OpenAPI document served by Hindsight (`vectorize-io/hindsight`) v0.10.2, tag commit `5fc4ce20917b916240cef27c212c387a177f115b`, and `hindsight-0.10.2.json` lists its MCP tools. Copyright (c) 2025 Vectorize AI, Inc. MIT licensed; the full text is retained at [program/src/engine-surfaces/hindsight-LICENSE.txt](program/src/engine-surfaces/hindsight-LICENSE.txt). The OpenAPI `info.license` field names Apache-2.0; the repository licence is MIT. "Hindsight" is a trademark of Vectorize AI. The Hindsight service itself is pulled unmodified by image digest and is not redistributed by this repository.
+
+`program/src/engine-surfaces/gbrain-0.60.57.0.json` lists the operation names, scopes and transport gates of GBrain v0.60.57.0 (`99de5707f6fc0916f43b4c167802a5f8d9ea0cf0`), MIT, Copyright (c) 2026 Garry Tan.
+
 ## Additional components in the prepared runtime inventory
 
 The prepared runtime inventory identifies `libheif-js` 1.19.8 (LGPL-3.0),

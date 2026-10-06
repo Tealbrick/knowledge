@@ -48,6 +48,13 @@
         "version": "1.14.0",
         "commit": "30c7e2a63e43b7f270fc2c638f0b6246934a53f4",
         "role": "Research engine foundation; server adapter contract baseline, not deployed-service proof"
+      },
+      {
+        "id": "hindsight",
+        "repo": "https://github.com/vectorize-io/hindsight",
+        "version": "0.10.2",
+        "commit": "5fc4ce20917b916240cef27c212c387a177f115b",
+        "role": "optional memory engine service (KNOWLEDGE_MEMORY_ENGINE=hindsight); unmodified image ghcr.io/vectorize-io/hindsight-api:0.10.2-slim pinned by digest, interface snapshot in program/src/engine-surfaces"
       }
     ]
   },

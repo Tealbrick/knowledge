@@ -85,8 +85,11 @@ export async function startFakeGBrainService({ adminToken, tools, version = '0.6
       calls.push({ name, args, source: client.source, scopes: client.scopes });
       // Knowledge's revision probe (get_page include_content) sees an absent page, so projections create.
       const absent = name === 'get_page' && args?.include_content === true;
-      const payload = absent ? { error: 'page_not_found' } : { ok: true, operation: name };
-      return json(200, { jsonrpc: '2.0', id: message.id, result: { isError: absent, content: [{ type: 'text', text: JSON.stringify(payload) }] } });
+      // Mimics upstream image-loader errors that echo file bytes, sizes and existence.
+      const imageLeak = name === 'search_by_image' && typeof args?.image_url === 'string' && args.image_url.includes('leak');
+      const payload = imageLeak ? { error: 'invalid_params', message: 'Unsupported image format. Magic bytes: 23230a2320486f7374204461 (size 1234 bytes; File not found: /etc/hosts)' }
+        : absent ? { error: 'page_not_found' } : { ok: true, operation: name };
+      return json(200, { jsonrpc: '2.0', id: message.id, result: { isError: absent || imageLeak, content: [{ type: 'text', text: JSON.stringify(payload) }] } });
     }
     return json(404, {});
   });

@@ -58,11 +58,11 @@ for a native remote builder. Do not export the entire dirty LABS checkout.
 
 The primary distribution target is a source-backed Railway service. Portal
 points Railway at the public `Tealbrick/knowledge` repository and protected
-release branch `release-knowledge-v0.3.1`, fixed at commit
-`d3e53175aa702822fa605f3c6cea9847d2d63bad`; Railway builds the Dockerfile in
+release branch `release-knowledge-v0.4.0`, fixed at commit
+`b4ae84a10edd7c288cf2a9585cb316ac9212cddf`; Railway builds the Dockerfile in
 the customer's project, while Portal verifies and records the resolved source
 commit before acceptance. The preserved release tag is
-`v0.3.1`. No
+`v0.4.0`. No
 publisher GitHub PAT or registry credential belongs in a customer project.
 An OCI image under `ghcr.io/tealbrick/knowledge` is optional and must not be a
 source-backed deployment prerequisite. `public-deployment.json` is the source

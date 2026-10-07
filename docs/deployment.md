@@ -28,9 +28,9 @@ Export with `KNOWLEDGE_EXPORT_ONLY=1` and transfer only the printed disposable c
 
 The primary Railway path is source-backed. Portal supplies the public
 `Tealbrick/knowledge` repository at protected branch
-`release-knowledge-v0.4.2`, fixed at reviewed commit
-`0ece21bbd34353302fc9141379e4229651dda81d`; the preserved release tag is
-`v0.4.2`. Railway builds
+`release-knowledge-v0.4.3`, fixed at reviewed commit
+`13428eb38c8d00fddb99a64454bd1e5aa34b804e`; the preserved release tag is
+`v0.4.3`. Railway builds
 `deploy/container/Dockerfile` in the customer's project and Portal verifies the
 provider-resolved commit before accepting the deployment. The generated
 blueprint remains a specification until Portal creates and publishes the

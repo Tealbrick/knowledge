@@ -75,6 +75,7 @@ test('only HTML page navigations get the session-ended page; API and JSON keep m
   assert.equal(wantsSessionPage(req('GET', '/', '*/*')), false);
   assert.equal(wantsSessionPage(req('GET', '/', 'application/json')), false);
   assert.equal(wantsSessionPage(req('GET', '/api/status', html)), false);
+  assert.equal(wantsSessionPage(req('GET', '/.well-known/tealbrick/claim', html)), false);
   assert.equal(wantsSessionPage(req('GET', '/bootstrap.json', html)), false);
   const expired = fixture('GET', '/', { accept: html, cookie: `knowledge_browser=${session}` }, '', { authorized: false });
   assert.deepEqual(await browserAccess(config, expired.req, expired.res, expired.transport), { handled: true, authorized: false });

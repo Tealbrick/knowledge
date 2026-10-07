@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { isCanonicalPartitionScope } from "./partition-authority.js";
 
 export type ResearchChatOperation = "session" | "message";
 export type ResearchChatState = "pending" | "succeeded" | "uncertain" | "rejected";
@@ -137,6 +138,11 @@ function validId(value: unknown): value is string {
   return typeof value === "string" && ID_PATTERN.test(value);
 }
 
+/** A workspace id, or a canonical edge partition scope (`workspace/key`). */
+function validCompanyId(value: unknown): value is string {
+  return validId(value) || isCanonicalPartitionScope(value);
+}
+
 function validateScope(scope: ResearchChatScope): ResearchChatScope {
   if (
     !scope ||
@@ -144,7 +150,7 @@ function validateScope(scope: ResearchChatScope): ResearchChatScope {
     Object.keys(scope).length !== SCOPE_KEYS.size ||
     Object.keys(scope).some((key) => !SCOPE_KEYS.has(key)) ||
     !validId(scope.principalId) ||
-    !validId(scope.companyId) ||
+    !validCompanyId(scope.companyId) ||
     !validId(scope.knowledgeNotebookId) ||
     !validId(scope.externalNotebookId) ||
     !MODEL_PATTERN.test(scope.modelId)

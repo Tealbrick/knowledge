@@ -4,6 +4,7 @@ import {
   authorizeKnowledgePartition,
   knowledgePartitionSourceId,
   normalizeKnowledgePartitionKey,
+  isCanonicalPartitionScope,
 } from "./partition-authority.js";
 import { createKnowledgePrincipalResolver } from "./knowledge-principal.js";
 
@@ -42,5 +43,14 @@ describe("Knowledge partition authority", () => {
     }]).resolve("legacy-token")!;
     expect(authorizeKnowledgePartition(legacy, "workspacebeta", "knowledge:read").allowed).toBe(true);
     expect(authorizeKnowledgePartition(legacy, "workspacebeta/project", "knowledge:read").allowed).toBe(false);
+  });
+});
+
+describe("canonical partition scope", () => {
+  it("accepts only hierarchical keys that normalization leaves unchanged", () => {
+    for (const value of ["a/b", "workspace-1/personal", "a/b/c", "a/b.c_d-e"]) expect(isCanonicalPartitionScope(value), value).toBe(true);
+    for (const value of ["plain", "", "a//b", "a/../b", "a/./b", "a/", "/a", "A/b", "a/B", " a/b", "a/b ", "a/.b", "a/b c", `a/${"b".repeat(260)}`, null, 7, {}, ["a/b"]]) {
+      expect(isCanonicalPartitionScope(value), String(value)).toBe(false);
+    }
   });
 });

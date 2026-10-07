@@ -6,7 +6,7 @@
   "architecture": "linux/amd64",
   "projectPolicy": "one customer workspace per dedicated project environment and three volumes",
   "requiredInputs": {
-    "knowledgeSource": "Public source https://github.com/Tealbrick/knowledge at release-knowledge-v0.4.1 (resolved db1cc691d26bee415b9777fe84eda29e6ca8ba58)",
+    "knowledgeSource": "Public source https://github.com/Tealbrick/knowledge at release-knowledge-v0.4.2 (resolved 0ece21bbd34353302fc9141379e4229651dda81d)",
     "TEALBRICK_PORTAL_URL": "Exact trusted Portal HTTPS origin",
     "TEALBRICK_DEPLOYMENT_ID": "Existing server-issued Teal Brick deployment ID, not RAILWAY_DEPLOYMENT_ID",
     "KNOWLEDGE_COMPANY_ID": "Existing server-bound workspace ID; never generated from browser labels",
@@ -82,12 +82,12 @@
       "name": "Knowledge",
       "source": {
         "repository": "https://github.com/Tealbrick/knowledge",
-        "ref": "release-knowledge-v0.4.1",
+        "ref": "release-knowledge-v0.4.2",
         "refType": "branch",
-        "releaseTag": "v0.4.1",
+        "releaseTag": "v0.4.2",
         "rootDirectory": "/",
         "dockerfilePath": "deploy/container/Dockerfile",
-        "resolvedSourceSha": "db1cc691d26bee415b9777fe84eda29e6ca8ba58",
+        "resolvedSourceSha": "0ece21bbd34353302fc9141379e4229651dda81d",
         "branchProtection": {
           "provider": "github",
           "requiredPullRequestReviews": 1,
@@ -165,10 +165,10 @@
   "registryAuth": "none",
   "sourceBuild": {
     "repository": "https://github.com/Tealbrick/knowledge",
-    "ref": "release-knowledge-v0.4.1",
+    "ref": "release-knowledge-v0.4.2",
     "refType": "branch",
-    "releaseTag": "v0.4.1",
-    "resolvedSourceSha": "db1cc691d26bee415b9777fe84eda29e6ca8ba58",
+    "releaseTag": "v0.4.2",
+    "resolvedSourceSha": "0ece21bbd34353302fc9141379e4229651dda81d",
     "rootDirectory": "/",
     "dockerfilePath": "deploy/container/Dockerfile",
     "branchProtection": {

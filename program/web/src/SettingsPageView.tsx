@@ -5,6 +5,7 @@ import { Button, Feedback, SettingsPage, Tag, TextField, SectionNavigation } fro
 import { getOpenApi } from "./api";
 import type { FrontendBootstrap } from "./types";
 import { ModelSettingsPanel } from "./ModelSettingsPanel";
+import { partitionKeyOf } from "./partitions";
 import { describeCapabilities, describeDependency, describeFeature, describeMemory, type ServiceView } from "./service-status";
 
 export type SettingsSection = "models" | "runtime" | "connections" | "developer";
@@ -41,6 +42,9 @@ function extractionLabel(mode: string) {
 export function workspaceDisplayName(bootstrap: FrontendBootstrap, companyId: string) {
   const label = bootstrap.scope.workspaceLabel?.trim();
   if (label && companyId === bootstrap.scope.defaultCompanyId) return label;
+  // An edge memory partition of this workspace: "Polygonface · personal".
+  const partition = partitionKeyOf(bootstrap.scope.defaultCompanyId, companyId);
+  if (partition) return `${label || "This workspace"} · ${partition}`;
   return companyId === "default" ? "Default workspace" : "This workspace";
 }
 

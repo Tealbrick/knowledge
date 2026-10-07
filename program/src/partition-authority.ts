@@ -76,6 +76,16 @@ export function grantReachesEdgePartitions(grant: KnowledgePartitionGrant, works
   return grant.maxDepth === null || partitionDepth(base) + 1 - partitionDepth(key) <= grant.maxDepth;
 }
 
+/**
+ * True for a hierarchical `workspace/key` scope that is already canonical, i.e.
+ * unchanged by `normalizeKnowledgePartitionKey` (lower-case, trimmed, bounded,
+ * no empty, dot-leading or traversal segments). Plain ids return false; callers
+ * pair this with their own plain-id check.
+ */
+export function isCanonicalPartitionScope(value: unknown): value is string {
+  return typeof value === "string" && value.includes("/") && normalizeKnowledgePartitionKey(value) === value;
+}
+
 /** Canonical form of a hierarchical (`a/b`) scope; anything else is returned unchanged. */
 export function canonicalHierarchicalScope(value: unknown): unknown {
   if (typeof value !== "string" || !value.includes("/")) return value;

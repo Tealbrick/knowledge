@@ -240,3 +240,67 @@ describe("durable Knowledge research write ledger", () => {
     expect(ledger.begin(sameNotebookOtherCompany, "shared-label", requestA).kind).toBe("claimed");
   });
 });
+
+describe("edge partition scopes in the write ledger", () => {
+  const cid = "0b1f9c52-7d3a-4a4e-9a55-3f0c6c1d2e11";
+  const partitioned = (key: string): ResearchWriteScope => ({ ...scopeA, companyId: `${cid}/${key}` });
+  const malformed = ["a//b", "a/../b", "a/./b", "a/", "/a", `${cid}/`, `${cid}//research`, `${cid}/..`, `${cid}/../other`, `${cid.toUpperCase()}/research`,
+    `${cid}/Research`, ` ${cid}/research`, `${cid}/research `, `${cid}/re search`, `${cid}/re%2Fsearch`, `${cid}/.hidden`, `${cid}/${"a".repeat(260)}`, "a/b\\c", "a\u0000/b"];
+
+  it("accepts a plain company id and a canonical partition scope, and keeps stored rows under the exact scope", async () => {
+    const fixture = await ledgerFixture();
+    const ledger = open(fixture.dbPath);
+    const plain = { ...scopeA, companyId: cid };
+    for (const scope of [plain, partitioned("research"), { ...scopeA, companyId: `${cid}/research/deeper` }]) {
+      const claim = ledger.begin(scope, "add-source", requestA);
+      expect(claim.kind, scope.companyId).toBe("claimed");
+      if (claim.kind !== "claimed") return;
+      expect(ledger.succeed(scope, "add-source", claim.claimToken, "source:one")).toMatchObject({ state: "succeeded", companyId: scope.companyId });
+      expect(ledger.get(scope, "add-source")).toMatchObject({ companyId: scope.companyId, sourceId: "source:one" });
+    }
+  });
+
+  it("rejects non-canonical and traversal-like company scopes without creating rows", async () => {
+    const fixture = await ledgerFixture();
+    const ledger = open(fixture.dbPath);
+    for (const companyId of malformed) {
+      expect(() => ledger.begin({ ...scopeA, companyId }, "bad-scope", requestA), companyId).toThrowError(ResearchWriteLedgerError);
+      expect(() => ledger.get({ ...scopeA, companyId }, "bad-scope"), companyId).toThrowError(ResearchWriteLedgerError);
+    }
+    expect(ledger.begin(scopeA, "bad-scope", requestA).kind).toBe("claimed");
+  });
+
+  it("isolates receipts and idempotency keys between sibling partitions, the workspace, and other principals", async () => {
+    const fixture = await ledgerFixture();
+    const ledger = open(fixture.dbPath);
+    const a = partitioned("a");
+    const b = partitioned("b");
+    const workspace = { ...scopeA, companyId: cid };
+    const claim = ledger.begin(a, "shared-key", requestA);
+    expect(claim.kind).toBe("claimed");
+    if (claim.kind !== "claimed") return;
+    ledger.succeed(a, "shared-key", claim.claimToken, "source:in-a");
+    expect(ledger.get(a, "shared-key")).toMatchObject({ sourceId: "source:in-a" });
+    expect(ledger.get(b, "shared-key")).toBeNull();
+    expect(ledger.get(workspace, "shared-key")).toBeNull();
+    expect(ledger.get({ ...a, companyId: `${cid}/a/child` }, "shared-key")).toBeNull();
+    // The same key in another partition claims fresh instead of replaying a's receipt.
+    expect(ledger.begin(b, "shared-key", requestA).kind).toBe("claimed");
+    expect(ledger.begin(workspace, "shared-key", requestA).kind).toBe("claimed");
+    expect(ledger.begin(a, "shared-key", requestA)).toMatchObject({ kind: "replay", intent: { sourceId: "source:in-a" } });
+    expect(ledger.get(b, "shared-key")).toMatchObject({ state: "pending", sourceId: null });
+  });
+
+  it("keeps rows written before partitions existed readable under their plain company id", async () => {
+    const fixture = await ledgerFixture();
+    const first = open(fixture.dbPath);
+    const claim = first.begin(scopeA, "legacy-key", requestA);
+    if (claim.kind !== "claimed") throw new Error("expected claim");
+    first.succeed(scopeA, "legacy-key", claim.claimToken, "source:legacy");
+    first.close();
+    ledgers.splice(ledgers.indexOf(first), 1);
+    const reopened = open(fixture.dbPath);
+    expect(reopened.get(scopeA, "legacy-key")).toMatchObject({ sourceId: "source:legacy" });
+    expect(reopened.get({ ...scopeA, companyId: `${scopeA.companyId}/personal` }, "legacy-key")).toBeNull();
+  });
+});

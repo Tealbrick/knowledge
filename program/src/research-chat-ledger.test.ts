@@ -55,11 +55,11 @@ function forget(ledger: ResearchChatLedger): void {
   if (index >= 0) ledgers.splice(index, 1);
 }
 
-function createReadySession(ledger: ResearchChatLedger, scope: ResearchChatScope = scopeA, key = "session-key") {
+function createReadySession(ledger: ResearchChatLedger, scope: ResearchChatScope = scopeA, key = "session-key", externalSessionId = "chat_session:upstream-a") {
   const claim = ledger.beginSession(scope, key, "Fixture chat");
   expect(claim.kind).toBe("claimed");
   if (claim.kind !== "claimed") throw new Error("expected a session claim");
-  const receipt = ledger.completeSession(scope, key, claim.claimToken, "chat_session:upstream-a");
+  const receipt = ledger.completeSession(scope, key, claim.claimToken, externalSessionId);
   expect(receipt.state).toBe("succeeded");
   const session = ledger.getSession(scope, receipt.localSessionId);
   expect(session).not.toBeNull();
@@ -313,5 +313,71 @@ describe("durable scoped Knowledge research chat ledger", () => {
     expect(() => new ResearchChatLedger("relative-chat.sqlite")).toThrowError(ResearchChatLedgerError);
     ledger.close();
     forget(ledger);
+  });
+});
+
+describe("edge partition scopes in the chat ledger", () => {
+  const cid = "0b1f9c52-7d3a-4a4e-9a55-3f0c6c1d2e11";
+  const partitioned = (key: string): ResearchChatScope => ({ ...scopeA, companyId: `${cid}/${key}` });
+  const malformed = ["a//b", "a/../b", "a/./b", "a/", "/a", `${cid}/`, `${cid}//research`, `${cid}/..`, `${cid}/../other`, `${cid.toUpperCase()}/research`,
+    `${cid}/Research`, ` ${cid}/research`, `${cid}/research `, `${cid}/re search`, `${cid}/re%2Fsearch`, `${cid}/.hidden`, `${cid}/${"a".repeat(260)}`, "a/b\\c", "a\u0000/b"];
+
+  it("accepts a plain company id and a canonical partition scope for sessions and turns", async () => {
+    const { dbPath } = await fixture();
+    const ledger = open(dbPath);
+    let n = 0;
+    for (const scope of [{ ...scopeA, companyId: cid }, partitioned("research"), { ...scopeA, companyId: `${cid}/research/deeper` }]) {
+      const { session } = createReadySession(ledger, scope, "partition-session", `chat_session:upstream-p${n++}`);
+      expect(session.localSessionId).toMatch(/^chat_session:/u);
+      const turn = ledger.beginTurn(scope, session.localSessionId, "partition-turn", "Question?");
+      expect(turn.kind, scope.companyId).toBe("claimed");
+      if (turn.kind !== "claimed") return;
+      expect(ledger.completeTurn(scope, "partition-turn", turn.claimToken, answerA)).toMatchObject({ state: "succeeded", answer: answerA });
+    }
+  });
+
+  it("rejects non-canonical and traversal-like company scopes without creating rows", async () => {
+    const { dbPath } = await fixture();
+    const ledger = open(dbPath);
+    for (const companyId of malformed) {
+      expect(() => ledger.beginSession({ ...scopeA, companyId }, "bad-scope", "Title"), companyId).toThrowError(ResearchChatLedgerError);
+      expect(() => ledger.getReceipt({ ...scopeA, companyId }, "bad-scope"), companyId).toThrowError(ResearchChatLedgerError);
+    }
+    expect(ledger.beginSession(scopeA, "bad-scope", "Title").kind).toBe("claimed");
+  });
+
+  it("isolates sessions, receipts and idempotency keys between sibling partitions and the workspace", async () => {
+    const { dbPath } = await fixture();
+    const ledger = open(dbPath);
+    const a = partitioned("a");
+    const b = partitioned("b");
+    const workspace = { ...scopeA, companyId: cid };
+    const { session } = createReadySession(ledger, a, "shared-key", "chat_session:upstream-iso");
+    const turn = ledger.beginTurn(a, session.localSessionId, "turn-key", "Question?");
+    if (turn.kind !== "claimed") throw new Error("expected turn claim");
+    ledger.completeTurn(a, "turn-key", turn.claimToken, answerA);
+
+    for (const other of [b, workspace, { ...a, companyId: `${cid}/a/child` }]) {
+      expect(ledger.getSession(other, session.localSessionId), other.companyId).toBeNull();
+      expect(ledger.getReceipt(other, "shared-key"), other.companyId).toBeNull();
+      expect(ledger.getReceipt(other, "turn-key"), other.companyId).toBeNull();
+      expect(() => ledger.beginTurn(other, session.localSessionId, "foreign-turn", "forged selector"), other.companyId).toThrowError(expect.objectContaining({ code: "not_found" }));
+    }
+    // The same idempotency key claims a fresh session elsewhere; it never replays a's receipt.
+    const fresh = ledger.beginSession(b, "shared-key", "Fixture chat");
+    expect(fresh.kind).toBe("claimed");
+    expect(fresh.kind === "claimed" ? fresh.receipt.localSessionId : "").not.toBe(session.localSessionId);
+    expect(ledger.beginSession(a, "shared-key", "Fixture chat")).toMatchObject({ kind: "replay", receipt: { localSessionId: session.localSessionId } });
+  });
+
+  it("keeps sessions created under a plain company id reachable only under that id", async () => {
+    const { dbPath } = await fixture();
+    const first = open(dbPath);
+    const { session } = createReadySession(first, scopeA, "legacy-session");
+    first.close();
+    forget(first);
+    const reopened = open(dbPath);
+    expect(reopened.getSession(scopeA, session.localSessionId)).toMatchObject({ localSessionId: session.localSessionId });
+    expect(reopened.getSession({ ...scopeA, companyId: `${scopeA.companyId}/personal` }, session.localSessionId)).toBeNull();
   });
 });

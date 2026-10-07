@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { OPEN_NOTEBOOK_MAX_SOURCE_TITLE_BYTES, OPEN_NOTEBOOK_MAX_SOURCE_CONTENT_BYTES } from "./open-notebook.js";
+import { isCanonicalPartitionScope } from "./partition-authority.js";
 
 export type ResearchWriteState = "pending" | "succeeded" | "uncertain" | "rejected";
 
@@ -98,8 +99,13 @@ function validId(value: unknown): value is string {
   return typeof value === "string" && ID_PATTERN.test(value);
 }
 
+/** A workspace id, or a canonical edge partition scope (`workspace/key`). */
+function validCompanyId(value: unknown): value is string {
+  return validId(value) || isCanonicalPartitionScope(value);
+}
+
 function validateScope(scope: ResearchWriteScope): ResearchWriteScope {
-  if (!scope || typeof scope !== "object" || Object.keys(scope).length !== SCOPE_KEYS.size || Object.keys(scope).some((key) => !SCOPE_KEYS.has(key)) || !validId(scope.principalId) || !validId(scope.companyId) || !validId(scope.knowledgeNotebookId) || !validId(scope.externalNotebookId)) {
+  if (!scope || typeof scope !== "object" || Object.keys(scope).length !== SCOPE_KEYS.size || Object.keys(scope).some((key) => !SCOPE_KEYS.has(key)) || !validId(scope.principalId) || !validCompanyId(scope.companyId) || !validId(scope.knowledgeNotebookId) || !validId(scope.externalNotebookId)) {
     throw new ResearchWriteLedgerError("invalid_input", "invalid write scope");
   }
   return Object.freeze({

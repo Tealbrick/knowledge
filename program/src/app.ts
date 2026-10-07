@@ -21,6 +21,9 @@ import { KnowledgeAuthorizationAudit } from "./authorization-audit.js";
 import {
   authorizeKnowledgePartition,
   bearerToken,
+  effectiveKnowledgePartition,
+  type KnowledgeBoundPartition,
+  narrowPartitionSelector,
   normalizeKnowledgePartitionKey,
   partitionGrantSummaries,
 } from "./partition-authority.js";
@@ -281,6 +284,36 @@ function partitionCapabilityForRequest(method: string, pathname: string): string
     case "PATCH": case "PUT": return "knowledge:update";
     case "DELETE": return "knowledge:delete";
     default: return "knowledge:unsupported";
+  }
+}
+
+/**
+ * A principal bound to one edge partition addresses Knowledge by its workspace
+ * id (Portal MCP, runtime kits). Narrow every partition selector that names the
+ * workspace to the bound `workspace/key` partition before authorization and
+ * before the handler reads it. Other selectors are left alone and are then
+ * denied by the principal's exact grant; nothing ever widens.
+ */
+function narrowRequestToBoundPartition(request: FastifyRequest, bound: KnowledgeBoundPartition, policyPathname: string) {
+  const brainPath = policyPathname.startsWith("/api/brain/");
+  const fields = ["companyId", "partitionKey", ...(brainPath ? ["scopeRef"] : [])];
+  const changes = (record: Record<string, unknown>, keys: readonly string[]) =>
+    keys.flatMap((key) => {
+      const value = narrowPartitionSelector(record[key], bound);
+      return value === record[key] ? [] : [[key, value] as const];
+    });
+  if (request.params && typeof request.params === "object") {
+    const params = request.params as Record<string, unknown>;
+    for (const [key, value] of changes(params, ["companyId"])) params[key] = value;
+  }
+  if (request.query && typeof request.query === "object") {
+    const query = request.query as Record<string, unknown>;
+    for (const [key, value] of changes(query, fields)) query[key] = value;
+  }
+  if (request.body && typeof request.body === "object" && !Buffer.isBuffer(request.body) && !Array.isArray(request.body)) {
+    const body = request.body as Record<string, unknown>;
+    const update = changes(body, fields);
+    if (update.length) request.body = { ...body, ...Object.fromEntries(update) };
   }
 }
 
@@ -1666,6 +1699,7 @@ export async function buildKnowledgeApp(
       // Edge-minted, per-request bearers for Portal attachments with knowledge:brain:* grants.
       (nativeRoute && options.brainPrincipalProvider ? await options.brainPrincipalProvider(request, "brain:native") : null);
     if (requestPrincipal) request.knowledgePrincipal = requestPrincipal;
+    if (requestPrincipal?.boundPartition) narrowRequestToBoundPartition(request, requestPrincipal.boundPartition, policyPathname);
     const partitionProtected = partitionProtectedPath(policyPathname);
     // Engine routes own their existing bearer/browser/provider and mapping checks.
     const mappedResearch = isResearchSameOriginPath(policyPathname);
@@ -2257,6 +2291,30 @@ export async function buildKnowledgeApp(
       principalId: principal.principalId,
       partitions: partitionGrantSummaries(principal),
     });
+  });
+
+  /**
+   * Owner/operator surface for the UI partition selector: the workspace default
+   * plus edge partitions seen in storage or allowed by KNOWLEDGE_PARTITIONS.
+   * Agents never list sibling partitions; they use /api/knowledge/partitions.
+   */
+  app.get("/api/companies/:companyId/knowledge/partitions", async (request, reply) => {
+    if (request.knowledgePrincipal) {
+      reply.code(403).send({ ok: false, error: "partition_scope_denied" });
+      return;
+    }
+    const { companyId } = request.params as { companyId: string };
+    const defaultPartitionKey = normalizeKnowledgePartitionKey(companyId);
+    if (!defaultPartitionKey) {
+      reply.code(400).send({ ok: false, error: "partition_key_required" });
+      return;
+    }
+    const keys = [...new Set([...(config.knowledgePartitions ?? []), ...store.listEdgePartitionKeys(companyId)])].sort();
+    return {
+      companyId,
+      defaultPartitionKey,
+      partitions: keys.map((key) => ({ key, partitionKey: effectiveKnowledgePartition(companyId, key) })),
+    };
   });
 
   app.get("/api/knowledge/collections", async (request) => {

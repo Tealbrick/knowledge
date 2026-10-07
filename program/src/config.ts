@@ -9,7 +9,7 @@ import type {
   KnowledgeEnvironment,
   KnowledgeGBrainPartitionToken,
 } from "./types.js";
-import { normalizeKnowledgePartitionKey } from "./partition-authority.js";
+import { EDGE_PARTITION_KEY, normalizeKnowledgePartitionKey } from "./partition-authority.js";
 import { resolveDefaultKnowledgeDataDir } from "./legacy-ids.js";
 
 const programSrcDir = path.dirname(fileURLToPath(import.meta.url));
@@ -82,6 +82,17 @@ function configuredGbrainPartitionTokens(): readonly KnowledgeGBrainPartitionTok
     entries.push({ partitionKey, token: rawToken.trim() });
   }
   return Object.freeze(entries);
+}
+
+/** KNOWLEDGE_PARTITIONS: comma/space separated edge-partition keys offered by the owner UI. */
+function configuredKnowledgePartitions(): readonly string[] {
+  const value = process.env.KNOWLEDGE_PARTITIONS;
+  if (value === undefined || value.trim() === "") return [];
+  const keys = value.split(/[\s,]+/u).filter(Boolean);
+  if (keys.some((key) => !EDGE_PARTITION_KEY.test(key) || key === "default")) {
+    throw new Error("KNOWLEDGE_PARTITIONS must list partition keys matching ^[a-z][a-z0-9-]{0,39}$ (default is reserved)");
+  }
+  return Object.freeze([...new Set(keys)].sort());
 }
 
 function booleanFromEnv(value: string | undefined, fallback: boolean): boolean {
@@ -208,6 +219,7 @@ export function loadConfig(options: BuildKnowledgeAppOptions = {}): KnowledgeCon
     partitionAuthorizationRequired:
       options.config?.partitionAuthorizationRequired ??
       booleanFromEnv(process.env.KNOWLEDGE_PARTITION_AUTH_REQUIRED, false),
+    knowledgePartitions: options.config?.knowledgePartitions ?? configuredKnowledgePartitions(),
     browserOperatorSecret: browserSessionValue(options.config?.browserOperatorSecret, "KNOWLEDGE_BROWSER_OPERATOR_SECRET"),
     browserPrincipalId: browserSessionValue(options.config?.browserPrincipalId, "KNOWLEDGE_BROWSER_PRINCIPAL_ID"),
     browserOrigin: browserSessionValue(options.config?.browserOrigin, "KNOWLEDGE_BROWSER_ORIGIN"),

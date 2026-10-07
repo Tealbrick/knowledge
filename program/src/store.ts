@@ -16,6 +16,7 @@ import type {
   ResearchOutput,
   ResearchSource,
 } from "./types.js";
+import { EDGE_PARTITION_KEY, normalizeKnowledgePartitionKey } from "./partition-authority.js";
 
 function nowIso() {
   return new Date().toISOString();
@@ -330,6 +331,24 @@ export class KnowledgeStore {
     this.collections.unshift(collection);
     this.persist();
     return collection;
+  }
+
+  /**
+   * Edge-partition keys holding records directly under a workspace partition
+   * (`workspace/key`). Records are partitioned by their hierarchical companyId,
+   * so this is a scan, never a separate registry; deeper or foreign keys are ignored.
+   */
+  listEdgePartitionKeys(companyId: string): string[] {
+    const base = normalizeKnowledgePartitionKey(companyId);
+    if (!base) return [];
+    const keys = new Set<string>();
+    for (const record of [...this.collections, ...this.documents, ...this.notebooks, ...this.sources]) {
+      const partition = normalizeKnowledgePartitionKey(record.companyId);
+      if (!partition?.startsWith(`${base}/`)) continue;
+      const key = partition.slice(base.length + 1);
+      if (EDGE_PARTITION_KEY.test(key) && key !== "default") keys.add(key);
+    }
+    return [...keys].sort();
   }
 
   listKnowledgeCollections(companyId: string, ensureDefault = true) {

@@ -3,12 +3,12 @@ import { createHash, timingSafeEqual, randomBytes } from "node:crypto";
 import { buildKnowledgeApp } from "../../program/src/app.js";
 import { loadConfig } from "../../program/src/config.js";
 import { createKnowledgePrincipalResolver } from "../../program/src/knowledge-principal.js";
-import { bearerToken, normalizeKnowledgePartitionKey } from "../../program/src/partition-authority.js";
+import { bearerToken, effectiveKnowledgePartition, normalizeKnowledgePartitionKey } from "../../program/src/partition-authority.js";
 import { customerRuntimeRoute } from "../../program/src/customer-runtime-access.js";
 import { KnowledgeInstanceClaim } from "../../program/src/instance-claim.js";
 import { createPortalPrincipalResolver, portalPrincipalConfig } from "../../program/src/portal-principal.js";
 import { createAttachmentResearchAuthority } from "../../program/src/attachment-research-principal.js";
-import { attachmentConfig, attachmentRoute, introspectAttachment } from "./attachment-auth.mjs";
+import { attachmentConfig, attachmentRoute, edgePartitionClaim, introspectAttachment } from "./attachment-auth.mjs";
 import { browserConfig, browserAccess, sendSessionEnded, wantsSessionPage } from "./browser-auth.mjs";
 
 // A caller-sized body is not an authorization failure; report it as 413 so the
@@ -91,7 +91,7 @@ const server = createServer(async (req, res) => {
     (portalPrincipals && customerRuntimeRoute(req.method ?? "", req.url ?? "") ? await portalPrincipals.resolve(suppliedBearer) : null);
   const runtimeAuthorized = !!runtimePrincipal && customerRuntimeRoute(req.method ?? "", req.url ?? "");
   let attachmentAuthorized = false;
-  let dispatchGrant: {capability:string;agentId:string;orgId:string;requires:string[];optional:string[];expiresAt:number;native:boolean} | undefined;
+  let dispatchGrant: {capability:string;agentId:string;orgId:string;requires:string[];optional:string[];expiresAt:number;native:boolean;partitionKey:string|null} | undefined;
   let researchBearer: string | null = null;
   let replacementBody: string | Buffer | undefined;
   let replacementUrl: string | undefined;
@@ -99,6 +99,17 @@ const server = createServer(async (req, res) => {
     try {
       const route = attachmentRoute(req.method, req.url, attachment.companyId, { nativeOperationPolicy });
       const grant=route ? await introspectAttachment(attachment,req.headers,route.capability) : null;
+      // Per-edge memory partition from Portal (absent = the workspace default partition).
+      // Every introspection for this request must report the same one.
+      const claim = grant ? edgePartitionClaim(grant) : null;
+      const edgePartition: string | null = claim?.ok ? claim.partitionKey : null;
+      const partition = grant ? effectiveKnowledgePartition(attachment.companyId, edgePartition) : null;
+      if (grant && (!claim?.ok || (edgePartition !== null && !partition))) throw new Error('invalid partition claim');
+      const samePartition = (other: unknown) => { const c = edgePartitionClaim(other); return c.ok && c.partitionKey === edgePartition; };
+      // A partitioned edge may name its workspace; that selects its own partition, never the default.
+      const workspacePartition = normalizeKnowledgePartitionKey(attachment.companyId);
+      const selectsPartition = (value: unknown) => { const key = normalizeKnowledgePartitionKey(value);
+        return key === partition || (edgePartition !== null && key === workspacePartition); };
       // Research routes may need more than one capability (chat send needs read and write).
       let researchAdmitted = !route?.research;
       let expiresAt = grant ? (typeof grant.expiresAt === 'number' ? grant.expiresAt : Date.parse(grant.expiresAt)) : 0;
@@ -106,32 +117,40 @@ const server = createServer(async (req, res) => {
         researchAdmitted = true;
         for(const capability of route.requires.slice(1)) {
           const extra=await introspectAttachment(attachment,req.headers,capability);
-          if(!extra || extra.agentId!==grant.agentId || extra.orgId!==grant.orgId) { researchAdmitted=false; break; }
+          if(!extra || extra.agentId!==grant.agentId || extra.orgId!==grant.orgId || !samePartition(extra)) { researchAdmitted=false; break; }
           expiresAt=Math.min(expiresAt, typeof extra.expiresAt === 'number' ? extra.expiresAt : Date.parse(extra.expiresAt));
         }
       }
       if(route && grant && researchAdmitted) {
         attachmentAuthorized = true;
-        dispatchGrant={capability:route.capability,agentId:grant.agentId,orgId:grant.orgId,requires:route.requires ?? [route.capability],optional:route.optional ?? [],expiresAt,native:route.native===true};
+        dispatchGrant={capability:route.capability,agentId:grant.agentId,orgId:grant.orgId,requires:route.requires ?? [route.capability],optional:route.optional ?? [],expiresAt,native:route.native===true,partitionKey:edgePartition};
         // Admission and dispatch must use the same parsed path, including
         // encoded company IDs and normalized segments.
         const url = new URL(req.url!, 'http://knowledge.invalid');
         replacementUrl = `${url.pathname}${url.search}`;
+        // Storage scope: the workspace, or exactly its `workspace/key` partition (stored under that companyId).
+        const scopeCompany = edgePartition === null ? attachment.companyId : partition!;
+        if (route.companyResource) {
+          // A `workspace/key` path is only this edge's own partition; a default edge never reaches a child.
+          if (route.companyRef !== undefined && (edgePartition === null || normalizeKnowledgePartitionKey(route.companyRef) !== partition)) throw new Error('partition mismatch');
+          if (edgePartition !== null) replacementUrl = `/api/companies/${encodeURIComponent(partition!)}/knowledge/${route.companyResource}${url.search}`;
+        }
         if (route.capability === 'knowledge:brain:read' || route.native) {
-          const partition = normalizeKnowledgePartitionKey(attachment.companyId);
           if (!partition) throw new Error('invalid bound partition');
           const selectors = url.searchParams.getAll('partitionKey');
-          if (selectors.length > 1 || selectors.some(value => normalizeKnowledgePartitionKey(value) !== partition)) throw new Error('partition mismatch');
+          if (selectors.length > 1 || selectors.some(value => !selectsPartition(value))) throw new Error('partition mismatch');
           url.searchParams.set('partitionKey', partition);
           replacementUrl = `${url.pathname}${url.search}`;
         }
         if(route.collectionId) {
-          const result=await app.inject({method:'GET',url:`/api/companies/${encodeURIComponent(attachment.companyId)}/knowledge/collections`});
+          const result=await app.inject({method:'GET',url:`/api/companies/${encodeURIComponent(scopeCompany)}/knowledge/collections`});
           attachmentAuthorized=result.statusCode===200 && result.json().some((item: {id:string})=>item.id===route.collectionId);
         }
         if(route.documentId) {
           const result=await app.inject({method:'GET',url:`/api/knowledge/documents/${encodeURIComponent(route.documentId)}`});
-          attachmentAuthorized=result.statusCode===200 && result.json().companyId===attachment.companyId;
+          const owner=result.statusCode===200 ? result.json().companyId : null;
+          // No cross-partition ID access: the document must live in exactly this edge's partition.
+          attachmentAuthorized=edgePartition===null ? owner===attachment.companyId : typeof owner==='string' && normalizeKnowledgePartitionKey(owner)===partition;
         }
         if(attachmentAuthorized && route.bodyKind) {
           const chunks: Buffer[]=[];
@@ -147,11 +166,10 @@ const server = createServer(async (req, res) => {
           const fields = route.bodyKind==='collection' ? ['name','description'] : route.bodyKind==='document'
             ? ['title','body','bodyFormat','status','summary'] : route.bodyKind==='native' ? ['partitionKey','arguments'] : ['query','scopeRef','purpose','sourceIds'];
           if(Object.keys(parsed).some(key=>!fields.includes(key))) throw new Error('unsupported fields');
-          const boundPartition=normalizeKnowledgePartitionKey(attachment.companyId);
           // Native memory is always the bound partition; a foreign selector is refused, never rewritten.
-          if(route.bodyKind==='native' && parsed.partitionKey!==undefined && normalizeKnowledgePartitionKey(parsed.partitionKey)!==boundPartition) throw new Error('partition mismatch');
-          replacementBody=JSON.stringify(route.bodyKind==='brain' ? {...parsed,scopeRef:attachment.companyId,partitionKey:boundPartition}
-            : route.bodyKind==='native' ? {partitionKey:boundPartition,arguments:parsed.arguments}
+          if(route.bodyKind==='native' && parsed.partitionKey!==undefined && !selectsPartition(parsed.partitionKey)) throw new Error('partition mismatch');
+          replacementBody=JSON.stringify(route.bodyKind==='brain' ? {...parsed,scopeRef:scopeCompany,partitionKey:partition}
+            : route.bodyKind==='native' ? {partitionKey:partition,arguments:parsed.arguments}
             : route.bodyKind==='document' ? {...parsed,actor:{kind:'agent',id:grant.agentId}} : parsed);
         }
       }
@@ -162,7 +180,10 @@ const server = createServer(async (req, res) => {
   if(attachmentAuthorized && attachment && dispatchGrant) {
     for(const capability of dispatchGrant.requires) {
       const current=await introspectAttachment(attachment,req.headers,capability);
-      attachmentAuthorized=!!current && current.agentId===dispatchGrant.agentId && current.orgId===dispatchGrant.orgId;
+      const currentClaim=current ? edgePartitionClaim(current) : null;
+      // A partition edited mid-request (Portal also fails deployment_grant_changed) never re-scopes it.
+      attachmentAuthorized=!!current && current.agentId===dispatchGrant.agentId && current.orgId===dispatchGrant.orgId &&
+        !!currentClaim?.ok && currentClaim.partitionKey===dispatchGrant.partitionKey;
       if(!attachmentAuthorized) break;
     }
     if(attachmentAuthorized && attachmentResearch && (dispatchGrant.native || dispatchGrant.requires.some(capability => capability.startsWith('knowledge:research:')))) {
@@ -170,9 +191,11 @@ const server = createServer(async (req, res) => {
       const granted=[...dispatchGrant.requires];
       for(const capability of dispatchGrant.optional) {
         const extra=await introspectAttachment(attachment,req.headers,capability);
-        if(extra && extra.agentId===dispatchGrant.agentId && extra.orgId===dispatchGrant.orgId) granted.push(capability);
+        const extraClaim=extra ? edgePartitionClaim(extra) : null;
+        if(extra && extra.agentId===dispatchGrant.agentId && extra.orgId===dispatchGrant.orgId && extraClaim?.ok && extraClaim.partitionKey===dispatchGrant.partitionKey) granted.push(capability);
       }
-      researchBearer=attachmentResearch.issue({agentId:dispatchGrant.agentId,orgId:dispatchGrant.orgId,capabilities:granted,expiresAt:dispatchGrant.expiresAt}, dispatchGrant.native ? 'brain' : 'research');
+      researchBearer=attachmentResearch.issue({agentId:dispatchGrant.agentId,orgId:dispatchGrant.orgId,capabilities:granted,expiresAt:dispatchGrant.expiresAt,
+        ...(dispatchGrant.partitionKey!==null ? {partitionKey:dispatchGrant.partitionKey} : {})}, dispatchGrant.native ? 'brain' : 'research');
       attachmentAuthorized=researchBearer!==null;
     }
   }

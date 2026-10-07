@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { KnowledgePrincipalResolver, KnowledgeServicePrincipal } from "./knowledge-principal.js";
 import type { ResearchPrincipalProvider } from "./portal-research-principal.js";
+import { boundPartitionFor } from "./partition-authority.js";
 
 /**
  * Portal attachment grants for Research and native memory, issued by the container edge.
@@ -41,6 +42,8 @@ export interface AttachmentResearchGrant {
   readonly capabilities: readonly string[];
   /** Attachment expiry (epoch ms). The minted bearer never outlives it. */
   readonly expiresAt: number;
+  /** Portal per-edge memory partition key (already validated by the edge); absent = workspace default. */
+  readonly partitionKey?: string;
 }
 
 export interface AttachmentResearchAuthority {
@@ -72,6 +75,9 @@ export function createAttachmentResearchAuthority(options: {
       const mapping = surface === "brain" ? ATTACHMENT_BRAIN_CAPABILITIES : ATTACHMENT_RESEARCH_CAPABILITIES;
       const capabilities = [...new Set(grant.capabilities.map((name) => mapping[name]).filter((name): name is string => Boolean(name)))].sort();
       if (!capabilities.length || !grant.agentId || !grant.orgId || !Number.isFinite(grant.expiresAt) || grant.expiresAt <= now()) return null;
+      // A partitioned edge is exact on `workspace/key`; an invalid key mints nothing.
+      const bound = grant.partitionKey === undefined ? null : boundPartitionFor(companyId, grant.partitionKey);
+      if (grant.partitionKey !== undefined && !bound) return null;
       const token = `kedge_${randomBytes(32).toString("base64url")}`;
       active.set(digest(token), {
         expiresAt: Math.min(grant.expiresAt, now() + MAX_TTL_MS),
@@ -79,8 +85,9 @@ export function createAttachmentResearchAuthority(options: {
           kind: "service" as const,
           // Stable per Portal agent so chat sessions and receipts stay owned across requests.
           principalId: `portal-agent:${digest(`${grant.orgId}\u0000${grant.agentId}`).slice(0, 40)}`,
-          companyId,
+          companyId: bound ? bound.partitionKey : companyId,
           capabilities: Object.freeze(capabilities),
+          ...(bound ? { boundPartition: bound } : {}),
         }),
       });
       return token;

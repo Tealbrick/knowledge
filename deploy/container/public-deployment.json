@@ -32,7 +32,7 @@
   "recipe": {
     "schemaVersion": 1,
     "id": "tealbrick-knowledge",
-    "version": "0.4.2",
+    "version": "0.4.3",
     "distribution": "public-source-and-railway-template",
     "sourceContext": "standalone-repository-root",
     "dockerfile": "deploy/container/Dockerfile",

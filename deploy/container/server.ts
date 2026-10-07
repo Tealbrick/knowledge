@@ -31,6 +31,7 @@ if (config.knowledgeServicePrincipals.some(principal => typeof principal?.token 
   throw new Error("Knowledge runtime credentials must be distinct from the instance recovery token");
 }
 const runtimePrincipals = createKnowledgePrincipalResolver(config.knowledgeServicePrincipals);
+const CLAIM_PATHS = new Set(["/.well-known/tealbrick/claim", "/api/tealbrick/claim"]);
 const instanceClaim = new KnowledgeInstanceClaim(config.dataDir);
 // Portal-provisioned instances resolve agent grants live against Portal; no
 // per-agent KNOWLEDGE_SERVICE_PRINCIPALS edit or redeploy is required.
@@ -55,7 +56,8 @@ const server = createServer(async (req, res) => {
   const supplied = req.headers["x-knowledge-instance-token"];
   const publicHealth = req.method === "GET" && req.url === "/healthz";
   const instanceAuthorized = typeof supplied === "string" && timingSafeEqual(expected, createHash("sha256").update(supplied).digest());
-  if (req.url?.split("?", 1)[0] === "/api/tealbrick/claim") {
+  // The canonical path is the well-known one; /api/tealbrick/claim stays a working alias served by the same handler.
+  if (CLAIM_PATHS.has(req.url?.split("?", 1)[0] ?? "")) {
     res.setHeader("content-type", "application/json");
     res.setHeader("cache-control", "no-store");
     // Only explicit recovery/admin authority; a browser session or agent bearer cannot sign.

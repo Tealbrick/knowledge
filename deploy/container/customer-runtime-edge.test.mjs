@@ -137,6 +137,30 @@ test('direct runtime enforces all CRUD subsets, isolation, identity, claim admin
   assert.equal(payload.aud, challenge.portalIssuer);
   assert.equal(payload.companyId, 'customer-a');
   assert.equal(payload.exp - payload.iat, 300);
+
+  // The canonical well-known path is the same handler as the /api alias: same
+  // identity, same admin-only boundary, valid proofs from the same key.
+  const wellKnown = '/.well-known/tealbrick/claim';
+  assert.deepEqual(await (await call(wellKnown)).json(), identity);
+  assert.equal((await call(wellKnown, 'GET', {})).status, 403, 'anonymous well-known claim is denied');
+  assert.equal((await call(wellKnown, 'GET', { ...admin, origin: 'https://portal.example' })).status, 403);
+  assert.equal((await call(wellKnown, 'GET', { ...admin, cookie: 'knowledge_browser=x' })).status, 403);
+  assert.equal((await call(wellKnown, 'GET', { authorization: `Bearer ${principals[15].token}` })).status, 403);
+  assert.equal((await call(wellKnown, 'POST', full, challenge)).status, 403);
+  assert.equal((await call(wellKnown, 'POST', { ...admin, origin: 'https://portal.example' }, challenge)).status, 403);
+  assert.equal((await call(wellKnown, 'POST', admin, { ...challenge, companyId: 'unknown-company' })).status, 403);
+  assert.equal((await call(wellKnown, 'POST', admin, { ...challenge, extra: true })).status, 400);
+  const aliasProof = await call(wellKnown, 'POST', admin, challenge);
+  assert.equal(aliasProof.status, 200);
+  const wellKnownClaim = await aliasProof.json();
+  const [wHead, wBody, wSignature] = wellKnownClaim.proof.split('.');
+  assert.equal(verify(null, Buffer.from(`${wHead}.${wBody}`), createPublicKey({ key: identity.publicJwk, format: 'jwk' }), Buffer.from(wSignature, 'base64url')), true);
+  const wellKnownPayload = JSON.parse(Buffer.from(wBody, 'base64url'));
+  for (const field of ['typ', 'version', 'nonce', 'aud', 'companyId', 'instanceId']) assert.equal(wellKnownPayload[field], payload[field], field);
+  assert.equal(wellKnownPayload.exp - wellKnownPayload.iat, 300);
+  assert.equal(wellKnownClaim.instanceId, identity.instanceId);
+  assert.deepEqual(wellKnownClaim.publicJwk, identity.publicJwk);
+  assert.equal((await call(wellKnown, 'DELETE', admin)).status, 405);
   await stop();
   assert.doesNotMatch(output, /query-sensitive-marker|request-body-marker|existing-sensitive-marker|foreign-content-marker|forged-agent/);
   assert.ok(!output.includes(instance));

@@ -19,7 +19,7 @@ export function wantsSessionPage(req) {
   if (!/\btext\/html\b/i.test(accept)) return false;
   let path;
   try { path = new URL(req.url ?? '/', 'http://knowledge.invalid').pathname; } catch { return false; }
-  if (path.startsWith('/api/') || path.endsWith('.json')) return false;
+  if (path.startsWith('/api/') || path.startsWith('/.well-known/') || path.endsWith('.json')) return false;
   if (req.method === 'POST') return path === '/auth/launch';
   return req.method === 'GET' || req.method === 'HEAD';
 }

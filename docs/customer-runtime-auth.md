@@ -149,10 +149,15 @@ claim endpoint. Agent bearer and browser-session authority cannot sign. Requests
 with browser `Origin` or `Cookie` headers are rejected even with the instance
 header. Do not send that instance token to Portal.
 
-1. GET `/api/tealbrick/claim` returns `{instanceId, publicJwk}`. Pin these public
+The canonical claim path is `/.well-known/tealbrick/claim` (GET and POST).
+`/api/tealbrick/claim` remains a working alias served by the same handler: same
+authority checks, same identity, same proofs. Both paths reject requests without
+the instance token, and requests with browser `Origin` or `Cookie` headers, with 403.
+
+1. GET `/.well-known/tealbrick/claim` returns `{instanceId, publicJwk}`. Pin these public
    fields into the operator's Portal registration challenge alongside the
    selected workspace/node/binding and internal company scope.
-2. Portal supplies a nonce; POST `/api/tealbrick/claim` with exactly
+2. Portal supplies a nonce; POST `/.well-known/tealbrick/claim` with exactly
    `{portalIssuer, nonce, companyId}`. Issuer is a canonical HTTPS origin
    (loopback HTTP is permitted for fixtures), nonce is 16–256 base64url characters,
    and companyId must already exist locally or be an explicitly configured

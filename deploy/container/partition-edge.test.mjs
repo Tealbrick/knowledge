@@ -78,6 +78,10 @@ test('per-edge partitions isolate every attachment and runtime route family on t
     try { ready = (await fetch(`${base}/healthz`)).ok; } catch { await new Promise(r => setTimeout(r, 100)); }
   }
   assert.ok(ready, error);
+  // Rollout gate: the public health probe Portal reads advertises the claim contract.
+  const health = await (await fetch(`${base}/healthz`)).json();
+  assert.equal(health.partitionContract, 1);
+  assert.equal(health.capabilities.edgePartitions, true);
 
   const admin = { 'x-knowledge-instance-token': instanceToken, 'content-type': 'application/json' };
   const as = attachment => ({ authorization: `Bearer ${attachment}`, 'x-tealbrick-agent-token': 'fixture-agent-token', 'content-type': 'application/json' });

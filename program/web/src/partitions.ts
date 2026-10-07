@@ -17,6 +17,15 @@ export const DEFAULT_PARTITION_LABEL = "Workspace (default)";
 export const getPartitions = (companyId: string) =>
   api<KnowledgePartitionListing>(`/api/companies/${encodeURIComponent(companyId)}/knowledge/partitions`);
 
+/**
+ * The Memory view's partition: always explicit (the workspace itself, or the
+ * selected `workspace/key`). An omitted partition could span every partition
+ * in a local GBrain, mixing edge partitions into the workspace view.
+ */
+export function brainPartitionFor(companyId: string): string {
+  return companyId.trim();
+}
+
 /** The edge-partition key of a scope (`workspace/key`), or null for the workspace default. */
 export function partitionKeyOf(defaultCompanyId: string, companyId: string): string | null {
   const base = defaultCompanyId.trim().toLowerCase();

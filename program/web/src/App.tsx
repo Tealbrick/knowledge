@@ -11,7 +11,7 @@ import { LibraryView } from "./LibraryView";
 import { ResearchView } from "./ResearchView";
 import { DEFAULT_SETTINGS_SECTION, parseSettingsSection, SettingsPageView, workspaceDisplayName, type SettingsSection } from "./SettingsPageView";
 import { describeMemory } from "./service-status";
-import { getPartitions, partitionKeyOf, partitionOptions } from "./partitions";
+import { brainPartitionFor, getPartitions, partitionOptions } from "./partitions";
 
 const nav: Array<{ id: Section; label: string }> = [
   { id: "library", label: "Library" },
@@ -115,7 +115,8 @@ export function App() {
   const memory = describeMemory(bootstrap.data.dependencies.gbrain);
   const workspaceName = workspaceDisplayName(bootstrap.data, companyId);
   const scopeOptions = partitionOptions(workspaceScope, partitions.data, companyId);
-  const selectedPartition = partitionKeyOf(workspaceScope, companyId) ? companyId : undefined;
+  // Memory always names its partition, so the workspace view never mixes in edge partitions.
+  const brainPartition = brainPartitionFor(companyId);
   const memoryBadge = memoryBadgeFor(memory);
   const capabilities = bootstrap.data.capabilities ?? {};
   const sidebarItems = [...nav.map((entry) => ({
@@ -215,7 +216,7 @@ export function App() {
           <>
             {route.section === "library" && <LibraryView companyId={companyId} />}
             {route.section === "research" && <ResearchView companyId={companyId} />}
-            {route.section === "brain" && <BrainView key={companyId} bootstrap={bootstrap.data} partitionKey={selectedPartition} />}
+            {route.section === "brain" && <BrainView key={companyId} bootstrap={bootstrap.data} partitionKey={brainPartition} />}
             {route.section === "activity" && <ActivityView />}
           </>
         )}

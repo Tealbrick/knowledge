@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { workspaceDisplayName } from "./SettingsPageView";
-import { DEFAULT_PARTITION_LABEL, getPartitions, partitionKeyOf, partitionOptions } from "./partitions";
+import { brainContext, brainRecall, getBrainEntities, getBrainEntity } from "./api";
+import { brainPartitionFor, DEFAULT_PARTITION_LABEL, getPartitions, partitionKeyOf, partitionOptions } from "./partitions";
 import type { FrontendBootstrap } from "./types";
 
 const workspace = "3f32db87-6f74-4ecf-b7b8-8c72c54f30a3";
@@ -42,5 +43,21 @@ describe("memory partition selector", () => {
     vi.stubGlobal("fetch", fetch);
     expect((await getPartitions(workspace)).partitions[0]?.key).toBe("personal");
     expect(fetch).toHaveBeenCalledWith(`/api/companies/${workspace}/knowledge/partitions`, expect.anything());
+  });
+
+  it("makes the Memory view name its partition explicitly, including the workspace default", async () => {
+    expect(brainPartitionFor(workspace)).toBe(workspace);
+    expect(brainPartitionFor(`${workspace}/personal`)).toBe(`${workspace}/personal`);
+    const fetch = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetch);
+    await brainRecall("q", workspace);
+    await brainContext("q", workspace);
+    await getBrainEntities({ kind: "entities", partitionKey: workspace });
+    await getBrainEntity("slug", { partitionKey: workspace });
+    const calls = fetch.mock.calls as unknown as Array<[string, RequestInit]>;
+    expect(JSON.parse(String(calls[0]![1].body)).partitionKey).toBe(workspace);
+    expect(JSON.parse(String(calls[1]![1].body)).partitionKey).toBe(workspace);
+    expect(calls[2]![0]).toContain(`partitionKey=${workspace}`);
+    expect(calls[3]![0]).toContain(`partitionKey=${workspace}`);
   });
 });

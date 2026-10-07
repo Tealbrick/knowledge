@@ -10,15 +10,17 @@ import { GBrainRuntime } from "./gbrain.js";
 import { hindsightBankForPartition } from "./hindsight-client.js";
 import type { KnowledgeServicePrincipal } from "./knowledge-principal.js";
 import { registerOpenNotebookRoutes } from "./open-notebook-routes.js";
+import { KnowledgeInstanceClaim } from "./instance-claim.js";
 import {
   boundPartitionFor,
+  grantReachesEdgePartitions,
   effectiveKnowledgePartition,
   knowledgePartitionSourceId,
   narrowPartitionSelector,
   parseEdgePartitionClaim,
 } from "./partition-authority.js";
 import { SqliteKnowledgePersistence } from "./persistence.js";
-import { portalPrincipalFromResponse, type PortalPrincipalResolver } from "./portal-principal.js";
+import { createPortalPrincipalResolver, portalPrincipalFromResponse, type PortalPrincipalResolver } from "./portal-principal.js";
 import { KnowledgeStore, type KnowledgeStoreSnapshot } from "./store.js";
 // @ts-expect-error - plain ESM edge module without type declarations
 import { attachmentRoute, edgePartitionClaim } from "../../deploy/container/attachment-auth.mjs";
@@ -28,6 +30,7 @@ const personal = "fixture-a/personal";
 const dirs: string[] = [];
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -320,5 +323,88 @@ describe("existing rows after the upgrade", () => {
       expect(reloaded.collections.find((c) => c.id === collection.id)).toEqual(before.collections.find((c) => c.id === collection.id));
       expect(reloaded.documents).toEqual(before.documents);
     } finally { after.close(); }
+  });
+});
+
+describe("security review follow-ups", () => {
+  const as = (token: string) => ({ authorization: `Bearer ${token}` });
+
+  it("advertises the edge-partition contract on /healthz, /api/status and /bootstrap.json (Portal rollout gate)", async () => {
+    const app = await buildKnowledgeApp({ environment: "test", config: { gbrainAutoStart: false } });
+    try {
+      for (const url of ["/healthz", "/api/status", "/bootstrap.json"]) {
+        const body = (await app.inject({ url })).json();
+        expect(body.partitionContract, url).toBe(1);
+        expect(body.capabilities.edgePartitions, url).toBe(true);
+      }
+      expect((await app.inject({ url: "/healthz" })).json()).toEqual({ ok: true, service: "knowledge", capabilities: { edgePartitions: true }, partitionContract: 1 });
+    } finally { await app.close(); }
+  });
+
+  it("refuses to start when a static descendants grant reaches the edge workspace's partitions", async () => {
+    const principal = (partitionKey: string, breadth: "exact" | "descendants", maxDepth: number | null) =>
+      ({ token: "fleet-token-for-tests", principalId: "fleet", companyId: "org", capabilities: ["knowledge:read"], partitionGrants: [{ partitionKey, breadth, maxDepth }] });
+    expect(grantReachesEdgePartitions({ partitionKey: "org/ws", breadth: "descendants", maxDepth: 1 }, "org/ws")).toBe(true);
+    expect(grantReachesEdgePartitions({ partitionKey: "Org", breadth: "descendants", maxDepth: null }, "org/ws")).toBe(true);
+    expect(grantReachesEdgePartitions({ partitionKey: "org", breadth: "descendants", maxDepth: 2 }, "org/ws")).toBe(true);
+    expect(grantReachesEdgePartitions({ partitionKey: "org", breadth: "descendants", maxDepth: 1 }, "org/ws")).toBe(false);
+    expect(grantReachesEdgePartitions({ partitionKey: "org/ws", breadth: "exact", maxDepth: 0 }, "org/ws")).toBe(false);
+    expect(grantReachesEdgePartitions({ partitionKey: "org/other", breadth: "descendants", maxDepth: null }, "org/ws")).toBe(false);
+    vi.stubEnv("KNOWLEDGE_COMPANY_ID", "org/ws");
+    await expect(buildKnowledgeApp({ environment: "test", config: { gbrainAutoStart: false, knowledgeServicePrincipals: [principal("org", "descendants", null)] } }))
+      .rejects.toThrow(/principal fleet holds a descendants grant on org .*share the workspace\/key namespace/u);
+    for (const allowed of [principal("org/ws", "exact", 0), principal("org", "descendants", 1), principal("org/other", "descendants", null)]) {
+      const app = await buildKnowledgeApp({ environment: "test", config: { gbrainAutoStart: false, knowledgeServicePrincipals: [allowed] } });
+      await app.close();
+    }
+  });
+
+  it("lists only edge-key partitions for the owner, not Fleet or deeper sub-partitions", async () => {
+    const fleet = { token: "fleet-token-for-tests", principalId: "fleet", companyId, capabilities: ["knowledge:read"],
+      partitionGrants: [{ partitionKey: "fixture-a/fleet-project", breadth: "exact" as const, maxDepth: 0 }] };
+    const app = await buildKnowledgeApp({ environment: "test", config: { gbrainAutoStart: false, knowledgeServicePrincipals: [fleet] } });
+    try {
+      for (const scope of ["fixture-a/personal", "fixture-a/fleet-project", "fixture-a/personal/deeper", "fixture-a/Bad_Key"]) {
+        await app.inject({ method: "POST", url: `/api/companies/${encodeURIComponent(scope)}/knowledge/collections`, payload: { name: scope } });
+      }
+      expect((await app.inject({ url: `/api/companies/${companyId}/knowledge/partitions` })).json().partitions).toEqual([{ key: "personal", partitionKey: personal }]);
+    } finally { await app.close(); }
+  });
+
+  it("caches a runtime principal for at most 5 seconds, so a partition edit lands within that bound", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "knowledge-edge-partition-cache-"));
+    dirs.push(dir);
+    const signer = new KnowledgeInstanceClaim(dir);
+    let now = 1_000_000, partitionKey: string | undefined = "personal", calls = 0;
+    const fetcher = (async () => {
+      calls++;
+      return Response.json({ ...answer({ instanceId: signer.instanceId, expiresAt: now + 60_000 }), ...(partitionKey ? { partitionKey } : {}) });
+    }) as unknown as typeof fetch;
+    const resolver = createPortalPrincipalResolver({ portal: "https://portal.fixture.invalid", companyId, portalOrgId: "org-1", signer, fetch: fetcher, now: () => now });
+    const token = `tbkg_${"p".repeat(43)}`;
+    expect((await resolver.resolve(token))?.companyId).toBe(personal);
+    partitionKey = "other";
+    now += 4_999;
+    expect((await resolver.resolve(token))?.companyId).toBe(personal);
+    expect(calls).toBe(1);
+    now += 2;
+    expect((await resolver.resolve(token))?.companyId).toBe("fixture-a/other");
+    expect(calls).toBe(2);
+  });
+
+  it("canonicalises owner workspace/key scopes so owner and agent rows agree", async () => {
+    const app = await buildKnowledgeApp({ environment: "test", portalPrincipals: resolverFor({ "personal-agent": principalFor({ partitionKey: "personal" }) }),
+      config: { gbrainAutoStart: false } });
+    try {
+      const owned = await app.inject({ method: "POST", url: `/api/companies/${encodeURIComponent("Fixture-A/Personal")}/knowledge/collections`, payload: { name: "Owner" } });
+      expect(owned.json().companyId).toBe(personal);
+      const agent = (await app.inject({ method: "POST", url: `/api/companies/${companyId}/knowledge/collections`, headers: as("personal-agent"), payload: { name: "Agent" } })).json();
+      const ownerView = (await app.inject({ url: `/api/companies/${encodeURIComponent("FIXTURE-A/personal")}/knowledge/collections` })).json().map((c: { id: string }) => c.id);
+      expect(ownerView).toEqual(expect.arrayContaining([owned.json().id, agent.id]));
+      expect((await app.inject({ url: `/api/companies/${companyId}/knowledge/collections`, headers: as("personal-agent") })).json().map((c: { id: string }) => c.id))
+        .toEqual(expect.arrayContaining([owned.json().id, agent.id]));
+      // Top-level company ids are untouched (byte-identical default behaviour).
+      expect((await app.inject({ method: "POST", url: "/api/companies/Fixture-A/knowledge/collections", payload: { name: "Top" } })).json().companyId).toBe("Fixture-A");
+    } finally { await app.close(); }
   });
 });

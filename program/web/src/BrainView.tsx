@@ -634,7 +634,7 @@ export function BrainEntityCardDetail({
   );
 }
 
-export function BrainView({ bootstrap, partitionKey }: { bootstrap: FrontendBootstrap; partitionKey?: string }) {
+export function BrainView({ bootstrap, partitionKey }: { bootstrap: FrontendBootstrap; /** Always explicit from the App scope. */ partitionKey?: string }) {
   const entityLimit = 50;
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"recall" | "context">("recall");

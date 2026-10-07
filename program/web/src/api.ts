@@ -438,7 +438,7 @@ export interface BrainEntityListOptions {
   limit?: number;
   offset?: number;
   kind?: "entities" | "pages" | "all";
-  /** Owner-selected edge partition; omitted for the workspace default. */
+  /** The Memory view sends its scope partition explicitly. */
   partitionKey?: string;
 }
 

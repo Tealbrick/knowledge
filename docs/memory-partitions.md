@@ -55,6 +55,21 @@ Every agent grant is exact on the effective partition (`breadth: exact`,
 A partitioned caller may name its workspace id; that always means its own
 partition. It never reaches the workspace data.
 
+## Shared namespace
+
+Edge keys share the hierarchical partition namespace: the edge partition
+`personal` is the sub-partition `workspace/personal`. Therefore:
+
+- The Program refuses to start when a static `KNOWLEDGE_SERVICE_PRINCIPALS`
+  entry holds a `descendants` grant that reaches the direct children of the
+  edge workspace (`KNOWLEDGE_COMPANY_ID`). Such a grant would see every edge
+  partition. Use `exact` grants. The error names the principal and the grant.
+- An exact static (Fleet) grant on `workspace/key` names the same storage as an
+  edge with key `key`. Do not reuse a Fleet sub-partition name as an edge key.
+- The owner listing shows only edge-key partitions: one segment under the
+  workspace that matches the edge key grammar. Deeper keys and children that a
+  static principal names are not shown.
+
 ## Storage and migration
 
 Knowledge records were already partitioned by hierarchical `companyId`
@@ -64,6 +79,10 @@ snapshot field was added.
 
 - Existing rows keep `companyId = workspace` and belong to the default
   partition. The upgrade rewrites nothing, and it is forward-only and lossless.
+- Owner requests (no principal) that name a `workspace/key` scope are
+  canonicalised (lowercase, normalised) before the handler runs, so owner rows
+  and agent rows land in the same partition. Top-level company ids are not
+  changed.
 - Document and collection IDs are global. Ownership checks always compare the
   record's partition, so an ID from another partition is denied.
 - Deleting a partition in the Portal registry does not delete Knowledge data
@@ -91,14 +110,36 @@ each `workspace/key` partition. Without one, the partition reports
 
 The owner browser session keeps full access. The workspace card has a
 **Memory partition** selector, with **Workspace (default)** selected by default.
+The Memory view always sends its partition (`partitionKey`), including the
+workspace itself, so the default view never mixes in edge partitions.
 The options are the default, the partitions found in storage, and the keys in
 `KNOWLEDGE_PARTITIONS` (an optional comma- or space-separated allowlist; an
 invalid key stops startup). The list comes from the owner-only
 `GET /api/companies/{companyId}/knowledge/partitions`. A principal gets 403
 there; agents use `GET /api/knowledge/partitions`, which shows only their own
-grant. With the default selected, the UI sends the same requests as before.
+grant. With the default selected, Library and Research send the same requests
+as before.
 
-## Rollout
+## Revocation bound
+
+The instance caches a runtime principal for at most 5 seconds (or Portal's
+shorter `expiresAt`). A partition or capability edit on the canvas reaches an
+already-admitted `tbkg_` grant within 5 seconds. Attachments are introspected
+on every request and re-checked at dispatch.
+
+## Rollout gate (for Lead · Portal)
+
+Knowledge advertises support on three surfaces. Portal reads the first one:
+
+| Surface | Fields |
+| --- | --- |
+| `GET /healthz` (public, the recipe `healthPath`) | `capabilities.edgePartitions: true`, `partitionContract: 1` |
+| `GET /api/status` | `capabilities.edgePartitions: true`, `partitionContract: 1` |
+| `GET /bootstrap.json` | `capabilities.edgePartitions: true`, `partitionContract: 1` |
+
+Portal must refuse to save or issue a partitioned edge (and must not send
+`partitionKey`) unless `/healthz` answers `partitionContract >= 1`. An
+instance without these fields is older than this contract.
 
 Deploy this Knowledge release before Portal issues partitioned edges. An older
 instance edge ignores `partitionKey` in the introspection answer and would

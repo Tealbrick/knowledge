@@ -53,6 +53,35 @@ export function normalizeKnowledgePartitionKey(value: unknown): string | null {
  */
 export const EDGE_PARTITION_KEY = /^[a-z][a-z0-9-]{0,39}$/u;
 
+/**
+ * Advertised on /healthz, /api/status and /bootstrap.json so Portal can refuse
+ * partitioned edges to an instance that would ignore the claim (rollout gate).
+ */
+export const EDGE_PARTITION_CONTRACT = 1;
+export const EDGE_PARTITION_SUPPORT = Object.freeze({
+  capabilities: Object.freeze({ edgePartitions: true as const }),
+  partitionContract: EDGE_PARTITION_CONTRACT,
+});
+
+/**
+ * Edge keys share the hierarchical namespace: `workspace/key` is also a
+ * sub-partition. A static descendants grant that reaches the workspace's
+ * direct children would therefore see every edge partition. True when it does.
+ */
+export function grantReachesEdgePartitions(grant: KnowledgePartitionGrant, workspace: string): boolean {
+  const base = normalizeKnowledgePartitionKey(workspace);
+  const key = normalizeKnowledgePartitionKey(grant.partitionKey);
+  if (!base || !key || grant.breadth !== "descendants") return false;
+  if (base !== key && !base.startsWith(`${key}/`)) return false;
+  return grant.maxDepth === null || partitionDepth(base) + 1 - partitionDepth(key) <= grant.maxDepth;
+}
+
+/** Canonical form of a hierarchical (`a/b`) scope; anything else is returned unchanged. */
+export function canonicalHierarchicalScope(value: unknown): unknown {
+  if (typeof value !== "string" || !value.includes("/")) return value;
+  return normalizeKnowledgePartitionKey(value) ?? value;
+}
+
 export type EdgePartitionClaim =
   | { readonly ok: true; readonly partitionKey: string | null }
   | { readonly ok: false };

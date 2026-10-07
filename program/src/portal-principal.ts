@@ -134,7 +134,8 @@ export function createPortalPrincipalResolver(options: PortalPrincipalResolverOp
   }
   const fetcher = options.fetch ?? fetch;
   const now = options.now ?? Date.now;
-  const cacheTtlMs = Math.min(options.cacheTtlMs ?? 30_000, 60_000);
+  // 5s bound: a partition or capability edit on the canvas reaches an admitted grant within 5 seconds.
+  const cacheTtlMs = Math.min(options.cacheTtlMs ?? 5_000, 60_000);
   const negativeTtlMs = options.negativeTtlMs ?? 5_000;
   const maxEntries = options.maxEntries ?? 1_000;
   const maxInflight = options.maxInflight ?? 32;

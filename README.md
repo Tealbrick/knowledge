@@ -52,7 +52,7 @@ sh deploy/container/build-local.sh tealbrick-knowledge:local-0.1.0
 
 Follow [the agent adapter guide](adapters/agent/README.md) for MCP and Eve setup. Give each agent a scoped service credential and partition. Never give agents the instance administrator credential, hosting credentials or model-provider secrets.
 
-Memory and Research have separate supported contracts. See [native memory operations](docs/native-memory-contract.md), [customer runtime authorization](docs/customer-runtime-auth.md) and [Research agent access](docs/research-agent-contract.md).
+Memory and Research have separate supported contracts. See [native memory operations](docs/native-memory-contract.md), [customer runtime authorization](docs/customer-runtime-auth.md), [per-edge memory partitions](docs/memory-partitions.md) and [Research agent access](docs/research-agent-contract.md).
 
 ## Storage and configuration
 

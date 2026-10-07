@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpen, Settings } from "lucide-react";
-import { BrandMark, Button, Feedback, IconButton, Sidebar, Tag } from "@tealbrick/ui";
+import { BrandMark, Button, Feedback, IconButton, SelectField, Sidebar, Tag } from "@tealbrick/ui";
 import { getBootstrap, getSessionEnded, subscribeSessionEnded } from "./api";
 import { SessionEndedBanner, SessionEndedSplash } from "./SessionNotice";
 import type { Section } from "./types";
@@ -11,6 +11,7 @@ import { LibraryView } from "./LibraryView";
 import { ResearchView } from "./ResearchView";
 import { DEFAULT_SETTINGS_SECTION, parseSettingsSection, SettingsPageView, workspaceDisplayName, type SettingsSection } from "./SettingsPageView";
 import { describeMemory } from "./service-status";
+import { brainPartitionFor, getPartitions, partitionOptions } from "./partitions";
 
 const nav: Array<{ id: Section; label: string }> = [
   { id: "library", label: "Library" },
@@ -75,6 +76,14 @@ export function App() {
     queryKey: ["knowledge-bootstrap"],
     queryFn: getBootstrap,
   });
+  // Owner selector for per-edge memory partitions (workspace default plus partitions in use).
+  const workspaceScope = bootstrap.data?.scope.defaultCompanyId?.trim() || defaultCompanyId;
+  const partitions = useQuery({
+    queryKey: ["knowledge-partitions", workspaceScope],
+    queryFn: () => getPartitions(workspaceScope),
+    enabled: Boolean(bootstrap.data),
+    retry: false,
+  });
   const sessionEnded = useSyncExternalStore(subscribeSessionEnded, getSessionEnded, getSessionEnded);
   const reload = () => window.location.reload();
   const companyId = route.companyId;
@@ -105,6 +114,9 @@ export function App() {
   const currentSection = route.kind === "section" ? route.section : null;
   const memory = describeMemory(bootstrap.data.dependencies.gbrain);
   const workspaceName = workspaceDisplayName(bootstrap.data, companyId);
+  const scopeOptions = partitionOptions(workspaceScope, partitions.data, companyId);
+  // Memory always names its partition, so the workspace view never mixes in edge partitions.
+  const brainPartition = brainPartitionFor(companyId);
   const memoryBadge = memoryBadgeFor(memory);
   const capabilities = bootstrap.data.capabilities ?? {};
   const sidebarItems = [...nav.map((entry) => ({
@@ -144,6 +156,15 @@ export function App() {
               {bootstrap.data.counts.documents ?? 0} documents ·{" "}
               {bootstrap.data.counts.researchNotebooks ?? 0} notebooks
             </span>
+            {scopeOptions.length > 1 && (
+              <SelectField
+                label="Memory partition"
+                value={companyId}
+                onChange={(event) => navigate({ ...route, companyId: event.target.value })}
+              >
+                {scopeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </SelectField>
+            )}
           </div>
           <div className="sidebar-status">
             <span className={`status-light ${connected ? "" : "is-warning"}`} />
@@ -195,7 +216,7 @@ export function App() {
           <>
             {route.section === "library" && <LibraryView companyId={companyId} />}
             {route.section === "research" && <ResearchView companyId={companyId} />}
-            {route.section === "brain" && <BrainView bootstrap={bootstrap.data} />}
+            {route.section === "brain" && <BrainView key={companyId} bootstrap={bootstrap.data} partitionKey={brainPartition} />}
             {route.section === "activity" && <ActivityView />}
           </>
         )}

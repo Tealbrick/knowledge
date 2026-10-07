@@ -47,6 +47,95 @@ export function normalizeKnowledgePartitionKey(value: unknown): string | null {
   return normalized;
 }
 
+/**
+ * Portal per-edge memory partition (`partitionKey` claim). The same grammar
+ * Portal enforces on its registry; `default` is reserved for "no claim".
+ */
+export const EDGE_PARTITION_KEY = /^[a-z][a-z0-9-]{0,39}$/u;
+
+/**
+ * Advertised on /healthz, /api/status and /bootstrap.json so Portal can refuse
+ * partitioned edges to an instance that would ignore the claim (rollout gate).
+ */
+export const EDGE_PARTITION_CONTRACT = 1;
+export const EDGE_PARTITION_SUPPORT = Object.freeze({
+  capabilities: Object.freeze({ edgePartitions: true as const }),
+  partitionContract: EDGE_PARTITION_CONTRACT,
+});
+
+/**
+ * Edge keys share the hierarchical namespace: `workspace/key` is also a
+ * sub-partition. A static descendants grant that reaches the workspace's
+ * direct children would therefore see every edge partition. True when it does.
+ */
+export function grantReachesEdgePartitions(grant: KnowledgePartitionGrant, workspace: string): boolean {
+  const base = normalizeKnowledgePartitionKey(workspace);
+  const key = normalizeKnowledgePartitionKey(grant.partitionKey);
+  if (!base || !key || grant.breadth !== "descendants") return false;
+  if (base !== key && !base.startsWith(`${key}/`)) return false;
+  return grant.maxDepth === null || partitionDepth(base) + 1 - partitionDepth(key) <= grant.maxDepth;
+}
+
+/** Canonical form of a hierarchical (`a/b`) scope; anything else is returned unchanged. */
+export function canonicalHierarchicalScope(value: unknown): unknown {
+  if (typeof value !== "string" || !value.includes("/")) return value;
+  return normalizeKnowledgePartitionKey(value) ?? value;
+}
+
+export type EdgePartitionClaim =
+  | { readonly ok: true; readonly partitionKey: string | null }
+  | { readonly ok: false };
+
+/**
+ * Parse Portal's optional `partitionKey` claim from an attachment, introspection
+ * or runtime-principal answer. Absent means the workspace default partition.
+ * Present but malformed (wrong type, `default`, uppercase, `/`, `..`, too long)
+ * fails closed: callers must deny, never fall back to the default partition.
+ */
+export function parseEdgePartitionClaim(record: unknown): EdgePartitionClaim {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return { ok: false };
+  if (!Object.prototype.hasOwnProperty.call(record, "partitionKey")) return { ok: true, partitionKey: null };
+  const value = (record as Record<string, unknown>).partitionKey;
+  return typeof value === "string" && EDGE_PARTITION_KEY.test(value) && value !== "default"
+    ? { ok: true, partitionKey: value }
+    : { ok: false };
+}
+
+/**
+ * The storage/engine partition an edge-bound caller works in: the workspace
+ * partition without a claim (unchanged behaviour), else its `company/key` child.
+ */
+export function effectiveKnowledgePartition(companyId: string, partitionKey: string | null): string | null {
+  const base = normalizeKnowledgePartitionKey(companyId);
+  if (!base) return null;
+  if (partitionKey === null) return base;
+  if (!EDGE_PARTITION_KEY.test(partitionKey) || partitionKey === "default") return null;
+  return normalizeKnowledgePartitionKey(`${companyId}/${partitionKey}`);
+}
+
+/**
+ * A principal bound to one non-default edge partition. Requests that name the
+ * workspace (`alias`) are narrowed to `partitionKey`; nothing else is rewritten,
+ * so the workspace partition itself is never reachable.
+ */
+export interface KnowledgeBoundPartition {
+  readonly alias: string;
+  readonly partitionKey: string;
+}
+
+export function boundPartitionFor(companyId: string, partitionKey: string | null): KnowledgeBoundPartition | null {
+  if (partitionKey === null) return null;
+  const alias = normalizeKnowledgePartitionKey(companyId);
+  const effective = effectiveKnowledgePartition(companyId, partitionKey);
+  return alias && effective ? Object.freeze({ alias, partitionKey: effective }) : null;
+}
+
+/** Map a caller-supplied partition selector through the principal's bound-partition alias. */
+export function narrowPartitionSelector(value: unknown, bound: KnowledgeBoundPartition | undefined): unknown {
+  if (!bound || typeof value !== "string" || !value.trim()) return value;
+  return normalizeKnowledgePartitionKey(value) === bound.alias ? bound.partitionKey : value;
+}
+
 export function partitionDepth(partitionKey: string): number {
   return partitionKey.split("/").length - 1;
 }

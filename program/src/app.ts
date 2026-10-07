@@ -21,6 +21,12 @@ import { KnowledgeAuthorizationAudit } from "./authorization-audit.js";
 import {
   authorizeKnowledgePartition,
   bearerToken,
+  canonicalHierarchicalScope,
+  EDGE_PARTITION_SUPPORT,
+  effectiveKnowledgePartition,
+  grantReachesEdgePartitions,
+  type KnowledgeBoundPartition,
+  narrowPartitionSelector,
   normalizeKnowledgePartitionKey,
   partitionGrantSummaries,
 } from "./partition-authority.js";
@@ -281,6 +287,62 @@ function partitionCapabilityForRequest(method: string, pathname: string): string
     case "PATCH": case "PUT": return "knowledge:update";
     case "DELETE": return "knowledge:delete";
     default: return "knowledge:unsupported";
+  }
+}
+
+/**
+ * A principal bound to one edge partition addresses Knowledge by its workspace
+ * id (Portal MCP, runtime kits). Narrow every partition selector that names the
+ * workspace to the bound `workspace/key` partition before authorization and
+ * before the handler reads it. Other selectors are left alone and are then
+ * denied by the principal's exact grant; nothing ever widens.
+ */
+function narrowRequestToBoundPartition(request: FastifyRequest, bound: KnowledgeBoundPartition, policyPathname: string) {
+  const brainPath = policyPathname.startsWith("/api/brain/");
+  const fields = ["companyId", "partitionKey", ...(brainPath ? ["scopeRef"] : [])];
+  const changes = (record: Record<string, unknown>, keys: readonly string[]) =>
+    keys.flatMap((key) => {
+      const value = narrowPartitionSelector(record[key], bound);
+      return value === record[key] ? [] : [[key, value] as const];
+    });
+  if (request.params && typeof request.params === "object") {
+    const params = request.params as Record<string, unknown>;
+    for (const [key, value] of changes(params, ["companyId"])) params[key] = value;
+  }
+  if (request.query && typeof request.query === "object") {
+    const query = request.query as Record<string, unknown>;
+    for (const [key, value] of changes(query, fields)) query[key] = value;
+  }
+  if (request.body && typeof request.body === "object" && !Buffer.isBuffer(request.body) && !Array.isArray(request.body)) {
+    const body = request.body as Record<string, unknown>;
+    const update = changes(body, fields);
+    if (update.length) request.body = { ...body, ...Object.fromEntries(update) };
+  }
+}
+
+/**
+ * Owner/operator requests (no principal) address an edge partition by its
+ * canonical lowercase `workspace/key`, the form agents and the edge write, so
+ * listings and ownership checks agree. Top-level company ids are untouched.
+ */
+function canonicalizeOwnerScope(request: FastifyRequest) {
+  const update = (record: Record<string, unknown>, keys: readonly string[]) =>
+    keys.flatMap((key) => {
+      const value = canonicalHierarchicalScope(record[key]);
+      return value === record[key] ? [] : [[key, value] as const];
+    });
+  if (request.params && typeof request.params === "object") {
+    const params = request.params as Record<string, unknown>;
+    for (const [key, value] of update(params, ["companyId"])) params[key] = value;
+  }
+  if (request.query && typeof request.query === "object") {
+    const query = request.query as Record<string, unknown>;
+    for (const [key, value] of update(query, ["companyId", "partitionKey"])) query[key] = value;
+  }
+  if (request.body && typeof request.body === "object" && !Buffer.isBuffer(request.body) && !Array.isArray(request.body)) {
+    const body = request.body as Record<string, unknown>;
+    const changes = update(body, ["companyId", "partitionKey"]);
+    if (changes.length) request.body = { ...body, ...Object.fromEntries(changes) };
   }
 }
 
@@ -1171,6 +1233,16 @@ export async function buildKnowledgeApp(
     throw new Error("Invalid Knowledge service principal configuration");
   }
   const portalPrincipals = options.portalPrincipals ?? null;
+  // Edge partitions live at `workspace/key`; a static descendants grant reaching there would see all of them.
+  const edgeWorkspace = process.env.KNOWLEDGE_COMPANY_ID?.trim();
+  if (edgeWorkspace) {
+    for (const principal of config.knowledgeServicePrincipals) {
+      const grant = (Array.isArray(principal?.partitionGrants) ? principal.partitionGrants : []).find((candidate) => grantReachesEdgePartitions(candidate, edgeWorkspace));
+      if (grant) {
+        throw new Error(`KNOWLEDGE_SERVICE_PRINCIPALS: principal ${String(principal.principalId)} holds a descendants grant on ${String(grant.partitionKey)} that reaches the per-edge memory partitions of workspace ${edgeWorkspace} (edge keys share the workspace/key namespace). Use exact grants.`);
+      }
+    }
+  }
   if (config.partitionAuthorizationRequired && !researchPrincipals.configured && !portalPrincipals) {
     throw new Error("Knowledge partition authorization requires configured service principals");
   }
@@ -1666,6 +1738,8 @@ export async function buildKnowledgeApp(
       // Edge-minted, per-request bearers for Portal attachments with knowledge:brain:* grants.
       (nativeRoute && options.brainPrincipalProvider ? await options.brainPrincipalProvider(request, "brain:native") : null);
     if (requestPrincipal) request.knowledgePrincipal = requestPrincipal;
+    if (requestPrincipal?.boundPartition) narrowRequestToBoundPartition(request, requestPrincipal.boundPartition, policyPathname);
+    if (!requestPrincipal) canonicalizeOwnerScope(request);
     const partitionProtected = partitionProtectedPath(policyPathname);
     // Engine routes own their existing bearer/browser/provider and mapping checks.
     const mappedResearch = isResearchSameOriginPath(policyPathname);
@@ -1838,13 +1912,14 @@ export async function buildKnowledgeApp(
   app.get("/healthz", async () => ({
     ok: true,
     service: "knowledge",
+    ...EDGE_PARTITION_SUPPORT,
   }));
 
   app.options("/*", async (_request, reply) => {
     reply.code(204).send();
   });
 
-  app.get("/api/status", async () => buildStatus(config, store, brain));
+  app.get("/api/status", async () => ({ ...buildStatus(config, store, brain), ...EDGE_PARTITION_SUPPORT }));
 
   const redactedStatus = () => {
     const status = buildStatus(config, store, brain);
@@ -2012,7 +2087,9 @@ export async function buildKnowledgeApp(
       // Display-only name forwarded by the instance edge from the Portal browser grant.
       workspaceLabel: workspaceLabel(request.headers["x-knowledge-workspace-label"]),
     },
+    partitionContract: EDGE_PARTITION_SUPPORT.partitionContract,
     capabilities: {
+      ...EDGE_PARTITION_SUPPORT.capabilities,
       documents: true,
       research: true,
       brain: true,
@@ -2257,6 +2334,35 @@ export async function buildKnowledgeApp(
       principalId: principal.principalId,
       partitions: partitionGrantSummaries(principal),
     });
+  });
+
+  /**
+   * Owner/operator surface for the UI partition selector: the workspace default
+   * plus edge partitions seen in storage or allowed by KNOWLEDGE_PARTITIONS.
+   * Agents never list sibling partitions; they use /api/knowledge/partitions.
+   */
+  app.get("/api/companies/:companyId/knowledge/partitions", async (request, reply) => {
+    if (request.knowledgePrincipal) {
+      reply.code(403).send({ ok: false, error: "partition_scope_denied" });
+      return;
+    }
+    const { companyId } = request.params as { companyId: string };
+    const defaultPartitionKey = normalizeKnowledgePartitionKey(companyId);
+    if (!defaultPartitionKey) {
+      reply.code(400).send({ ok: false, error: "partition_key_required" });
+      return;
+    }
+    // Only edge keys: a direct child named by a static (Fleet) principal is that principal's sub-partition.
+    const fleet = new Set(config.knowledgeServicePrincipals.flatMap((principal) =>
+      [principal.companyId, ...(principal.partitionGrants ?? []).map((grant) => grant.partitionKey)]
+        .map((key) => normalizeKnowledgePartitionKey(key)).filter((key): key is string => Boolean(key))));
+    const keys = [...new Set([...(config.knowledgePartitions ?? []), ...store.listEdgePartitionKeys(companyId)])]
+      .filter((key) => !fleet.has(effectiveKnowledgePartition(companyId, key) ?? "")).sort();
+    return {
+      companyId,
+      defaultPartitionKey,
+      partitions: keys.map((key) => ({ key, partitionKey: effectiveKnowledgePartition(companyId, key) })),
+    };
   });
 
   app.get("/api/knowledge/collections", async (request) => {

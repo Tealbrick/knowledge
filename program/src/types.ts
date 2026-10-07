@@ -47,6 +47,8 @@ export interface KnowledgeConfig {
   readonly knowledgeServicePrincipals: readonly KnowledgeServicePrincipalBinding[];
   /** Fail-closed general domain authorization for server-attested partitions. */
   readonly partitionAuthorizationRequired: boolean;
+  /** Owner UI partition-selector allowlist (KNOWLEDGE_PARTITIONS); keys only, never an authorization source. */
+  readonly knowledgePartitions?: readonly string[];
   /** Optional single-operator same-origin Research browser session authority. */
   readonly browserOperatorSecret: string | null;
   readonly browserPrincipalId: string | null;

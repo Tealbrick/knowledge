@@ -438,6 +438,8 @@ export interface BrainEntityListOptions {
   limit?: number;
   offset?: number;
   kind?: "entities" | "pages" | "all";
+  /** The Memory view sends its scope partition explicitly. */
+  partitionKey?: string;
 }
 
 export interface BrainEntityDetailOptions {
@@ -445,6 +447,7 @@ export interface BrainEntityDetailOptions {
   depth?: number;
   direction?: "in" | "out" | "both";
   linkType?: string;
+  partitionKey?: string;
 }
 
 export const getBrainEntities = (options: BrainEntityListOptions = {}) => {
@@ -452,6 +455,7 @@ export const getBrainEntities = (options: BrainEntityListOptions = {}) => {
   if (options.limit !== undefined) params.set("limit", String(options.limit));
   if (options.offset !== undefined) params.set("offset", String(options.offset));
   if (options.kind) params.set("kind", options.kind);
+  if (options.partitionKey) params.set("partitionKey", options.partitionKey);
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return api<BrainEntities>(`/api/brain/entities${suffix}`, {
     signal: options.signal,
@@ -466,26 +470,29 @@ export const getBrainEntity = (
   if (options.depth !== undefined) params.set("depth", String(options.depth));
   if (options.direction) params.set("direction", options.direction);
   if (options.linkType) params.set("linkType", options.linkType);
+  if (options.partitionKey) params.set("partitionKey", options.partitionKey);
   return api<BrainEntityDetail>(`/api/brain/entities?${params.toString()}`, {
     signal: options.signal,
   });
 };
-export const brainRecall = (query: string) =>
+export const brainRecall = (query: string, partitionKey?: string) =>
   api<BrainResult>("/api/brain/recall", {
     method: "POST",
     body: JSON.stringify({
       scopeRef: "knowledge-web",
       purpose: "general",
       query,
+      ...(partitionKey ? { partitionKey } : {}),
     }),
   });
-export const brainContext = (query: string) =>
+export const brainContext = (query: string, partitionKey?: string) =>
   api<BrainResult>("/api/brain/context", {
     method: "POST",
     body: JSON.stringify({
       scopeRef: "knowledge-web",
       purpose: "general",
       query,
+      ...(partitionKey ? { partitionKey } : {}),
     }),
   });
 export const extractBrainFacts = (text: string) =>

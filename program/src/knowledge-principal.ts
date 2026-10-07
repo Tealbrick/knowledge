@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import {
   normalizeKnowledgePartitionKey,
+  type KnowledgeBoundPartition,
   type KnowledgePartitionBreadth,
   type KnowledgePartitionGrant,
 } from "./partition-authority.js";
@@ -28,6 +29,12 @@ export interface KnowledgeServicePrincipal {
   readonly companyId: string;
   readonly capabilities: readonly string[];
   readonly partitionGrants?: readonly KnowledgePartitionGrant[];
+  /**
+   * Set only for a Portal edge with a non-default memory partition. The
+   * principal's grants are exact on `boundPartition.partitionKey`; selectors
+   * naming the workspace are narrowed to it. Never configurable statically.
+   */
+  readonly boundPartition?: KnowledgeBoundPartition;
 }
 
 export interface KnowledgePrincipalResolver {

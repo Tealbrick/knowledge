@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { KnowledgeServicePrincipal } from "./knowledge-principal.js";
-import { normalizeKnowledgePartitionKey } from "./partition-authority.js";
+import { boundPartitionFor, effectiveKnowledgePartition, normalizeKnowledgePartitionKey, parseEdgePartitionClaim } from "./partition-authority.js";
 
 /**
  * Portal-validated runtime principals (Tealbrick runtime-principal-v1).
@@ -62,6 +62,8 @@ const MAX_RESPONSE_BYTES = 16_384;
 const RESPONSE_KEYS = new Set([
   "authorized", "principalId", "agentId", "orgId", "workspaceId", "instanceId", "companyId",
   "actions", "capabilities", "partitionGrants", "capabilityRevision", "expiresAt",
+  // Portal sends it only for a non-default per-edge memory partition.
+  "partitionKey",
 ]);
 
 const digest = (token: string) => createHash("sha256").update(token).digest("hex");
@@ -103,12 +105,20 @@ export function portalPrincipalFromResponse(
     normalizeKnowledgePartitionKey(grant.partitionKey) !== partition || grant.breadth !== "exact" || grant.maxDepth !== 0 ||
     !grantCapabilities || grantCapabilities.some((capability) => !capabilities.includes(capability))
   ) return null;
+  // Per-edge memory partition: Portal's grant stays on the workspace; Knowledge
+  // narrows it to the exact `company/key` child. A malformed claim denies.
+  const claim = parseEdgePartitionClaim(value);
+  if (!claim.ok) return null;
+  const effective = effectiveKnowledgePartition(expected.companyId, claim.partitionKey);
+  const bound = boundPartitionFor(expected.companyId, claim.partitionKey);
+  if (!effective || (claim.partitionKey !== null && !bound)) return null;
   const principal: KnowledgeServicePrincipal = Object.freeze({
     kind: "service",
     principalId: value.principalId,
-    companyId: partition,
+    companyId: effective,
     capabilities,
-    partitionGrants: Object.freeze([Object.freeze({ partitionKey: partition, breadth: "exact" as const, maxDepth: 0, capabilities: grantCapabilities })]),
+    partitionGrants: Object.freeze([Object.freeze({ partitionKey: effective, breadth: "exact" as const, maxDepth: 0, capabilities: grantCapabilities })]),
+    ...(bound ? { boundPartition: bound } : {}),
   });
   return { principal, expiresAt: value.expiresAt };
 }
@@ -124,7 +134,8 @@ export function createPortalPrincipalResolver(options: PortalPrincipalResolverOp
   }
   const fetcher = options.fetch ?? fetch;
   const now = options.now ?? Date.now;
-  const cacheTtlMs = Math.min(options.cacheTtlMs ?? 30_000, 60_000);
+  // 5s bound: a partition or capability edit on the canvas reaches an admitted grant within 5 seconds.
+  const cacheTtlMs = Math.min(options.cacheTtlMs ?? 5_000, 60_000);
   const negativeTtlMs = options.negativeTtlMs ?? 5_000;
   const maxEntries = options.maxEntries ?? 1_000;
   const maxInflight = options.maxInflight ?? 32;

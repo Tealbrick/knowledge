@@ -634,7 +634,7 @@ export function BrainEntityCardDetail({
   );
 }
 
-export function BrainView({ bootstrap }: { bootstrap: FrontendBootstrap }) {
+export function BrainView({ bootstrap, partitionKey }: { bootstrap: FrontendBootstrap; /** Always explicit from the App scope. */ partitionKey?: string }) {
   const entityLimit = 50;
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"recall" | "context">("recall");
@@ -642,15 +642,15 @@ export function BrainView({ bootstrap }: { bootstrap: FrontendBootstrap }) {
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [entityOffset, setEntityOffset] = useState(0);
   const entities = useQuery({
-    queryKey: ["brain-entities", entityOffset],
+    queryKey: ["brain-entities", entityOffset, partitionKey ?? null],
     queryFn: ({ signal }: { signal: AbortSignal }) =>
-      getBrainEntities({ signal, kind: "entities", limit: entityLimit, offset: entityOffset }),
+      getBrainEntities({ signal, kind: "entities", limit: entityLimit, offset: entityOffset, partitionKey }),
     retry: false,
   });
   const detail = useQuery({
-    queryKey: ["brain-entity", selectedSlug],
+    queryKey: ["brain-entity", selectedSlug, partitionKey ?? null],
     queryFn: ({ signal }: { signal: AbortSignal }) =>
-      getBrainEntity(selectedSlug as string, { signal, depth: 2, direction: "both" }),
+      getBrainEntity(selectedSlug as string, { signal, depth: 2, direction: "both", partitionKey }),
     enabled: Boolean(selectedSlug),
     retry: false,
   });
@@ -665,8 +665,8 @@ export function BrainView({ bootstrap }: { bootstrap: FrontendBootstrap }) {
   const run = useMutation({
     mutationFn: () =>
       mode === "recall"
-        ? brainRecall(query.trim())
-        : brainContext(query.trim()),
+        ? brainRecall(query.trim(), partitionKey)
+        : brainContext(query.trim(), partitionKey),
     onSuccess: setResult,
   });
   const gbrain = bootstrap.dependencies.gbrain ?? { status: "unavailable", configured: false };

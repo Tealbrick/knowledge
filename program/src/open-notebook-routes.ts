@@ -14,7 +14,7 @@ import type {
   KnowledgePrincipalResolver,
   KnowledgeServicePrincipal,
 } from "./knowledge-principal.js";
-import { authorizeKnowledgePartition, effectiveKnowledgePartitionGrants } from "./partition-authority.js";
+import { authorizeKnowledgePartition, effectiveKnowledgePartitionGrants, normalizeKnowledgePartitionKey } from "./partition-authority.js";
 import { ResearchWriteLedgerError, type ResearchWriteLedger, type ResearchWriteIntent, type ResearchWriteScope, type TextSourceWriteRequest } from "./research-write-ledger.js";
 import { registerOpenNotebookChatRoutes } from "./open-notebook-chat-routes.js";
 import type { OpenNotebookChatAdapter } from "./open-notebook-chat.js";
@@ -122,6 +122,12 @@ function safeId(value: unknown): string | null {
   return typeof value === "string" && ID_PATTERN.test(value) ? value : null;
 }
 
+/** An edge-partition notebook binds under its canonical hierarchical key (`workspace/key`). */
+function bindingCompanyId(value: unknown): string | null {
+  if (safeId(value)) return value as string;
+  return typeof value === "string" && value.includes("/") && normalizeKnowledgePartitionKey(value) === value ? value : null;
+}
+
 function buildMappingIndex(bindings: readonly OpenNotebookNotebookBinding[]): MappingIndex {
   if (!Array.isArray(bindings)) return { invalid: true, byKnowledgeId: new Map() };
   const byKnowledgeId = new Map<string, StoredNotebookBinding>();
@@ -136,7 +142,7 @@ function buildMappingIndex(bindings: readonly OpenNotebookNotebookBinding[]): Ma
       return { invalid: true, byKnowledgeId: new Map() };
     }
     const knowledgeNotebookId = safeId(record.knowledgeNotebookId);
-    const companyId = safeId(record.companyId);
+    const companyId = bindingCompanyId(record.companyId);
     const externalNotebookId = safeId(record.externalNotebookId);
     if (!knowledgeNotebookId || !companyId || !externalNotebookId || byKnowledgeId.has(knowledgeNotebookId) || externalIds.has(externalNotebookId)) {
       return { invalid: true, byKnowledgeId: new Map() };

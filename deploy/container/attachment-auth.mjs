@@ -19,6 +19,27 @@ export function nativeAttachmentRoute(method, path, nativeOperationPolicy) {
   return {capability: policy.scope === 'write' ? ENGINE_WRITE : ENGINE_READ, native:true, operation:native[1], bodyKind:'native'};
 }
 
+/**
+ * Portal per-edge memory partition claim (`partitionKey` on the attachment and its
+ * introspection). Absent = the workspace default partition. Same grammar as the
+ * Portal registry; `default` is reserved. Anything else present fails closed.
+ */
+export const EDGE_PARTITION_KEY = /^[a-z][a-z0-9-]{0,39}$/u;
+export function edgePartitionClaim(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return {ok:false};
+  if (!Object.prototype.hasOwnProperty.call(data, 'partitionKey')) return {ok:true, partitionKey:null};
+  const key = data.partitionKey;
+  return typeof key === 'string' && EDGE_PARTITION_KEY.test(key) && key !== 'default' ? {ok:true, partitionKey:key} : {ok:false};
+}
+
+/** `workspace/key`: a candidate edge-partition child of the bound workspace (confirmed after introspection). */
+function partitionChildReference(reference, companyId) {
+  const base = companyId.trim().toLowerCase(), value = reference.trim().toLowerCase();
+  if (!value.startsWith(`${base}/`)) return false;
+  const key = value.slice(base.length + 1);
+  return EDGE_PARTITION_KEY.test(key) && key !== 'default';
+}
+
 export function attachmentRoute(method, rawUrl, companyId, options = {}) {
   if (typeof rawUrl !== 'string' || !rawUrl.startsWith('/') || rawUrl.startsWith('//')) return null;
   let url;
@@ -26,12 +47,17 @@ export function attachmentRoute(method, rawUrl, companyId, options = {}) {
   const path = url.pathname;
   const company = /^\/api\/companies\/([^/]+)\/knowledge\/(collections|search)$/u.exec(path);
   if (company) {
-    if (decodeURIComponent(company[1]) !== companyId) return null;
+    const companyRef = decodeURIComponent(company[1]);
+    // The workspace itself; a `workspace/key` child is admitted only for an edge whose
+    // introspected partition is exactly that key (server.ts), never for a default edge.
+    const child = companyRef !== companyId;
+    if (child && !partitionChildReference(companyRef, companyId)) return null;
+    const scope = {...(child ? {companyRef} : {}), companyResource: company[2]};
     if (company[2] === 'collections' && ['GET','POST'].includes(method)) return {
       capability: method === 'POST' ? 'knowledge:documents:write' : 'knowledge:documents:read',
-      bodyKind: method === 'POST' ? 'collection' : undefined,
+      bodyKind: method === 'POST' ? 'collection' : undefined, ...scope,
     };
-    if (company[2] === 'search' && method === 'GET') return {capability:'knowledge:documents:read'};
+    if (company[2] === 'search' && method === 'GET') return {capability:'knowledge:documents:read', ...scope};
   }
   const collection = /^\/api\/knowledge\/collections\/([^/]+)\/documents$/u.exec(path);
   if (collection && method === 'POST') return {capability:'knowledge:documents:write', collectionId:decodeURIComponent(collection[1]),bodyKind:'document'};
@@ -109,7 +135,7 @@ export async function introspectAttachment(config, headers, capability) {
       data.companyId!==config.companyId || data.capability!==capability ||
       data.orgId!==config.portalOrgId ||
       typeof data.orgId!=='string' || !data.orgId || typeof data.agentId!=='string' || !data.agentId ||
-      !Number.isFinite(expiry) || expiry<=Date.now()) return null;
+      !Number.isFinite(expiry) || expiry<=Date.now() || !edgePartitionClaim(data).ok) return null;
     return data;
   } catch { return null; }
 }

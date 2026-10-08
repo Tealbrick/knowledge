@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { SettingsSnapshot, SettingsUpdate } from "@tealbrick/contract";
+import { accountPresenceFromEnv, type Manifest, type SettingsSnapshot, type SettingsUpdate } from "@tealbrick/contract";
 
 import { ModelSettingsUpdateError, ModelSettingsUpdateSchema, readModelSettings, resolveModelSettingsUpdate, type ModelSettings } from "../model-settings.js";
 
@@ -138,7 +138,13 @@ function completeness(body: Body, saved: ModelSettings | null): "complete" | "in
   return "complete";
 }
 
-export function createModelSettingsStore(options: { readonly dataDir: string; readonly apply: ApplyModelSettings }) {
+/**
+ * `manifest` and `env` give the account-sourced provider keys (`provider-env` fields, §12.4): Portal Connections writes
+ * them as hosting-provider variables, so a read reports only whether each variable is present, never its value, and
+ * a write to one is refused by the contract kit (the owner changes them in Portal Connections).
+ */
+export function createModelSettingsStore(options: { readonly dataDir: string; readonly apply: ApplyModelSettings; readonly manifest?: Pick<Manifest, "settings">; readonly env?: Readonly<Record<string, string | undefined>> }) {
+  const accountPresence = () => options.manifest ? { account: accountPresenceFromEnv(options.manifest, options.env ?? process.env) } : {};
   const file = path.join(options.dataDir, "model-settings.json");
   const pendingFile = path.join(options.dataDir, "model-settings.pending.json");
   const mtime = async (target: string) => stat(target).then((s) => s.mtime.toISOString(), () => null);
@@ -159,14 +165,14 @@ export function createModelSettingsStore(options: { readonly dataDir: string; re
     async read(): Promise<SettingsSnapshot> {
       const saved = await readModelSettings(options.dataDir);
       const pending = await readPending();
-      if (!pending) return snapshotOf(saved, await mtime(file));
+      if (!pending) return { ...snapshotOf(saved, await mtime(file)), ...accountPresence() };
       // Staged fields show as the form's current values; a secret is "set" when staged or saved.
       const savedKeys = new Set<string>();
       for (const component of COMPONENTS) if (saved?.[component]?.apiKey) savedKeys.add(`${component}.apiKey`);
       const body = buildModelSettingsUpdate(saved, pending, { values: {}, secrets: {} });
       const stamp = `${await mtime(file)}|${await mtime(pendingFile)}`;
       const { values, secrets } = present(body, savedKeys, await mtime(pendingFile));
-      return { revision: revisionOf(values, Object.keys(secrets), stamp), values, secrets };
+      return { revision: revisionOf(values, Object.keys(secrets), stamp), values, secrets, ...accountPresence() };
     },
     async write(update: SettingsUpdate): Promise<void> {
       const fail = (failure: SettingsApplyError): never => {

@@ -101,8 +101,22 @@ effort and vector size). API keys are write-only (`{set, updatedAt}`). The write
 route as the owner UI (`PUT /api/settings/models`: provider readiness probes, engine restart, Research sync), so a
 wrong endpoint or key is 422 with per-component `checks` and nothing changes. A model configuration is only valid whole, so a
 write that does not complete it (a form that sends one field at a time) is **staged** in
-`model-settings.pending.json` (mode 0600) and applied the moment it is complete. The account-sourced OpenAI key
-(`providers.openaiApiKey`, `provider-env`, `OPENAI_API_KEY`) is written by Portal through the hosting provider, never through this endpoint.
+`model-settings.pending.json` (mode 0600) and applied the moment it is complete. The account-sourced provider keys (`providers.openaiApiKey` -> `OPENAI_API_KEY`, `providers.anthropicApiKey` ->
+`ANTHROPIC_API_KEY`, `providers.googleApiKey` -> `GOOGLE_GENERATIVE_AI_API_KEY`; all `source: "account"`,
+`destination: "provider-env"`) are written by Portal Connections as shared variables of the hosting provider. They are
+never written through this endpoint (a `PUT` naming one is 400); a `GET` reports presence only
+(`account: {"<key>": {source: "account", set}}`), never a value.
+
+**Models from provider keys.** When the owner has saved no Settings → Models, Knowledge builds its model configuration
+from those variables at boot. Precedence: **saved Settings → Models, then provider environment, then not configured.**
+Chat prefers Anthropic, then OpenAI, then Google (`claude-sonnet-5`, `gpt-4.1-mini`, `gemini-2.5-flash`). Embeddings prefer
+OpenAI (`text-embedding-3-small`, 1536), then Google (`gemini-embedding-2`, 768); Anthropic has no embeddings API, so an
+Anthropic-only account stays not configured (`issue: "embedding_provider_required"`) until an OpenAI or Google key is
+connected or the owner sets models up. A brain that already exists keeps its embedding model: if that provider's key is
+gone the configuration is withheld (`embedding_key_missing`) instead of switching vector spaces. The values stay in
+process memory: nothing is written to the data volume, logged or returned. `GET /api/settings/models` reports
+`source`: `knowledge-settings`, `provider-env` (connections carry `keySource: "provider-env"`) or `not-configured`.
+A save in Settings → Models never reuses a provider-env key (the owner enters the key) and from then on takes precedence.
 
 ## Agent grants
 

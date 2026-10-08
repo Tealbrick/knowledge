@@ -86,7 +86,9 @@
         "KNOWLEDGE_DEFAULT_DOCS_ROOT_PATH",
         "KNOWLEDGE_DEFAULT_DOCS_SECRET_NAME",
         "KNOWLEDGE_DEFAULT_DOCS_TOKEN_ENV_VAR",
-        "OPENAI_API_KEY"
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GOOGLE_GENERATIVE_AI_API_KEY"
       ]
     },
     "providers": [
@@ -749,11 +751,33 @@
             "key": "providers.openaiApiKey",
             "label": "OpenAI API key",
             "type": "secret",
-            "description": "Taken from the account connection. Used by the memory engine for embeddings when no model settings are saved.",
+            "description": "Taken from the account connection (Portal Connections). Used for chat and embeddings when no model settings are saved here.",
             "maxLength": 512,
             "source": "account",
             "destination": "provider-env",
             "env": "OPENAI_API_KEY",
+            "rotation": "update-credentials"
+          },
+          {
+            "key": "providers.anthropicApiKey",
+            "label": "Anthropic API key",
+            "type": "secret",
+            "description": "Taken from the account connection (Portal Connections). Used for chat when no model settings are saved here. Anthropic has no embeddings: add an OpenAI or Google key too.",
+            "maxLength": 512,
+            "source": "account",
+            "destination": "provider-env",
+            "env": "ANTHROPIC_API_KEY",
+            "rotation": "update-credentials"
+          },
+          {
+            "key": "providers.googleApiKey",
+            "label": "Google AI (Gemini) API key",
+            "type": "secret",
+            "description": "Taken from the account connection (Portal Connections). Used for chat and embeddings when no model settings are saved here.",
+            "maxLength": 512,
+            "source": "account",
+            "destination": "provider-env",
+            "env": "GOOGLE_GENERATIVE_AI_API_KEY",
             "rotation": "update-credentials"
           }
         ]

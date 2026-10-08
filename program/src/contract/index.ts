@@ -4,7 +4,7 @@ import type { JsonWebKey, KeyObject } from "node:crypto";
 import { matchesFrontendRoute, type Manifest, type StatusReport } from "@tealbrick/contract";
 
 import { EDGE_PARTITION_SUPPORT } from "../partition-authority.js";
-import { readModelSettings } from "../model-settings.js";
+import { resolveEffectiveModelSettings } from "../provider-env-models.js";
 import type { KnowledgeConfig } from "../types.js";
 import { createAppGrantAuthority, type AppGrantAuthority } from "./app-grants.js";
 import { createContractAudit, type ContractAudit } from "./audit.js";
@@ -37,7 +37,7 @@ export interface KnowledgeContractWiring {
 
 export interface WireInput {
   readonly env: NodeJS.ProcessEnv;
-  readonly config: Pick<KnowledgeConfig, "dataDir" | "memoryEngine" | "rulesBaseUrl" | "rulesAuthToken">;
+  readonly config: Pick<KnowledgeConfig, "dataDir" | "gbrainHome" | "memoryEngine" | "rulesBaseUrl" | "rulesAuthToken">;
   /** The Program, in process: used to apply model settings through the owner route and to read engine status. */
   readonly program: { inject(options: { method: "GET" | "PUT"; url: string; headers?: Record<string, string>; payload?: unknown }): Promise<{ statusCode: number; json(): unknown }> };
   readonly settingsAuthority: string;
@@ -81,18 +81,19 @@ export function wireKnowledgeContract(input: WireInput): KnowledgeContractWiring
     try { json = response.json(); } catch { json = null; }
     return { statusCode: response.statusCode, json };
   };
-  const settings = createModelSettingsStore({ dataDir: config.dataDir, apply });
+  const settings = createModelSettingsStore({ dataDir: config.dataDir, apply, manifest, env });
 
   const setup = async (): Promise<StatusReport> => {
-    let saved = null;
-    try { saved = await readModelSettings(config.dataDir); } catch { saved = null; }
+    // Owner-saved models, else the account's provider keys (provider-env); presence only, values are never read out.
+    let effective: Awaited<ReturnType<typeof resolveEffectiveModelSettings>> = { settings: null, source: null };
+    try { effective = await resolveEffectiveModelSettings(config.dataDir, config.gbrainHome, env); } catch { effective = { settings: null, source: null }; }
     const snapshot = await settings.read().catch(() => snapshotOf(null, null));
     let engine = "disabled";
     try {
       const status = (await input.program.inject({ method: "GET", url: "/api/status" })).json() as { sidecars?: { gbrain?: { status?: string } } };
       engine = status.sidecars?.gbrain?.status ?? "disabled";
     } catch { engine = "disabled"; }
-    const modelsConfigured = saved !== null || config.memoryEngine === "hindsight" || Boolean(env.GBRAIN_EMBEDDING_MODEL?.trim() || env.OPENAI_API_KEY?.trim());
+    const modelsConfigured = effective.settings !== null || config.memoryEngine === "hindsight" || Boolean(env.GBRAIN_EMBEDDING_MODEL?.trim() || env.OPENAI_API_KEY?.trim());
     const setupState = engine === "starting" ? "starting" : !modelsConfigured ? "needs-settings" : engine === "online" ? "configured" : "unavailable";
     return { setup: setupState, settingsRevision: snapshot.revision };
   };

@@ -72,7 +72,7 @@ function client() {
   const value = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   value.setQueryData(["knowledge-bootstrap"], bootstrap);
   value.setQueryData(["knowledge-openapi"], { paths: { "/api/knowledge/documents/{documentId}": { get: { summary: "Read a document" } } } });
-  value.setQueryData(["knowledge-model-settings"], { configured: false, source: "environment-or-not-configured", brain: { status: "disabled" } });
+  value.setQueryData(["knowledge-model-settings"], { configured: false, source: "not-configured", brain: { status: "disabled" } });
   value.setQueryData(["knowledge-collections", "default"], []);
   value.setQueryData(["knowledge-search", "default", "", null], []);
   value.setQueryData(["knowledge-bindings"], []);

@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { MemoryEngine } from "./memory-engine.js";
 import type { ResearchSyncResult } from "./research-model-sync.js";
+import { resolveEffectiveModelSettings } from "./provider-env-models.js";
 import { ModelSettingsUpdateError, ModelSettingsUpdateSchema, readModelSettings, resolveModelSettingsUpdate, saveModelSettings, modelSettingsSummary, testModelSettings, type ModelSettings } from "./model-settings.js";
 
 /** Research (Open Notebook) follows the same saved models; see research-model-sync.ts. */
@@ -10,7 +11,7 @@ export interface ModelSettingsResearchSync {
   summary(): Record<string, unknown>;
 }
 
-export function registerModelSettingsRoutes(app: FastifyInstance, input: { dataDir: string; gbrainHome: string; brain: MemoryEngine; authority: string | undefined; research?: ModelSettingsResearchSync | null; testModels?: typeof testModelSettings }) {
+export function registerModelSettingsRoutes(app: FastifyInstance, input: { dataDir: string; gbrainHome: string; brain: MemoryEngine; authority: string | undefined; research?: ModelSettingsResearchSync | null; testModels?: typeof testModelSettings; providerEnv?: Readonly<Record<string, string | undefined>> }) {
   const testModels = input.testModels ?? testModelSettings;
   // Research is configured after the memory save succeeded; it never undoes or fails that save.
   const syncResearch = async (settings: ModelSettings): Promise<ResearchSyncResult> => {
@@ -33,7 +34,10 @@ export function registerModelSettingsRoutes(app: FastifyInstance, input: { dataD
       catch { return reply.code(403).send({ ok: false, error: "settings_origin_denied" }); }
     }
   });
-  app.get("/api/settings/models", async () => ({ ...modelSettingsSummary(await readModelSettings(input.dataDir)), brain: { status: input.brain.status().status }, research: input.research ? input.research.summary() : { status: "not-installed" } }));
+  app.get("/api/settings/models", async () => {
+    const effective = await resolveEffectiveModelSettings(input.dataDir, input.gbrainHome, input.providerEnv ?? process.env);
+    return { ...modelSettingsSummary(effective.settings, effective.source ?? undefined, effective.issue), brain: { status: input.brain.status().status }, research: input.research ? input.research.summary() : { status: "not-installed" } };
+  });
   app.put("/api/settings/models", async (request, reply) => {
     if (busy) return reply.code(409).send({ ok: false, error: "settings_update_in_progress" });
     const parsed = ModelSettingsUpdateSchema.safeParse(request.body);

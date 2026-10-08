@@ -14,7 +14,7 @@ import { BrainExtractions } from "./brain-extractions.js";
 import { registerNativeMemoryRoutes } from "./brain-native-routes.js";
 import { nativeMemoryCapabilities } from "./brain-native-policy.js";
 import { registerModelSettingsRoutes } from "./model-settings-routes.js";
-import { readModelSettings } from "./model-settings.js";
+import { resolveEffectiveModelSettings } from "./provider-env-models.js";
 import { ResearchModelSync, resolveResearchChatModelId } from "./research-model-sync.js";
 import { createKnowledgePrincipalResolver, type KnowledgeServicePrincipal } from "./knowledge-principal.js";
 import { KnowledgeAuthorizationAudit } from "./authorization-audit.js";
@@ -2925,8 +2925,8 @@ export async function buildKnowledgeApp(
   if (options.researchModelSync?.syncOnStart ?? config.environment !== "test") {
     app.addHook("onReady", async () => {
       if (!researchSync.installed) return;
-      void readModelSettings(config.dataDir)
-        .then((settings) => settings ? researchSync.sync(settings, { onlyIfStale: true }) : undefined)
+      void resolveEffectiveModelSettings(config.dataDir, config.gbrainHome)
+        .then(({ settings }) => settings ? researchSync.sync(settings, { onlyIfStale: true }) : undefined)
         .then((result) => { if (result) recordEvent({ type: "research.models.sync", status: result.status }); })
         .catch(() => recordEvent({ type: "research.models.sync", status: "failed" }));
     });

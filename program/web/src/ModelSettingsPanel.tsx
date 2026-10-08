@@ -15,12 +15,17 @@ type PublicConnection = {
   baseUrl: string;
   model: string;
   keyConfigured: boolean;
+  /** "provider-env": the key comes from the account connection, not from this page. */
+  keySource?: string;
   dimensions?: number;
   reasoningEffort?: ReasoningEffort;
 };
 export type ModelSettingsStatus = {
   configured: boolean;
+  /** "knowledge-settings" (saved here), "provider-env" (account connection) or "not-configured". */
   source: string;
+  /** Why the account connection did not make a configuration, e.g. "embedding_provider_required". */
+  issue?: string;
   chat?: PublicConnection;
   embedding?: PublicConnection;
   reranker?: PublicConnection | null;
@@ -97,6 +102,14 @@ export function describeSaveError(error: Error): string[] {
   return [error.message];
 }
 
+/** One short line about where the models come from; null when saved here or nothing is connected. */
+export function describeModelSource(status: ModelSettingsStatus | undefined): { tone: "default" | "warning"; text: string } | null {
+  if (status?.configured && status.source === "provider-env") return { tone: "default", text: "These models come from the API keys connected to your account. Saving here replaces them with the keys you enter." };
+  if (!status?.configured && status?.issue === "embedding_provider_required") return { tone: "warning", text: "An Anthropic key is connected to your account, but Anthropic has no embedding models. Connect an OpenAI or Google key, or set the models up below." };
+  if (!status?.configured && status?.issue === "embedding_key_missing") return { tone: "warning", text: "Your memory already uses an embedding model whose account key is not connected. Connect that key, or set the models up below." };
+  return null;
+}
+
 /** One short line about Research after a save; null when Research is not installed. */
 export function describeResearchStatus(research: ResearchStatus | undefined): { tone: "success" | "warning"; text: string } | null {
   switch (research?.status) {
@@ -113,7 +126,7 @@ export function describeResearchStatus(research: ResearchStatus | undefined): { 
 
 function savedKeyFor(status: ModelSettingsStatus | undefined, provider: string, url: string) {
   return [status?.chat, status?.embedding, status?.reranker ? { ...status.reranker, provider: status.reranker.provider ?? "llama-server-reranker" } : null]
-    .some((entry) => entry?.keyConfigured && entry.provider === provider && entry.baseUrl === url.trim());
+    .some((entry) => entry?.keyConfigured && entry.keySource !== "provider-env" && entry.provider === provider && entry.baseUrl === url.trim());
 }
 
 export function ModelSettingsPanel() {
@@ -237,6 +250,7 @@ export function ModelSettingsPanel() {
   const saved = status.data?.configured;
   const keyHint = (available: boolean) => available ? "A key is saved for this provider and URL. Leave blank to keep it." : undefined;
   const sharedKeySaved = savedKeyFor(status.data, providers.chat, url);
+  const modelSource = describeModelSource(status.data);
   const research = describeResearchStatus(save.data?.research ?? (saved ? status.data?.research : undefined));
 
   return <div className="settings-stack model-settings">
@@ -245,10 +259,11 @@ export function ModelSettingsPanel() {
         <h3>Connect your models</h3>
         <p>Knowledge uses a chat model to extract facts and an embedding model for semantic memory. Knowledge runs its memory engine for you. Keys stay on this installation — never in Portal, this browser, or your agents.</p>
       </div>
-      <Tag tone={saved ? "success" : "default"}>{status.isLoading ? "Loading" : ownerError ? "Owner only" : saved ? "Saved" : "Not set up"}</Tag>
+      <Tag tone={saved ? "success" : "default"}>{status.isLoading ? "Loading" : ownerError ? "Owner only" : saved ? (status.data?.source === "provider-env" ? "From your account" : "Saved") : "Not set up"}</Tag>
     </div>
     {ownerError && <Feedback state="forbidden" title="Model settings are owner-only">{ownerError.message}</Feedback>}
-    {saved && <p className="settings-note">Your saved settings are shown below. Keys are never sent back to this page; leave a key blank to keep the saved one.</p>}
+    {modelSource && <p className={`settings-note${modelSource.tone === "warning" ? " model-settings__research--warning" : ""}`} role="status">{modelSource.text}</p>}
+    {saved && status.data?.source !== "provider-env" && <p className="settings-note">Your saved settings are shown below. Keys are never sent back to this page; leave a key blank to keep the saved one.</p>}
     <fieldset className="model-settings__form" disabled={Boolean(ownerError) || save.isPending}>
       <SelectField label="Provider" value={mode} onChange={(event) => chooseMode(event.target.value as ProviderMode)}>
         {(Object.keys(PRESETS) as ProviderMode[]).map((id) => <option key={id} value={id}>{PRESETS[id].label}</option>)}

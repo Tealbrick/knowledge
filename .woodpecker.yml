@@ -1,0 +1,76 @@
+# Woodpecker CI (self-hosted). GitHub stores code only; GitHub Actions is not used.
+# Checks only: no secrets, no privileged or Docker-in-Docker steps.
+#
+# Not run here (needs a container engine and, for publishing, a registry secret):
+#   - the container image builds (os-backports and knowledge image workflows)
+#   - the source-build acceptance run (image build + agent-first API acceptance)
+# Those are release-time jobs: run them on the CI host with a registry secret,
+# or let Railway build the image from source.
+when:
+  - event: pull_request
+  - event: push
+    branch: main
+  - event: manual
+
+variables:
+  - &node_image node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
+  - &env
+    CI: "true"
+    NPM_CONFIG_UPDATE_NOTIFIER: "false"
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+
+steps:
+  - name: install
+    image: *node_image
+    environment: *env
+    commands:
+      - cd program
+      - corepack pnpm install --frozen-lockfile
+
+  - name: typecheck
+    image: *node_image
+    environment: *env
+    commands:
+      - cd program
+      - corepack pnpm run typecheck
+
+  - name: build
+    image: *node_image
+    environment: *env
+    commands:
+      - cd program
+      - corepack pnpm run build
+
+  - name: test-program
+    image: *node_image
+    environment: *env
+    commands:
+      - cd program
+      - corepack pnpm run test:program --maxWorkers=2
+
+  - name: test-web
+    image: *node_image
+    environment: *env
+    commands:
+      - cd program
+      - corepack pnpm run test:web --maxWorkers=2
+
+  - name: deploy-container-tests
+    image: *node_image
+    environment: *env
+    commands:
+      - node --test deploy/container/*.test.mjs
+      # Public-deployment and Portal recipe generator output must match the checked-in files.
+      - node deploy/container/generate-public-deployment.mjs --check
+
+  - name: validate-manifest
+    image: *node_image
+    environment: *env
+    commands:
+      # Runs once the app manifest exists on main; skipped until then.
+      - |
+        if [ -f tealbrick.app.json ]; then
+          npx --yes @tealbrick/contract@0.1.0-alpha.3 validate tealbrick.app.json
+        else
+          echo "tealbrick.app.json not present; skipping manifest validation"
+        fi

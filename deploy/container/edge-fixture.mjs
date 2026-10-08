@@ -24,7 +24,7 @@ const body = async req => { let raw = ''; for await (const chunk of req) raw += 
 
 /**
  * A fake Portal Core. State the test edits live:
- * - `grants[token]` = { agentId, actions, operations?, partitionKey?, overrides? }   (POST /api/runtime/app-grant/introspect)
+ * - `grants[token]` = { agentId, actions, operations?, partitionKey? (default null = company scope), omitPartitionKey?, overrides? }   (POST /api/runtime/app-grant/introspect)
  * - `attachments[attachment]` = extra introspection fields                            (POST /api/deployment-access/introspect)
  * - `tickets[ticket]` = { route?, purpose? }                                          (POST /api/deployment-browser/redeem)
  * - `sessions[session]`                                                               (POST /api/deployment-browser/introspect)
@@ -43,7 +43,7 @@ export async function startFakePortal({ instanceToken, operationsFor, proof = in
         authorized: true, principalId: `tealbrick-agent:${grant.agentId}`, agentId: grant.agentId, orgId: org, workspaceId: company,
         deploymentId: deployment, product: 'knowledge', productTenantId: company, actions: grant.actions,
         operations: grant.operations ?? operationsFor(grant.actions), capabilityRevision: 1, expiresAt: Date.now() + 60_000,
-        ...(grant.partitionKey !== undefined ? { partitionKey: grant.partitionKey } : {}), ...grant.overrides,
+        ...(grant.omitPartitionKey ? {} : { partitionKey: grant.partitionKey === undefined ? null : grant.partitionKey }), ...grant.overrides,
       });
     }
     if (req.url === '/api/deployment-access/introspect') {

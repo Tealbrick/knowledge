@@ -112,20 +112,33 @@ so a revocation or a re-scoped edge cannot be outlived by a slow upload. Then th
 unchanged attachment admission: the same collection/document ownership checks, body-field allow-lists, Brain scope
 rewrite and per-request Research/engine bearer.
 
-- **Partition binding.** A grant answer may carry `partitionKey` (the per-edge memory partition). It is validated
-  with the attachment grammar and binds to `<companyId>/<key>` exactly as an attachment does; the default edge never
-  reaches a child, a child never reaches the default or a sibling. A present but malformed claim denies. The kit's
-  strict app-grant parser rejects unknown answer keys, so a thin `fetch` wrapper lifts the claim out of the raw
-  answer before the kit parses it (`program/src/contract/app-grants.ts`). A Portal that never sends the key gives the default partition.
+- **Partition binding (fail closed).** The grant answer must state the per-edge memory partition. `partitionKey: "<key>"`
+  is validated with the attachment grammar and binds to `<companyId>/<key>` exactly as an attachment does; the default edge
+  never reaches a child, a child never reaches the default or a sibling. An explicit `partitionKey: null` is the default
+  company scope. An **absent** `partitionKey` is refused with 403 `partition_binding_required` and never falls back to the
+  default or unpartitioned scope; a present but malformed claim is refused with 403 `partition_claim_invalid`. The same
+  check runs again at dispatch. **`tbag_` grants are refused until Core sends `partitionKey`; agents keep the
+  attachment-grant path meanwhile** (the attachment path is unchanged). The kit's strict app-grant parser rejects unknown
+  answer keys, so a thin `fetch` wrapper lifts the claim out of the raw answer before the kit parses it
+  (`program/src/contract/app-grants.ts`).
 - **Errors** (kit codes): 401 `grant_required|grant_invalid|grant_expired|grant_denied|grant_revoked`; 403
   `operation_not_granted|operation_unknown|operation_owner_only|companion_not_declared`; 503
-  `grant_verification_unavailable|portal_unconfigured`. Knowledge adds 403 `partition_claim_invalid`, 403
+  `grant_verification_unavailable|portal_unconfigured`. Knowledge adds 403 `partition_claim_invalid`, 403 `partition_binding_required`, 403
   `request_denied` (a path or selector for another partition), 404 `not_found` (an id that is absent **or** in another
   partition, so existence does not leak) and 404 `operation_not_found` (no such engine tool).
 - **Audit.** `contract-audit.sqlite` on the volume, metadata only: kind, operation, agent id, partition, outcome, status,
   error code. Never a token, payload, setting value or free text. Emergency logins and launches are audited there too.
 - L2 (the signed grant JWT) is not enabled: Portal Core does not mint it yet. The kit's L2 verifier is a drop-in
   once the claim carries `jwksUri` (`l2GrantOptionsFromClaim`).
+
+## Framing (Portal settings view)
+
+Portal's canvas settings view iframes the deployed app's own standalone settings page (`/?view=settings`). The manifest
+sets `frontend.embed` to `{"allowed": true, "frameAncestors": "portal-origins"}`. Every HTML page the app serves answers
+with `frame-ancestors 'self' <Portal origin>`, where the origin is derived from `TEALBRICK_PORTAL_URL` (origin only, no
+path; `'self'` only when it is unset or unusable; never `*`). The web shell (`/`, `/embed`) and the "session ended" page of
+the browser edge both carry it: a framed navigation whose session expired lands on the session page, so it must be
+frameable by Portal too (its Portal link already targets the top window). No other page is HTML.
 
 ## Launch and emergency access
 

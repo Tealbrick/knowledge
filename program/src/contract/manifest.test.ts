@@ -90,6 +90,6 @@ describe("tealbrick.app.json (tealbrick.miniapp/v1)", () => {
     expect(fields.filter((field) => field.type === "secret").every((field) => field.default === undefined)).toBe(true);
     expect(fields.find((field) => field.key === "providers.openaiApiKey")).toMatchObject({ destination: "provider-env", env: "OPENAI_API_KEY", source: "account" });
     expect(fields.find((field) => field.key === "chat.apiKey")).toMatchObject({ type: "secret" });
-    expect(manifest.frontend).toMatchObject({ routes: { home: "/?view=library", settings: "/?view=settings" }, launch: "ticket-v1", embed: { allowed: false } });
+    expect(manifest.frontend).toMatchObject({ routes: { home: "/?view=library", settings: "/?view=settings" }, launch: "ticket-v1", embed: { allowed: true, frameAncestors: "portal-origins" } });
   });
 });

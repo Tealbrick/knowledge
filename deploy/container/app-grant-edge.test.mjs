@@ -61,7 +61,8 @@ test('app grants and attachments reach the same data per partition; every refusa
     [grant('o')]: { agentId: 'other', actions: ALL, partitionKey: 'other' },
     [grant('x')]: { agentId: 'bad', actions: ALL, partitionKey: 'Personal' },
     [grant('d')]: { agentId: 'bad', actions: ALL, partitionKey: 'default' },
-    [grant('n')]: { agentId: 'bad', actions: ALL, partitionKey: null },
+    [grant('n')]: { agentId: 'null-edge', actions: ALL, partitionKey: null },
+    [grant('a')]: { agentId: 'absent-edge', actions: ALL, omitPartitionKey: true },
     [grant('l')]: { agentId: 'liar', actions: ALL, operations: ['knowledge.documents.update', 'knowledge.documents.delete', 'knowledge.models.update', 'knowledge.collections.list'] },
   });
   Object.assign(attachments, { 'default-attachment': {}, 'personal-attachment': { partitionKey: 'personal' } });
@@ -120,11 +121,17 @@ test('app grants and attachments reach the same data per partition; every refusa
   }
 
   // --- a malformed or reserved partition claim denies; it never reaches the default partition
-  for (const letter of ['x', 'd', 'n']) {
+  for (const letter of ['x', 'd']) {
     for (const [method, path] of [['GET', `/api/companies/${company}/knowledge/collections`], ['GET', `/api/knowledge/documents/${secret.id}`], ['POST', '/api/brain/recall']]) {
       assert.deepEqual(await denied(method, path, grant(letter), method === 'POST' ? { query: 'q', scopeRef: company } : undefined), { status: 403, error: 'partition_claim_invalid' }, `${letter} ${path}`);
     }
   }
+
+  // --- an ABSENT partitionKey (Portal Core today) is refused, never defaulted; an explicit null is the company scope
+  for (const [method, path] of [['GET', `/api/companies/${company}/knowledge/collections`], ['GET', `/api/knowledge/documents/${secret.id}`], ['POST', '/api/brain/recall']]) {
+    assert.deepEqual(await denied(method, path, grant('a'), method === 'POST' ? { query: 'q', scopeRef: company } : undefined), { status: 403, error: 'partition_binding_required' }, `absent ${path}`);
+  }
+  assert.equal((await call('GET', `/api/knowledge/documents/${secret.id}`, as(grant('n')))).status, 200, 'explicit null reads the company default scope');
 
   // --- a partitioned grant works in its own partition (via the workspace id) exactly like the personal attachment
   const listed = await call('GET', `/api/companies/${company}/knowledge/collections`, as(grant('p')));

@@ -763,7 +763,8 @@
     },
     "launch": "ticket-v1",
     "embed": {
-      "allowed": false
+      "allowed": true,
+      "frameAncestors": "portal-origins"
     }
   },
   "harnesses": {

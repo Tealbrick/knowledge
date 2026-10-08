@@ -51,15 +51,30 @@ describe("Portal app grants (tbag_) on Knowledge", () => {
       [grantToken("u")]: { actions: ALL, extra: { partitionKey: "Personal" } },
       [grantToken("d")]: { actions: ALL, extra: { partitionKey: "default" } },
       [grantToken("t")]: { actions: ALL, extra: { partitionKey: "../x" } },
-      [grantToken("n")]: { actions: ALL, extra: { partitionKey: null } },
       [grantToken("s")]: { actions: ALL, extra: { partitionKey: "a/b" } },
     });
     const ok = await authority.admit(list("p"));
     expect(ok.ok && ok.admitted.partitionKey).toBe("personal");
-    for (const letter of ["u", "d", "t", "n", "s"]) {
+    for (const letter of ["u", "d", "t", "s"]) {
       const denied = await authority.admit(list(letter));
       expect(denied, letter).toMatchObject({ ok: false, status: 403, error: "partition_claim_invalid" });
     }
+  });
+
+  it("tbag_ partition binding fails closed: a key binds, explicit null is the default scope, an absent key is refused", async () => {
+    const { authority } = setup({
+      [grantToken("k")]: { actions: ALL, extra: { partitionKey: "personal" } },
+      [grantToken("n")]: { actions: ALL, extra: { partitionKey: null } },
+      [grantToken("a")]: { actions: ALL, omitPartitionKey: true },
+    });
+    const keyed = await authority.admit(list("k"));
+    expect(keyed.ok && keyed.admitted.partitionKey).toBe("personal");
+    const explicitNull = await authority.admit(list("n"));
+    expect(explicitNull.ok && explicitNull.admitted.partitionKey).toBe(null);
+    // Absent: refused with its own code, never the default scope; recheck at dispatch refuses it too.
+    expect(await authority.admit(list("a"))).toMatchObject({ ok: false, status: 403, error: "partition_binding_required" });
+    if (!keyed.ok) throw new Error("expected the keyed grant to be admitted");
+    expect(await authority.recheck({ headers: bearer("a") }, keyed.admitted)).toBeNull();
   });
 
   it("refuses an operation the grant's actions do not cover, and an owner operation even when Portal lists it", async () => {

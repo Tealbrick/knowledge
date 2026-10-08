@@ -85,6 +85,21 @@ ${emergencyEnabled ? `<form method="post" action="/auth/emergency" class="emerge
 `;
 }
 
+/**
+ * `frame-ancestors` for the session page. Portal frames the standalone settings page, so a framed navigation whose
+ * session ended lands here: this origin and the configured Portal origin (http/https, origin only) may frame it.
+ * Without a usable Portal URL it is 'self' only. Never a wildcard.
+ */
+// A CSP source must be a plain http(s) origin: no wildcard, no userinfo, no path.
+const PLAIN_ORIGIN = /^https?:\/\/(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:.]+\])(?::\d{1,5})?$/;
+export function sessionFrameAncestors(portalUrl) {
+  try {
+    const url = portalUrl ? new URL(portalUrl) : null;
+    if (url && (url.protocol === 'https:' || url.protocol === 'http:') && PLAIN_ORIGIN.test(url.origin)) return `frame-ancestors 'self' ${url.origin}`;
+  } catch { /* unusable Portal URL: 'self' only */ }
+  return "frame-ancestors 'self'";
+}
+
 /** Send the session page with the same 401 status the JSON response would carry. */
 export function sendSessionEnded(req, res, portalUrl, emergencyEnabled = false) {
   const body = sessionEndedPage(portalUrl, emergencyEnabled);
@@ -94,7 +109,7 @@ export function sendSessionEnded(req, res, portalUrl, emergencyEnabled = false) 
     'cache-control': 'no-store',
     'referrer-policy': 'no-referrer',
     'x-content-type-options': 'nosniff',
-    'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'self'; frame-ancestors 'self'",
+    'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'self'; ${sessionFrameAncestors(portalUrl)}`,
   });
   res.end(req.method === 'HEAD' ? undefined : body);
 }

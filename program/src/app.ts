@@ -48,6 +48,7 @@ import {
 import { loadConfig } from "./config.js";
 import { classifyKnowledgeOperation } from "./policy.js";
 import { KnowledgeRulesClient } from "./rules-client.js";
+import { frameAncestorsDirective } from "./frame-ancestors.js";
 import { SqliteKnowledgePersistence } from "./persistence.js";
 import {
   KnowledgeSourceAdapters,
@@ -1988,8 +1989,9 @@ export async function buildKnowledgeApp(
     reply.header("cache-control", "no-store");
     reply.header(
       "content-security-policy",
-      // The app is not embedded (tealbrick.app.json frontend.embed.allowed is false): only its own origin may frame it.
-      "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'",
+      // Portal frames the standalone settings page (tealbrick.app.json frontend.embed.frameAncestors "portal-origins"):
+      // this origin and the configured Portal origin only, never an arbitrary site.
+      `default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; ${frameAncestorsDirective(process.env.TEALBRICK_PORTAL_URL)}`,
     );
     reply
       .type("text/html; charset=utf-8")

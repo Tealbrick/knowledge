@@ -39,5 +39,6 @@ grant the Teal Brick connector gives you. You see only the operations your agent
 - 403 \`operation_not_granted\`: your edge does not cover this operation. 403 \`operation_unknown\`: not an agent operation.
 - 403 \`operation_owner_only\`: only the workspace owner can do this, in the Knowledge app.
 - 403 \`partition_claim_invalid\`: your edge's partition could not be verified; nothing was done.
+- 403 \`partition_binding_required\`: Portal did not state your edge's partition; nothing was done. Use the attachment path until it does.
 - 503 \`grant_verification_unavailable\`: Portal could not be reached; nothing was done. Retry later.
 `;

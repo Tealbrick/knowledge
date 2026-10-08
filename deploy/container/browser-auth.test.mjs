@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
-import { browserAccess, sessionEndedPage, wantsSessionPage } from './browser-auth.mjs';
+import { browserAccess, sendSessionEnded, sessionEndedPage, sessionFrameAncestors, wantsSessionPage } from './browser-auth.mjs';
 const config = { portal: 'https://portal.fixture.invalid', deploymentId: 'deployment', companyId: 'workspace', portalOrgId: 'org', instanceToken: 'server-only-secret' };
 const session = 's'.repeat(43), ticket = 't'.repeat(43), ticket2 = 'u'.repeat(43);
 const validGrant = { schema: 1, authorized: true, product: 'knowledge', deploymentId: 'deployment', workspaceId: 'workspace', companyId: 'workspace', userId: 'owner', orgId: 'org', instanceProofAudience: 'tealbrick/knowledge/deployment', endpoint: 'https://knowledge.fixture.invalid', expiresAt: Date.now() + 3600000, session };
@@ -91,6 +91,18 @@ test('session-ended page links only to the configured Portal origin and escapes 
   assert.doesNotMatch(sessionEndedPage('javascript:alert(1)'), /href=/);
   assert.doesNotMatch(sessionEndedPage(undefined), /href=/);
   assert.doesNotMatch(sessionEndedPage('https://portal.example/"><script>'), /<script>/);
+});
+
+test('session page frame-ancestors: exactly self and the Portal origin, never a wildcard', () => {
+  assert.equal(sessionFrameAncestors('https://portal.example/a/b?c=1'), "frame-ancestors 'self' https://portal.example");
+  for (const value of [undefined, '', 'nonsense', 'https://*.example', 'javascript:alert(1)', 'file:///x']) assert.equal(sessionFrameAncestors(value), "frame-ancestors 'self'");
+  const sent = {};
+  const res = { writeHead: (_s, h) => Object.assign(sent, h), end() {} };
+  sendSessionEnded({ method: 'GET' }, res, 'https://portal.example/', false);
+  assert.match(sent['content-security-policy'], /frame-ancestors 'self' https:\/\/portal\.example$/);
+  assert.doesNotMatch(sent['content-security-policy'], /\*/);
+  sendSessionEnded({ method: 'GET' }, res, undefined, false);
+  assert.match(sent['content-security-policy'], /frame-ancestors 'self'$/);
 });
 
 // ---- contract launch: validated route, settings relay, replay, proof headers ------------------------------------------------

@@ -10,6 +10,8 @@ export interface FakeGrant {
   readonly extra?: Record<string, unknown>;
   /** Operation ids; defaults to every operation the actions cover (what Core's grant map yields). */
   readonly operations?: readonly string[];
+  /** Leave `partitionKey` out of the answer, as Portal Core does today. By default the fake states `partitionKey: null`. */
+  readonly omitPartitionKey?: boolean;
   readonly overrides?: Record<string, unknown>;
   readonly status?: number;
 }
@@ -24,12 +26,14 @@ export function fakePortalFetch(manifest: Manifest, grants: Record<string, FakeG
     if (!grant) return new Response('{"error":"app_grant_denied"}', { status: 403, headers: { "content-type": "application/json" } });
     if (grant.status) return new Response("{}", { status: grant.status });
     const agentId = grant.agentId ?? "agent-1";
-    return Response.json({
+    const answer: Record<string, unknown> = {
       authorized: true, principalId: `tealbrick-agent:${agentId}`, agentId, orgId: PORTAL.orgId, workspaceId: PORTAL.tenantId,
       deploymentId: PORTAL.deploymentId, product: "knowledge", productTenantId: PORTAL.tenantId,
       actions: grant.actions, operations: grant.operations ?? operationsAllowedBy(manifest, grant.actions),
-      capabilityRevision: 1, expiresAt: Date.now() + 60_000, ...grant.extra, ...grant.overrides,
-    });
+      capabilityRevision: 1, expiresAt: Date.now() + 60_000, partitionKey: null, ...grant.extra, ...grant.overrides,
+    };
+    if (grant.omitPartitionKey) delete answer.partitionKey;
+    return Response.json(answer);
   }) as typeof fetch;
   return { fetchImpl, calls };
 }

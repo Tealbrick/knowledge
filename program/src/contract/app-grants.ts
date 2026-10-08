@@ -96,7 +96,25 @@ function singleHeader(headers: Record<string, string | string[] | undefined>, na
 
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 
-type PartitionEntry = { readonly claim: ReturnType<typeof parseEdgePartitionClaim>; readonly until: number };
+/**
+ * The partition a grant answer binds. Unlike the attachment path (an absent key is the default partition there), a
+ * `tbag_` answer must state it: a string binds `<companyId>/<key>`, an explicit `null` is the default company scope,
+ * an ABSENT key is refused (`partition_binding_required`) and a malformed one is refused (`partition_claim_invalid`).
+ * Portal Core does not send the key yet, so until it does every `tbag_` call is refused, never defaulted.
+ */
+type GrantPartitionClaim =
+  | { readonly ok: true; readonly partitionKey: string | null }
+  | { readonly ok: false; readonly reason: "absent" | "invalid" };
+
+export function parseGrantPartitionClaim(record: unknown): GrantPartitionClaim {
+  if (!isRecord(record)) return { ok: false, reason: "invalid" };
+  if (!Object.prototype.hasOwnProperty.call(record, "partitionKey")) return { ok: false, reason: "absent" };
+  if (record.partitionKey === null) return { ok: true, partitionKey: null };
+  const claim = parseEdgePartitionClaim(record);
+  return claim.ok ? claim : { ok: false, reason: "invalid" };
+}
+
+type PartitionEntry = { readonly claim: GrantPartitionClaim; readonly until: number };
 
 /** Wraps fetch for the kit: lifts `partitionKey` out of the Portal answer so the kit's strict parser accepts it. */
 function partitionCapturingFetch(base: typeof fetch, sink: Map<string, PartitionEntry>, now: () => number): typeof fetch {
@@ -111,7 +129,7 @@ function partitionCapturingFetch(base: typeof fetch, sink: Map<string, Partition
     let data: unknown;
     try { data = JSON.parse(text); } catch { return passthrough(); }
     if (!isRecord(data)) return passthrough();
-    const claim = parseEdgePartitionClaim(data);
+    const claim = parseGrantPartitionClaim(data);
     const { partitionKey: _removed, ...rest } = data;
     const expiresAt = typeof data.expiresAt === "number" && Number.isFinite(data.expiresAt) ? data.expiresAt : now() + 60_000;
     if (sink.size >= MAX_ENTRIES) {
@@ -213,8 +231,10 @@ export function createAppGrantAuthority(options: AppGrantOptions): AppGrantAutho
       }
       const claim = partitionFor(request.headers);
       if (!claim || !claim.ok) {
-        record("denied", 403, "partition_claim_invalid", null);
-        return deny(403, "partition_claim_invalid");
+        // Absent is not "default": a Portal that does not state the partition gets no access at all.
+        const code = claim && claim.reason === "absent" ? "partition_binding_required" : "partition_claim_invalid";
+        record("denied", 403, code, null);
+        return deny(403, code);
       }
       const auditId = record("admitted", null, null, claim.partitionKey);
       return {

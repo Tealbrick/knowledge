@@ -81,6 +81,9 @@ const PROVIDER_MAP: Readonly<Record<string, string>> = Object.freeze({
   openai: "openai",
   openrouter: "openrouter",
   ollama: "ollama",
+  // Native APIs on their official hosts: Open Notebook's own providers, no base URL stored.
+  anthropic: "anthropic",
+  google: "google",
   // llama-server speaks the OpenAI-compatible API.
   "llama-server": "openai_compatible",
 });
@@ -122,6 +125,7 @@ export function researchCredentialName(provider: string) {
 
 /** Normalised base URL to store on the credential, or null for the provider default. */
 export function researchBaseUrl(provider: string, baseUrl: string): string | null {
+  if (provider === "anthropic" || provider === "google") return null; // official host only
   const trimmed = baseUrl.trim().replace(/\/+$/u, "");
   if (provider === "ollama") return trimmed.replace(/\/v1$/u, ""); // Esperanto uses Ollama's native API.
   const withV1 = trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;

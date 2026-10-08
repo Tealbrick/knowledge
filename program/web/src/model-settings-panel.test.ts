@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "./api";
-import { describeResearchStatus, describeSaveError, modeFromSaved, type ModelSettingsStatus } from "./ModelSettingsPanel";
+import { describeResearchStatus, describeSaveError, embeddingChoiceFromSaved, modeFromSaved, type ModelSettingsStatus } from "./ModelSettingsPanel";
 
 const base = { configured: true, source: "knowledge-settings", brain: { status: "online" } };
 const connection = (provider: string) => ({ provider, baseUrl: "https://models.example/v1", model: "m", keyConfigured: true });
@@ -12,6 +12,22 @@ describe("model settings panel helpers", () => {
     expect(modeFromSaved({ ...base, chat: connection("openrouter"), embedding: connection("openrouter") } as ModelSettingsStatus)).toBe("openrouter");
     expect(modeFromSaved({ ...base, chat: connection("ollama"), embedding: connection("llama-server") } as ModelSettingsStatus)).toBe("self-hosted");
     expect(modeFromSaved({ ...base, chat: connection("openai"), embedding: connection("openai") } as ModelSettingsStatus)).toBe("openai");
+  });
+
+  it("recognises Google and Anthropic setups and the embedding provider next to Anthropic", () => {
+    expect(modeFromSaved({ ...base, chat: connection("google"), embedding: connection("google") } as ModelSettingsStatus)).toBe("google");
+    const anthropic = { ...base, chat: connection("anthropic"), embedding: connection("openai") } as ModelSettingsStatus;
+    expect(modeFromSaved(anthropic)).toBe("anthropic");
+    expect(embeddingChoiceFromSaved(anthropic)).toBe("openai");
+    expect(embeddingChoiceFromSaved({ ...anthropic, embedding: connection("google") } as ModelSettingsStatus)).toBe("google");
+    expect(embeddingChoiceFromSaved({ ...anthropic, embedding: connection("openrouter") } as ModelSettingsStatus)).toBe("openrouter");
+    expect(embeddingChoiceFromSaved({ ...anthropic, embedding: connection("llama-server") } as ModelSettingsStatus)).toBe("self-hosted");
+    expect(embeddingChoiceFromSaved(undefined)).toBe("openai");
+  });
+
+  it("tells the owner to pick an embedding provider for Anthropic", () => {
+    const [line] = describeSaveError(new ApiError(400, "x", { ok: false, error: "embedding_provider_required", component: "embedding" }));
+    expect(line).toMatch(/^Embedding model: Anthropic does not offer embeddings\. Choose a separate embedding provider/u);
   });
 
   it("explains each failed provider check without raw codes", () => {

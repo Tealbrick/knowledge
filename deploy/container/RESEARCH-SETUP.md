@@ -68,7 +68,8 @@ never undoes the memory save and is retried on the next start.
 
 - Open Notebook needs `OPEN_NOTEBOOK_ENCRYPTION_KEY` to store the key; without
   it the status is `encryption_not_configured`.
-- Ollama maps to `ollama` (without `/v1`), llama-server to `openai_compatible`.
+- Ollama maps to `ollama` (without `/v1`), llama-server to `openai_compatible`. Anthropic and Google map to
+  `anthropic` and `google` (official hosts, no base URL stored).
 - If Open Notebook already has a different default embedding model and holds
   sources or notes, Knowledge does not switch it (status
   `embedding_migration_required`): existing vectors would stop matching. Chat

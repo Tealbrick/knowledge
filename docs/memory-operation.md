@@ -49,6 +49,15 @@ in one instance share one endpoint and key because native gateway configuration
 is provider-scoped. Existing reranker settings without a provider use
 `llama-server-reranker`.
 
+`provider: "anthropic"` (chat) and `provider: "google"` (Gemini chat and
+embeddings) use the provider's native API on its official host only; the
+endpoint is fixed and need not be sent. Anthropic has no embeddings API, so with
+Anthropic chat the owner must choose another embedding provider (OpenAI,
+OpenRouter, Google or a self-hosted server); a save that names Anthropic for
+embeddings is refused with `embedding_provider_required`. Google embeddings
+default to `gemini-embedding-2` at 768 dimensions. A reasoning effort is not
+available for Anthropic or Google chat models.
+
 Keys remain server-side; settings reads redact them. Changing embedding model
 identity requires an explicit migration/reindex even if vector width stays the
 same. Use a disposable index when evaluating a new model configuration.

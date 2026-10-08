@@ -10,7 +10,8 @@ import { nativeMemoryToken } from "./brain-native-auth.js";
 import { MEMORY_VERBS, NATIVE_MEMORY_GUIDANCE, nativeMemoryCapabilities, nativeMemoryOperation, nativeMemoryWrites } from "./brain-native-policy.js";
 import { GBrainServiceConnection, GBrainServiceError } from "./gbrain-service.js";
 import { sanitizeGBrainResult } from "./gbrain-privacy.js";
-import { readModelSettings, modelSettingsEnvironment } from "./model-settings.js";
+import { modelSettingsEnvironment } from "./model-settings.js";
+import { resolveEffectiveModelSettings } from "./provider-env-models.js";
 import { callGBrainTool } from "./gbrain-transport.js";
 import { probeGBrainHealth } from "./gbrain-health.js";
 
@@ -394,11 +395,15 @@ export class GBrainRuntime {
     this.state = "starting";
     try {
       await ensureGBrainDependencies(repoPath, this.config.gbrainHome);
-      this.modelEnv = modelSettingsEnvironment(await readModelSettings(this.config.dataDir));
+      // Owner-saved Settings -> Models first, then the account's provider keys (provider-env), else setup is required.
+      const effective = await resolveEffectiveModelSettings(this.config.dataDir, this.config.gbrainHome);
+      this.modelEnv = modelSettingsEnvironment(effective.settings);
       const env = { ...process.env, ...this.modelEnv };
       if (!existsSync(path.join(this.config.gbrainHome, ".gbrain/config.json")) && !env.GBRAIN_EMBEDDING_MODEL && !env.OPENAI_API_KEY) {
         this.state = "disabled";
-        this.detail = "setup_required: open Settings → Models and add your model keys";
+        this.detail = effective.issue === "embedding_provider_required"
+          ? "setup_required: Anthropic has no embeddings. Add an OpenAI or Google key, or open Settings → Models and choose an embedding provider"
+          : "setup_required: open Settings → Models and add your model keys";
         return;
       }
       await ensureGBrainInitialized(repoPath, this.config.gbrainHome, this.modelEnv);

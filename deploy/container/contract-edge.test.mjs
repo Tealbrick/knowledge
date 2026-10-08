@@ -91,6 +91,7 @@ test('contract control endpoints, launch and emergency login on the instance edg
   const before = await json(await settingsAt(bearer));
   assert.equal(before.status, 200);
   assert.deepEqual(before.body.values, {});
+  assert.deepEqual(before.body.account, { 'providers.openaiApiKey': { source: 'account', set: false }, 'providers.anthropicApiKey': { source: 'account', set: false }, 'providers.googleApiKey': { source: 'account', set: false } }, 'provider keys read as presence only');
   const put = (headers, input) => at('/.well-known/tealbrick/settings', { method: 'PUT', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(input) });
   const secret = 'sk-fixture-secret-never-echoed';
   const written = await json(await put(bearer, { values: { 'chat.apiKey': secret } }));
@@ -100,7 +101,7 @@ test('contract control endpoints, launch and emergency login on the instance edg
   const staged = await json(await put(bearer, { values: { 'chat.provider': 'openai', 'chat.model': 'chat-1' } }));
   assert.equal(staged.body.values['chat.provider'], 'openai');
   assert.notEqual(staged.body.revision, before.body.revision);
-  assert.equal((await put(bearer, { values: { 'providers.openaiApiKey': 'x' } })).status, 400, 'a provider-env field is written by the hosting provider');
+  for (const key of ['providers.openaiApiKey', 'providers.anthropicApiKey', 'providers.googleApiKey']) assert.equal((await put(bearer, { values: { [key]: 'x' } })).status, 400, 'a provider-env field is written by the hosting provider');
   assert.equal((await put(bearer, { values: { 'no.such.key': 'x' } })).status, 400);
   assert.equal((await put(bearer, { values: { 'chat.baseUrl': 'not a url' } })).status, 400);
   assert.equal((await put(bearer, { values: { 'chat.provider': 'openai' }, ifRevision: 'stale' })).status, 409);

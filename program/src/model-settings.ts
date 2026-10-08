@@ -131,10 +131,11 @@ export async function saveModelSettings(dataDir: string, gbrainHome: string, inp
   await fs.rename(temporary, file);
   return settings;
 }
-export function modelSettingsSummary(settings: ModelSettings | null) {
-  if (!settings) return { configured: false, source: "environment-or-not-configured" };
-  const publicConnection = ({ apiKey: _key, ...rest }: ModelSettings["chat"] | ModelSettings["embedding"] | NonNullable<ModelSettings["reranker"]>) => ({ ...rest, keyConfigured: true });
-  return { configured: true, source: "knowledge-settings", chat: publicConnection(settings.chat), embedding: publicConnection(settings.embedding), reranker: settings.reranker ? publicConnection(settings.reranker) : null };
+export function modelSettingsSummary(settings: ModelSettings | null, source: "knowledge-settings" | "provider-env" = "knowledge-settings", issue?: string) {
+  if (!settings) return { configured: false, source: "not-configured", ...(issue ? { issue } : {}) };
+  // A provider-env key is managed through the account connection: it cannot be kept by a save here.
+  const publicConnection = ({ apiKey: _key, ...rest }: ModelSettings["chat"] | ModelSettings["embedding"] | NonNullable<ModelSettings["reranker"]>) => ({ ...rest, keyConfigured: true, ...(source === "provider-env" ? { keySource: "provider-env" } : {}) });
+  return { configured: true, source, chat: publicConnection(settings.chat), embedding: publicConnection(settings.embedding), reranker: settings.reranker ? publicConnection(settings.reranker) : null };
 }
 
 /**

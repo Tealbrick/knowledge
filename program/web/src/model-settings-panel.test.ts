@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "./api";
-import { describeResearchStatus, describeSaveError, embeddingChoiceFromSaved, modeFromSaved, type ModelSettingsStatus } from "./ModelSettingsPanel";
+import { describeModelSource, describeResearchStatus, describeSaveError, embeddingChoiceFromSaved, modeFromSaved, type ModelSettingsStatus } from "./ModelSettingsPanel";
 
 const base = { configured: true, source: "knowledge-settings", brain: { status: "online" } };
 const connection = (provider: string) => ({ provider, baseUrl: "https://models.example/v1", model: "m", keyConfigured: true });
@@ -23,6 +23,14 @@ describe("model settings panel helpers", () => {
     expect(embeddingChoiceFromSaved({ ...anthropic, embedding: connection("openrouter") } as ModelSettingsStatus)).toBe("openrouter");
     expect(embeddingChoiceFromSaved({ ...anthropic, embedding: connection("llama-server") } as ModelSettingsStatus)).toBe("self-hosted");
     expect(embeddingChoiceFromSaved(undefined)).toBe("openai");
+  });
+
+  it("says where the models come from when an account connection provides them", () => {
+    expect(describeModelSource({ ...base, source: "provider-env" } as ModelSettingsStatus)?.text).toMatch(/^These models come from the API keys connected to your account/u);
+    expect(describeModelSource({ ...base, source: "knowledge-settings" } as ModelSettingsStatus)).toBeNull();
+    expect(describeModelSource({ configured: false, source: "not-configured", issue: "embedding_provider_required", brain: { status: "disabled" } })?.text).toMatch(/Anthropic has no embedding models/u);
+    expect(describeModelSource({ configured: false, source: "not-configured", brain: { status: "disabled" } })).toBeNull();
+    expect(describeModelSource(undefined)).toBeNull();
   });
 
   it("tells the owner to pick an embedding provider for Anthropic", () => {

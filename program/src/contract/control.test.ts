@@ -24,7 +24,7 @@ async function boot(options: { env?: NodeJS.ProcessEnv; engine?: string; models?
   const portal = fakePortalFetch(manifest, { [grantToken("a")]: { actions: ["read"] } });
   const wiring: KnowledgeContractWiring = wireKnowledgeContract({
     env: { TEALBRICK_TENANT_ID: PORTAL.tenantId, TEALBRICK_PORTAL_URL: PORTAL.url, TEALBRICK_DEPLOYMENT_ID: PORTAL.deploymentId, TEALBRICK_PORTAL_ORG_ID: PORTAL.orgId, TEALBRICK_EMERGENCY_CODE: CODE, ...options.env },
-    config: { dataDir, memoryEngine: "gbrain", rulesBaseUrl: null, rulesAuthToken: null },
+    config: { dataDir, gbrainHome: path.join(dataDir, "gbrain-home"), memoryEngine: "gbrain", rulesBaseUrl: null, rulesAuthToken: null },
     program: {
       inject: async ({ url }) => ({
         statusCode: 200,
@@ -71,7 +71,7 @@ describe("emergency login (break-glass owner session)", () => {
     const { base } = await boot({ env: { TEALBRICK_EMERGENCY_CODE: "" } });
     expect((await login(base, CODE)).status).toBe(404);
     expect(() => wireKnowledgeContract({
-      env: { TEALBRICK_EMERGENCY_CODE: "short" }, config: { dataDir: tmpdir(), memoryEngine: "gbrain", rulesBaseUrl: null, rulesAuthToken: null },
+      env: { TEALBRICK_EMERGENCY_CODE: "short" }, config: { dataDir: tmpdir(), gbrainHome: path.join(tmpdir(), "gbrain-home"), memoryEngine: "gbrain", rulesBaseUrl: null, rulesAuthToken: null },
       program: { inject: async () => ({ statusCode: 200, json: () => ({}) }) }, settingsAuthority: "a".repeat(64), instanceToken: INSTANCE_TOKEN,
       identity: { instanceId: "i", publicJwk: { kty: "OKP", crv: "Ed25519", x: "x" }, privateKey: generateKeyPairSync("ed25519").privateKey },
     })).toThrowError(/128 bits/);
@@ -135,5 +135,35 @@ describe("claim", () => {
     const stored = JSON.parse((await import("node:fs")).readFileSync(path.join(dataDir, "contract-claim.json"), "utf8"));
     expect(stored).toMatchObject({ portalIssuer: "https://portal.fixture.invalid", tenantId: PORTAL.tenantId, instanceId: "11111111-1111-1111-1111-111111111111" });
     expect(JSON.stringify(stored)).not.toMatch(/"d":|privateJwk/);
+  });
+});
+
+describe("account provider keys (provider-env) through the settings endpoint", () => {
+  const putSettings = (base: string, body: unknown) =>
+    fetch(`${base}/.well-known/tealbrick/settings`, { method: "PUT", headers: { ...instance, "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  it("reads presence only, from the environment variables the manifest names", async () => {
+    const { base } = await boot({ env: { ANTHROPIC_API_KEY: "sk-ant-fixture-not-echoed", GOOGLE_GENERATIVE_AI_API_KEY: "   " } });
+    const response = await fetch(`${base}/.well-known/tealbrick/settings`, { headers: instance });
+    expect(response.status).toBe(200);
+    const view = (await response.json()) as { account: Record<string, unknown>; secrets: Record<string, unknown> };
+    expect(view.account).toEqual({
+      "providers.openaiApiKey": { source: "account", set: false },
+      "providers.anthropicApiKey": { source: "account", set: true },
+      "providers.googleApiKey": { source: "account", set: false },
+    });
+    expect(JSON.stringify(view)).not.toContain("sk-ant-fixture");
+    expect(view.secrets).not.toHaveProperty("providers.anthropicApiKey");
+  });
+
+  it("refuses a write to a provider-env field; the owner edits them in Portal Connections", async () => {
+    const { base } = await boot({ env: { OPENAI_API_KEY: "sk-fixture-not-echoed" } });
+    for (const key of ["providers.openaiApiKey", "providers.anthropicApiKey", "providers.googleApiKey"]) {
+      const response = await putSettings(base, { values: { [key]: "sk-attempt" } });
+      expect(response.status, key).toBe(400);
+      expect(JSON.stringify(await response.json())).not.toContain("sk-");
+    }
+    const view = (await (await fetch(`${base}/.well-known/tealbrick/settings`, { headers: instance })).json()) as { account: Record<string, unknown> };
+    expect(view.account["providers.openaiApiKey"]).toEqual({ source: "account", set: true });
   });
 });

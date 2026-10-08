@@ -63,7 +63,7 @@ steps:
         ENGINE_KEY="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("hex"))')"
         cat > "$RUN/fake-engine.mjs" <<'JS'
         import { writeFileSync } from "node:fs";
-        const { startFakeHindsight } = await import(`${process.argv[2]}/program/scripts/fixtures/fake-engines.mjs`);
+        const { startFakeHindsight } = await import(process.argv[2] + "/program/scripts/fixtures/fake-engines.mjs");
         const engine = await startFakeHindsight({ apiKey: process.argv[3] });
         writeFileSync(process.argv[4], engine.baseUrl);
         setInterval(() => {}, 1 << 30);

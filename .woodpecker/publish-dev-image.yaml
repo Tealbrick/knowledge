@@ -5,6 +5,7 @@
 # Needs Woodpecker secrets registry_host, registry_username and registry_password (scope: event manual only).
 # On push events the secrets are empty, so the step prints a SKIP message and exits 0 (green).
 # Real pushes happen on manual runs.
+# Woodpecker substitutes dollar-brace variables in this file before the shell sees it, so only CI variables use that form.
 # Result: <registry_host>/tealbrick/knowledge@sha256:... (the digest is printed in the log).
 # The registry host comes from the Woodpecker secret registry_host, not from this file:
 # this repo is public and committed files do not name internal hosts.
@@ -59,7 +60,7 @@ steps:
         for f in $(find /tmp/img -type f); do
           if tar -tf "$f" 2>/dev/null | grep -q 'tealbrick\.app\.json$'; then
             found=1
-            echo "tealbrick.app.json found in ${f##*/}"
+            echo "tealbrick.app.json found in $(basename "$f")"
           fi
         done
         [ "$found" = 1 ] || { echo "tealbrick.app.json is not in the image"; exit 1; }

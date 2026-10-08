@@ -214,14 +214,14 @@ const server = createServer(async (req, res) => {
           }
           const parsed=JSON.parse(Buffer.concat(chunks,bytes).toString('utf8'));
           if(!parsed || typeof parsed!=='object' || Array.isArray(parsed)) throw new Error('object required');
-          const fields = route.bodyKind==='collection' ? ['name','description'] : route.bodyKind==='document'
+          const fields = route.bodyKind==='collection' ? ['name','description'] : (route.bodyKind==='document' || route.bodyKind==='document-update')
             ? ['title','body','bodyFormat','status','summary'] : route.bodyKind==='native' ? ['partitionKey','arguments'] : ['query','scopeRef','purpose','sourceIds'];
           if(Object.keys(parsed).some(key=>!fields.includes(key))) throw new Error('unsupported fields');
           // Native memory is always the bound partition; a foreign selector is refused, never rewritten.
           if(route.bodyKind==='native' && parsed.partitionKey!==undefined && !selectsPartition(parsed.partitionKey)) throw new Error('partition mismatch');
           replacementBody=JSON.stringify(route.bodyKind==='brain' ? {...parsed,scopeRef:scopeCompany,partitionKey:partition}
             : route.bodyKind==='native' ? {partitionKey:partition,arguments:parsed.arguments}
-            : route.bodyKind==='document' ? {...parsed,actor:{kind:'agent',id:grant.agentId}} : parsed);
+            : (route.bodyKind==='document' || route.bodyKind==='document-update') ? {...parsed,actor:{kind:'agent',id:grant.agentId}} : parsed);
         }
       }
     } catch { attachmentAuthorized=false; }

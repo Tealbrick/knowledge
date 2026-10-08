@@ -63,11 +63,14 @@ test('app grants and attachments reach the same data per partition; every refusa
     [grant('d')]: { agentId: 'bad', actions: ALL, partitionKey: 'default' },
     [grant('n')]: { agentId: 'null-edge', actions: ALL, partitionKey: null },
     [grant('a')]: { agentId: 'absent-edge', actions: ALL, omitPartitionKey: true },
-    [grant('l')]: { agentId: 'liar', actions: ALL, operations: ['knowledge.documents.update', 'knowledge.documents.delete', 'knowledge.models.update', 'knowledge.collections.list'] },
+    [grant('l')]: { agentId: 'liar', actions: ALL, operations: [...ownerOperations.map(op => op.id), 'knowledge.collections.list'] },
+    [grant('u')]: { agentId: 'editor', actions: ['create', 'read', 'update'] },
+    [grant('k')]: { agentId: 'deleter', actions: ['read', 'delete'] },
   });
   Object.assign(attachments, { 'default-attachment': {}, 'personal-attachment': { partitionKey: 'personal' } });
   const admin = { 'x-knowledge-instance-token': instanceToken, 'content-type': 'application/json' };
   const as = token => ({ authorization: `Bearer ${token}`, 'content-type': 'application/json' });
+  const bare = token => ({ authorization: `Bearer ${token}` }); // a DELETE has no body, so no JSON content type
   const attached = name => ({ authorization: `Bearer ${name}`, 'x-tealbrick-agent-token': 'fixture-agent-token', 'content-type': 'application/json' });
   const call = (method, path, headers, body) => fetch(`${base}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const idem = () => ({ 'idempotency-key': `key-${randomBytes(8).toString('hex')}` });
@@ -156,6 +159,43 @@ test('app grants and attachments reach the same data per partition; every refusa
   assert.deepEqual(await denied('GET', `/api/knowledge/documents/${personalNote.id}`, grant('o')), { status: 404, error: 'not_found' });
   assert.deepEqual(await denied('POST', `/api/knowledge/collections/${owned.id}/documents`, grant('p'), { title: 'x' }), { status: 404, error: 'not_found' });
   assert.deepEqual(await denied('POST', `/api/knowledge/collections/${mine.id}/documents`, grant('o'), { title: 'x' }), { status: 404, error: 'not_found' });
+
+  // --- document update and delete are agent operations: gated by the grant's update / delete CRUD action, bound to the partition
+  const adminStatus = async id => (await call('GET', `/api/knowledge/documents/${id}`, admin)).status;
+  const newDoc = async (token, collectionId, title) => (await (await call('POST', `/api/knowledge/collections/${collectionId}/documents`, { ...as(token), ...idem() }, { title, body: 'to edit' })).json());
+  const edited = await call('PATCH', `/api/knowledge/documents/${note.id}`, as(grant('f')), { title: 'Agent edit', body: 'edited by the agent' });
+  assert.equal(edited.status, 200);
+  assert.equal((await edited.json()).title, 'Agent edit');
+  assert.equal((await (await call('GET', `/api/knowledge/documents/${note.id}`, as(grant('r')))).json()).body, 'edited by the agent');
+  assert.equal((await call('PATCH', `/api/knowledge/documents/${note.id}`, as(grant('u')), { summary: 'sum' })).status, 200, 'an update-only grant may edit');
+  assert.deepEqual(await denied('PATCH', `/api/knowledge/documents/${note.id}`, grant('u'), { collectionId: 'x' }), { status: 403, error: 'request_denied' }, 'only the document fields are accepted');
+  assert.deepEqual(await denied('PATCH', `/api/knowledge/documents/${note.id}`, grant('r'), { title: 'x' }), { status: 403, error: 'operation_not_granted' });
+  assert.deepEqual(await denied('PATCH', `/api/knowledge/documents/${note.id}`, grant('w'), { title: 'x' }), { status: 403, error: 'operation_not_granted' });
+  assert.deepEqual(await denied('PATCH', `/api/knowledge/documents/${note.id}`, grant('k'), { title: 'x' }), { status: 403, error: 'operation_not_granted' });
+  assert.deepEqual(await denied('DELETE', `/api/knowledge/documents/${note.id}`, grant('r')), { status: 403, error: 'operation_not_granted' });
+  assert.deepEqual(await denied('DELETE', `/api/knowledge/documents/${note.id}`, grant('u')), { status: 403, error: 'operation_not_granted' });
+  assert.equal(await adminStatus(note.id), 200, 'refused deletes leave the document');
+  // Cross-partition, by id: another partition's document looks absent for edit and delete, in both directions.
+  const mineDoc = await newDoc(grant('p'), mine.id, 'Cross check');
+  const defaultDoc = await newDoc(grant('f'), collection.id, 'Default cross check');
+  for (const [method, id, token, body] of [
+    ['PATCH', mineDoc.id, grant('f'), { title: 'x' }], ['DELETE', mineDoc.id, grant('f')], ['PATCH', mineDoc.id, grant('o'), { title: 'x' }], ['DELETE', mineDoc.id, grant('o')],
+    ['PATCH', defaultDoc.id, grant('p'), { title: 'x' }], ['DELETE', defaultDoc.id, grant('p')], ['PATCH', secret.id, grant('p'), { title: 'x' }], ['DELETE', secret.id, grant('p')],
+  ]) assert.deepEqual(await denied(method, `/api/knowledge/documents/${id}`, token, body), { status: 404, error: 'not_found' }, `${method} ${id}`);
+  assert.equal((await (await call('GET', `/api/knowledge/documents/${mineDoc.id}`, admin)).json()).title, 'Cross check');
+  assert.equal(await adminStatus(defaultDoc.id), 200);
+  // The attachment path is unchanged: it has no document edit or delete route.
+  assert.equal((await call('PATCH', `/api/knowledge/documents/${mineDoc.id}`, attached('personal-attachment'), { title: 'x' })).status, 401);
+  assert.equal((await call('DELETE', `/api/knowledge/documents/${mineDoc.id}`, attached('personal-attachment'))).status, 401);
+  assert.equal(await adminStatus(mineDoc.id), 200);
+  // Inside its own partition a full grant edits and deletes; a grant with delete only cannot edit.
+  assert.equal((await call('PATCH', `/api/knowledge/documents/${mineDoc.id}`, as(grant('p')), { title: 'Edited in partition' })).status, 200);
+  assert.deepEqual(await denied('PATCH', `/api/knowledge/documents/${defaultDoc.id}`, grant('k'), { title: 'x' }), { status: 403, error: 'operation_not_granted' });
+  assert.equal((await call('DELETE', `/api/knowledge/documents/${mineDoc.id}`, bare(grant('p')))).status, 200);
+  assert.equal(await adminStatus(mineDoc.id), 404);
+  assert.equal((await call('DELETE', `/api/knowledge/documents/${defaultDoc.id}`, bare(grant('k')))).status, 200, 'a delete grant deletes');
+  assert.equal(await adminStatus(defaultDoc.id), 404);
+  assert.deepEqual(await denied('DELETE', `/api/knowledge/documents/${defaultDoc.id}`, grant('f')), { status: 404, error: 'not_found' }, 'a deleted document looks absent');
   for (const [token, path] of [
     [grant('p'), `/api/companies/${encodeURIComponent(`${company}/other`)}/knowledge/collections`],
     [grant('f'), `/api/companies/${encodeURIComponent(personal)}/knowledge/collections`],

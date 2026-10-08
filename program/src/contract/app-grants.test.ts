@@ -85,7 +85,7 @@ describe("Portal app grants (tbag_) on Knowledge", () => {
     });
     const create = { method: "POST", url: "/api/companies/ws-1/knowledge/collections", headers: bearer("r") };
     expect(await authority.admit(create)).toMatchObject({ ok: false, status: 403, error: "operation_not_granted" });
-    const ownerOnly = { method: "DELETE", url: "/api/knowledge/documents/doc-1", headers: bearer("o") };
+    const ownerOnly = { method: "PUT", url: "/api/knowledge/documents/doc-1/access", headers: bearer("o") };
     expect(await authority.admit(ownerOnly)).toMatchObject({ ok: false, status: 403, error: "operation_owner_only" });
     const owned = { method: "PUT", url: "/api/settings/models", headers: bearer("o") };
     expect(await authority.admit(owned)).toMatchObject({ ok: false, status: 403, error: "operation_owner_only" });

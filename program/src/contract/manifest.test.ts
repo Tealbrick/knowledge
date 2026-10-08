@@ -43,9 +43,9 @@ describe("tealbrick.app.json (tealbrick.miniapp/v1)", () => {
   it("classifies every operation, owner operations stay owner-only and none is external", () => {
     const agents = manifest.operations.filter((op) => (op.audience ?? "agent") === "agent");
     const owners = manifest.operations.filter((op) => op.audience === "owner");
-    expect({ total: manifest.operations.length, agents: agents.length, owners: owners.length }).toEqual({ total: 31, agents: 24, owners: 7 });
+    expect({ total: manifest.operations.length, agents: agents.length, owners: owners.length }).toEqual({ total: 31, agents: 26, owners: 5 });
     expect(owners.map((op) => op.id).sort()).toEqual([
-      "knowledge.collections.delete", "knowledge.documents.access-update", "knowledge.documents.delete", "knowledge.documents.update",
+      "knowledge.collections.delete", "knowledge.documents.access-update",
       "knowledge.models.update", "knowledge.research-notebooks.delete", "knowledge.research-sources.delete",
     ]);
     expect(owners.every((op) => op.crud.every((action) => action !== "create" && action !== "read"))).toBe(true);

@@ -407,11 +407,11 @@
       ],
       "method": "PATCH",
       "path": "/api/knowledge/documents/{documentId}",
+      "input": "#/schemas/DocumentUpdate",
       "effects": "writes-app-state",
       "idempotency": "none",
       "review": "allowed",
-      "summary": "Edit a document (owner session).",
-      "audience": "owner"
+      "summary": "Edit a document of the bound partition."
     },
     {
       "id": "knowledge.documents.delete",
@@ -423,8 +423,7 @@
       "effects": "writes-app-state",
       "idempotency": "none",
       "review": "allowed",
-      "summary": "Delete a document (owner session).",
-      "audience": "owner"
+      "summary": "Delete a document of the bound partition."
     },
     {
       "id": "knowledge.documents.access-update",
@@ -515,6 +514,28 @@
       "required": [
         "title"
       ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "type": "string"
+        },
+        "bodyFormat": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    },
+    "DocumentUpdate": {
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "title": {
           "type": "string",

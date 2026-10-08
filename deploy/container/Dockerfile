@@ -35,7 +35,8 @@ COPY program/web ./web
 RUN pnpm build:web \
     && cp -R /app/knowledge/licenses ./web-dist/licenses \
     && cp -R node_modules/@tealbrick/ui/assets/fonts/licenses ./web-dist/licenses/fonts
-COPY deploy/container/server.ts deploy/container/entrypoint.mjs deploy/container/attachment-auth.mjs deploy/container/browser-auth.mjs deploy/container/package.json deploy/container/LICENSE /app/knowledge/deploy/container/
+COPY tealbrick.app.json /app/knowledge/
+COPY deploy/container/server.ts deploy/container/entrypoint.mjs deploy/container/attachment-auth.mjs deploy/container/app-grant-edge.mjs deploy/container/browser-auth.mjs deploy/container/package.json deploy/container/LICENSE /app/knowledge/deploy/container/
 RUN rm -rf /app/knowledge/sidecars/gbrain/node_modules /app/knowledge/sidecars/gbrain/admin/node_modules \
     && cd /app/knowledge/sidecars/gbrain \
     && bun install --production --frozen-lockfile --ignore-scripts
@@ -81,6 +82,7 @@ COPY --from=build /app/knowledge/program/src ./src
 COPY --from=build /app/knowledge/program/web-dist ./web-dist
 COPY --from=build /app/knowledge/sidecars/gbrain /app/knowledge/sidecars/gbrain
 COPY --from=build /app/knowledge/deploy/container /app/knowledge/deploy/container
+COPY --from=build /app/knowledge/tealbrick.app.json /app/knowledge/tealbrick.app.json
 RUN find / -xdev -type f -perm /6000 -print -exec chmod a-s {} + \
     && mkdir /data && chown node:node /data
 EXPOSE 5310

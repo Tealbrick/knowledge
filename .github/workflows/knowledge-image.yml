@@ -33,6 +33,8 @@ jobs:
         run: |
           node deploy/container/generate-public-deployment.mjs --check
           test "$(node -p "require('./manifest.json').version")" = "$VERSION"
+          test "$(node -p "require('./tealbrick.app.json').app.version")" = "$VERSION"
+          npx --yes @tealbrick/contract@0.1.0-alpha.3 validate tealbrick.app.json
       - name: Authenticate only the publisher job to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Build and publish immutable image

@@ -1840,7 +1840,8 @@ textarea {
     animation: none;
   }
 }
-.session-ended-banner {
+.session-ended-banner,
+.emergency-banner {
   flex: none;
   align-items: center;
 }

@@ -15,7 +15,8 @@ grant the Teal Brick connector gives you. You see only the operations your agent
 ## Operations
 
 - Documents: \`knowledge.collections.list\`, \`knowledge.collections.create\`, \`knowledge.documents.search\` (query parameter \`q\`),
-  \`knowledge.documents.create\`, \`knowledge.documents.get\`.
+  \`knowledge.documents.create\`, \`knowledge.documents.get\`, \`knowledge.documents.update\` (\`PATCH\`, needs the
+  update action) and \`knowledge.documents.delete\` (needs the delete action).
 - Brain recall: \`knowledge.brain.context\`, \`knowledge.brain.recall\` (body: \`query\`, \`scopeRef\`, optional \`purpose\`, \`sourceIds\`) and
   \`knowledge.brain.entities\`. These only read.
 - Memory engine: \`knowledge.engine.tools\` lists the tools you may call. Call a read tool with \`knowledge.engine.read\`

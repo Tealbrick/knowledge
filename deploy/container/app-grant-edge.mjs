@@ -29,6 +29,8 @@ export const OPERATION_CAPABILITY = Object.freeze({
   'knowledge.documents.search': DOCUMENTS_READ,
   'knowledge.documents.create': DOCUMENTS_WRITE,
   'knowledge.documents.get': DOCUMENTS_READ,
+  'knowledge.documents.update': DOCUMENTS_WRITE,
+  'knowledge.documents.delete': DOCUMENTS_WRITE,
   'knowledge.brain.context': BRAIN_READ,
   'knowledge.brain.recall': BRAIN_READ,
   'knowledge.brain.entities': BRAIN_READ,
@@ -54,6 +56,17 @@ export const OPERATION_CAPABILITY = Object.freeze({
 export const EDGE_IDEMPOTENT_OPERATIONS = Object.freeze(new Set([
   'knowledge.collections.create', 'knowledge.documents.create', 'knowledge.engine.write',
 ]));
+
+/**
+ * Document edit and delete exist only on the app-grant path (the attachment route table has neither). The manifest
+ * operation carries the CRUD action (`update` / `delete`), so the contract kit has already refused a grant without it;
+ * the route then binds the document id, which the edge checks against exactly the grant's partition (like `get`).
+ */
+const DOCUMENT_ITEM_OPERATIONS = Object.freeze({
+  'knowledge.documents.update': { method: 'PATCH', bodyKind: 'document-update' },
+  'knowledge.documents.delete': { method: 'DELETE', bodyKind: undefined },
+});
+const DOCUMENT_ITEM_PATH = /^\/api\/knowledge\/documents\/([^/?#]+)$/u;
 
 /** The URL the Program sees: the write alias is the native route itself. */
 export function programUrl(operation, rawUrl) {
@@ -91,6 +104,15 @@ export function appGrantAuthority({ authority, admitted, request, companyId, nat
         const policy = name && /^[a-z][a-z_]{0,63}$/u.test(name) && typeof nativeOperationPolicy === 'function' ? nativeOperationPolicy(name) : null;
         if (!policy) { refusal = { status: 404, error: 'operation_not_found' }; return null; }
         if ((policy.scope === 'write') !== (admitted.operation === 'knowledge.engine.write')) { refusal = { status: 403, error: 'operation_not_granted' }; return null; }
+      }
+      const item = DOCUMENT_ITEM_OPERATIONS[admitted.operation];
+      if (item) {
+        const match = method === item.method ? DOCUMENT_ITEM_PATH.exec(new URL(url, 'http://knowledge.invalid').pathname) : null;
+        if (!match || /%(?:2f|5c)/iu.test(match[1])) return null;
+        let documentId;
+        try { documentId = decodeURIComponent(match[1]); } catch { return null; }
+        route = { capability: expected, documentId, ...(item.bodyKind ? { bodyKind: item.bodyKind } : {}) };
+        return route;
       }
       const structural = attachmentRoute(method, url, companyId, { nativeOperationPolicy });
       if (!structural || structural.capability !== expected) return null;

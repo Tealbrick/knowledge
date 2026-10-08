@@ -42,13 +42,13 @@ npx --yes @tealbrick/contract@0.1.0-alpha.3 validate tealbrick.app.json \
 
 ## Operations
 
-Ids are `knowledge.<resource>.<verb>`. 31 operations: **24 agent**, **7 owner**. Every agent
+Ids are `knowledge.<resource>.<verb>`. 31 operations: **26 agent**, **5 owner**. Every agent
 operation maps onto the same structural route and Portal capability the attachment path uses
 (`deploy/container/attachment-auth.mjs`); a test fails if a manifest path and that route table drift.
 
 | Group | Operations (agent) | CRUD |
 | --- | --- | --- |
-| Documents | `collections.list`, `collections.create`, `documents.search`, `documents.create`, `documents.get` | read; create |
+| Documents | `collections.list`, `collections.create`, `documents.search`, `documents.create`, `documents.get`, `documents.update`, `documents.delete` | read; create; update; delete |
 | Brain recall | `brain.context`, `brain.recall`, `brain.entities` (POSTs that only read) | read |
 | Memory engine | `engine.tools`, `engine.read` (`POST /api/brain/native/{operation}`), `engine.write` (`POST /api/brain/native/write/{operation}`) | read; create+update+delete |
 | Research | `research-notebooks.list/get`, `research-sources.list/get/add/receipt-get`, `research-notes.list/get`, `research-context.get`, `research-chat.session-create/session-get/ask/receipt-get` | read; create (`ask`: create+read) |
@@ -59,10 +59,14 @@ operation maps onto the same structural route and Portal capability the attachme
   rewrites it. `engine.tools` lists write tools only when the same grant also covers `engine.write`.
   `engine.write` needs create, update and delete because the engine write surface spans all three.
 - **Owner operations** (`audience: "owner"`) stay in the manifest so Portal, conformance and docs see the
-  full list, and are never granted: `documents.update`, `documents.delete`, `documents.access-update`,
+  full list, and are never granted: `documents.access-update`,
   `collections.delete`, `research-notebooks.delete`, `research-sources.delete`, `models.update`. The owner
   reaches them through the app's own session. A grant that lists one is refused with 403
   `{"error":"operation_owner_only"}`.
+- **Document edit and delete are agent operations**, gated by the grant's `update` / `delete` CRUD action. The edge binds
+  the document id to the grant's partition exactly like `documents.get`; a document of another partition looks absent
+  (404). `documents.update` accepts only `title`, `body`, `bodyFormat`, `status` and `summary`. Who may read a document
+  (`documents.access-update`) stays with the owner.
 - **Idempotency.** Research creates already keep durable ledgers in the Program and need an
   `Idempotency-Key`. For `collections.create`, `documents.create` and `engine.write` the edge keeps a ledger
   (`edge-idempotency.sqlite` on the volume): same key and body replays the first answer, the same key with
@@ -70,8 +74,8 @@ operation maps onto the same structural route and Portal capability the attachme
   409 `idempotency_in_progress` / `idempotency_outcome_unknown` (never run twice), and a failed answer is not stored.
   Keys are scoped to agent, partition and operation and expire after a day.
 - **Not in the manifest, because the routes do not exist yet:** creating notebooks, deleting sources as an agent,
-  and promoting a research answer into a document (planned with the Open Notebook research workspace). Document update/delete and
-  collection delete exist, but only for the owner session and the older `tbkg_`/static-principal path, so they are owner operations.
+  and promoting a research answer into a document (planned with the Open Notebook research workspace). Collection
+  delete exists, but only for the owner session and the older `tbkg_`/static-principal path, so it is an owner operation.
 
 ## Control endpoints
 

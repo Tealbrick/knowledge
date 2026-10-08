@@ -1,11 +1,13 @@
 # Woodpecker CI (self-hosted). GitHub stores code only; GitHub Actions is not used.
 # Checks only: no secrets, no privileged or Docker-in-Docker steps.
 #
-# Not run here (needs a container engine and, for publishing, a registry secret):
-#   - the container image builds (os-backports and knowledge image workflows)
-#   - the source-build acceptance run (image build + agent-first API acceptance)
-# Those are release-time jobs: run them on the CI host with a registry secret,
-# or let Railway build the image from source.
+# Sibling pipelines in this folder:
+#   - image.yaml: unprivileged image build check (no push)
+#   - conformance.yaml: contract conformance run against the edge from source
+#   - publish-dev-image.yaml: dev image push (push to main and manual only)
+# Not run in any pipeline: the source-build acceptance run (image build plus
+# agent-first API acceptance) and the os-backports image build. Those stay
+# release-time jobs on the CI host or on Railway.
 when:
   - event: pull_request
   - event: push

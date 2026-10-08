@@ -1,6 +1,11 @@
 {
   "id": "knowledge",
   "version": "0.4.3",
+  "contract": {
+    "status": "legacy-descriptor",
+    "authoritative": "tealbrick.app.json",
+    "note": "tealbrick.app.json (schema tealbrick.miniapp/v1) is the release manifest that Teal Brick Portal, the connector and the desktop app read. This file is the earlier internal descriptor and is kept for tools that still read it. Its dependencies are soft companions in tealbrick.app.json (rules-approvals only; Knowledge needs no other app)."
+  },
   "name": "Knowledge",
   "kind": "full-on",
   "system": {

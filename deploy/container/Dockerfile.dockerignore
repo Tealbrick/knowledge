@@ -1,6 +1,7 @@
 **
 !LICENSE
 !THIRD_PARTY_NOTICES.md
+!tealbrick.app.json
 !licenses
 !licenses/**
 !program
@@ -22,6 +23,7 @@
 !deploy/container/package.json
 !deploy/container/entrypoint.mjs
 !deploy/container/attachment-auth.mjs
+!deploy/container/app-grant-edge.mjs
 !deploy/container/browser-auth.mjs
 !deploy/container/os-backports
 !deploy/container/os-backports/**

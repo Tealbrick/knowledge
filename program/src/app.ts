@@ -1988,7 +1988,8 @@ export async function buildKnowledgeApp(
     reply.header("cache-control", "no-store");
     reply.header(
       "content-security-policy",
-      `default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors ${browserSession ? "'self'" : "*"}`,
+      // The app is not embedded (tealbrick.app.json frontend.embed.allowed is false): only its own origin may frame it.
+      "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'",
     );
     reply
       .type("text/html; charset=utf-8")

@@ -10,7 +10,7 @@ import {
   subscribeSessionEnded,
 } from "./api";
 import { researchRequest } from "./research-chat-api";
-import { SessionEndedBanner, SessionEndedSplash } from "./SessionNotice";
+import { EmergencyAccessBanner, SessionEndedBanner, SessionEndedSplash } from "./SessionNotice";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -70,5 +70,13 @@ describe("Portal session ended mid-use", () => {
       expect(html).toContain("Reopen Knowledge from Teal Brick Portal");
       expect(html).not.toMatch(/browser_session_required|instance_auth_required|401/);
     }
+  });
+
+  it("shows the break-glass banner with a way out, without internal codes", () => {
+    const html = renderToStaticMarkup(createElement(EmergencyAccessBanner, { banner: "Emergency access: signed in without Portal.", onSignOut: () => undefined }));
+    expect(html).toContain("Emergency access");
+    expect(html).toContain("signed in without Portal");
+    expect(html).toContain("Sign out");
+    expect(html).not.toMatch(/tbes_|__Host|emergency_/);
   });
 });

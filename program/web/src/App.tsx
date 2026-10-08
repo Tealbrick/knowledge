@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { BookOpen, Settings } from "lucide-react";
 import { BrandMark, Button, Feedback, IconButton, SelectField, Sidebar, Tag } from "@tealbrick/ui";
 import { getBootstrap, getSessionEnded, subscribeSessionEnded } from "./api";
-import { SessionEndedBanner, SessionEndedSplash } from "./SessionNotice";
+import { EmergencyAccess, SessionEndedBanner, SessionEndedSplash } from "./SessionNotice";
 import type { Section } from "./types";
 import { ActivityView } from "./ActivityView";
 import { BrainView } from "./BrainView";
@@ -180,6 +180,7 @@ export function App() {
       />
       <section className="application-frame">
         {sessionEnded && <SessionEndedBanner onReload={reload} />}
+        <EmergencyAccess />
         <header className="topbar">
           <div>
             <strong>{route.kind === "settings" ? "Settings" : nav.find((entry) => entry.id === route.section)?.label}</strong>

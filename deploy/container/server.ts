@@ -8,13 +8,17 @@ import { customerRuntimeRoute } from "../../program/src/customer-runtime-access.
 import { KnowledgeInstanceClaim } from "../../program/src/instance-claim.js";
 import { createPortalPrincipalResolver, portalPrincipalConfig } from "../../program/src/portal-principal.js";
 import { createAttachmentResearchAuthority } from "../../program/src/attachment-research-principal.js";
+import { IDEMPOTENCY_KEY, applyEnvAliases, launchRouteAllowed, wireKnowledgeContract } from "../../program/src/contract/index.js";
 import { attachmentConfig, attachmentRoute, edgePartitionClaim, introspectAttachment } from "./attachment-auth.mjs";
+import { appGrantAuthority, programUrl, EDGE_IDEMPOTENT_OPERATIONS } from "./app-grant-edge.mjs";
 import { browserConfig, browserAccess, sendSessionEnded, wantsSessionPage } from "./browser-auth.mjs";
 
 // A caller-sized body is not an authorization failure; report it as 413 so the
 // app does not mistake an oversized upload for an ended session.
 class RequestTooLarge extends Error {}
 
+// The contract names (TEALBRICK_INSTANCE_TOKEN, TEALBRICK_TENANT_ID, ...) and the Knowledge names are one setting each.
+applyEnvAliases();
 // One instance is one trust boundary. This edge does not grant tenant isolation.
 const token = process.env.KNOWLEDGE_INSTANCE_TOKEN ?? "";
 if (token.length < 32 || token.length > 1024 || /[^\x21-\x7e]/u.test(token)) {
@@ -25,7 +29,6 @@ const expected = createHash("sha256").update(token).digest();
 const settingsAuthority = randomBytes(32).toString("hex");
 process.env.KNOWLEDGE_SETTINGS_TOKEN = settingsAuthority;
 const attachment = attachmentConfig(process.env);
-const browser = browserConfig(process.env);
 const config = loadConfig();
 if (config.knowledgeServicePrincipals.some(principal => typeof principal?.token === "string" && principal.token.trim() === token)) {
   throw new Error("Knowledge runtime credentials must be distinct from the instance recovery token");
@@ -49,15 +52,32 @@ const nativeOperationPolicy = app.getDecorator<(operation: string) => { scope: "
 await app.listen({ host: "127.0.0.1", port: 0 });
 const address = app.server.address();
 if (!address || typeof address === "string") throw new Error("Missing internal listener");
+// The contract surface: manifest, claim, status, settings, companions, guidance, emergency login, Portal app grants.
+const wiring = wireKnowledgeContract({ env: process.env, config, program: app as never, settingsAuthority, instanceToken: token, identity: instanceClaim.contractIdentity });
+const { contract, grants: appGrants, audit: contractAudit, idempotency } = wiring;
+const browser = browserConfig(process.env, { settingsSessions: contract.settingsSessions, routeAllowed: launchRouteAllowed(wiring.manifest), audit: contractAudit, emergencyEnabled: contract.emergency.enabled });
 const server = createServer(async (req, res) => {
   try {
+  const publicHealth = req.method === "GET" && req.url === "/healthz";
+  if (publicHealth) {
+    // Contract health {ok, app, version, major} plus the partition fields Portal's rollout gate reads.
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+    res.end(JSON.stringify(wiring.health()));
+    return;
+  }
+  // Contract endpoints first: /.well-known/tealbrick/* (manifest, claim and its legacy alias, status, settings, companions,
+  // guidance) and /auth/emergency*. Everything else keeps the instance edge below.
+  if (await contract.control(req, res)) return;
   const browserResult = await browserAccess(browser, req, res);
   if (browserResult.handled) return;
   const supplied = req.headers["x-knowledge-instance-token"];
-  const publicHealth = req.method === "GET" && req.url === "/healthz";
   const instanceAuthorized = typeof supplied === "string" && timingSafeEqual(expected, createHash("sha256").update(supplied).digest());
-  // The canonical path is the well-known one; /api/tealbrick/claim stays a working alias served by the same handler.
-  if (CLAIM_PATHS.has(req.url?.split("?", 1)[0] ?? "")) {
+  // Break-glass owner session (TEALBRICK_EMERGENCY_CODE): signed in without Portal, audited, short-lived.
+  const emergencyOwner = !browserResult.authorized && !instanceAuthorized && contract.emergency.enabled && (await contract.emergency.verifier.verify({ headers: req.headers })).ok;
+  const ownerAuthorized = browserResult.authorized || emergencyOwner;
+  // The legacy claim handler remains only for an instance with no workspace configured (no TEALBRICK_TENANT_ID);
+  // otherwise the kit serves both claim paths with the same identity key.
+  if (!contract.claimsHandled && CLAIM_PATHS.has(req.url?.split("?", 1)[0] ?? "")) {
     res.setHeader("content-type", "application/json");
     res.setHeader("cache-control", "no-store");
     // Only explicit recovery/admin authority; a browser session or agent bearer cannot sign.
@@ -97,10 +117,37 @@ const server = createServer(async (req, res) => {
   let researchBearer: string | null = null;
   let replacementBody: string | Buffer | undefined;
   let replacementUrl: string | undefined;
-  if (!publicHealth && !instanceAuthorized && !runtimeAuthorized && !browserResult.authorized && attachment) {
+  // Portal app grant (`Authorization: Bearer tbag_...`): the contract kit verifies it for the manifest operation the request
+  // maps to. The admission below then scopes it exactly like a Portal attachment (same routes, partition binding and body
+  // shaping), through `agentAuth`. An attachment (agent-token header) stays the other, unchanged way in.
+  type AgentAuth = { route: (method: string, url: string) => any; check: (capability: string, phase?: "admit" | "dispatch") => Promise<any> };
+  const notOwner = !publicHealth && !instanceAuthorized && !runtimeAuthorized && !ownerAuthorized;
+  let agentAuth: AgentAuth | null = null;
+  let effectiveUrl = req.url ?? "/";
+  // A resource id that is absent or lives in another partition: the same answer, so existence does not leak.
+  let resourceMissing = false;
+  let admittedGrant: import("../../program/src/contract/index.js").AdmittedGrant | null = null;
+  if (notOwner && appGrants.presented(req.headers)) {
+    const admission = await appGrants.admit({ method: req.method ?? "GET", url: req.url ?? "/", headers: req.headers });
+    if (!admission.ok) {
+      res.writeHead(admission.status, { "content-type": "application/json", "cache-control": "no-store", ...admission.headers });
+      res.end(JSON.stringify({ error: admission.error }));
+      return;
+    }
+    admittedGrant = admission.admitted;
+    effectiveUrl = programUrl(admittedGrant.operation, req.url ?? "/") ?? effectiveUrl;
+    agentAuth = appGrantAuthority({ authority: appGrants, admitted: admittedGrant, request: { headers: req.headers }, companyId: attachment?.companyId ?? "", nativeOperationPolicy });
+    res.once("close", () => appGrants.complete(admittedGrant!.auditId, res.statusCode));
+  } else if (notOwner && attachment) {
+    agentAuth = {
+      route: (method, url) => attachmentRoute(method, url, attachment.companyId, { nativeOperationPolicy }),
+      check: (capability) => introspectAttachment(attachment, req.headers, capability),
+    };
+  }
+  if (agentAuth && attachment) {
     try {
-      const route = attachmentRoute(req.method, req.url, attachment.companyId, { nativeOperationPolicy });
-      const grant=route ? await introspectAttachment(attachment,req.headers,route.capability) : null;
+      const route = agentAuth.route(req.method ?? "GET", req.url ?? "/");
+      const grant=route ? await agentAuth.check(route.capability) : null;
       // Per-edge memory partition from Portal (absent = the workspace default partition).
       // Every introspection for this request must report the same one.
       const claim = grant ? edgePartitionClaim(grant) : null;
@@ -118,7 +165,7 @@ const server = createServer(async (req, res) => {
       if(route?.research && grant && attachmentResearch) {
         researchAdmitted = true;
         for(const capability of route.requires.slice(1)) {
-          const extra=await introspectAttachment(attachment,req.headers,capability);
+          const extra=await agentAuth.check(capability);
           if(!extra || extra.agentId!==grant.agentId || extra.orgId!==grant.orgId || !samePartition(extra)) { researchAdmitted=false; break; }
           expiresAt=Math.min(expiresAt, typeof extra.expiresAt === 'number' ? extra.expiresAt : Date.parse(extra.expiresAt));
         }
@@ -128,7 +175,7 @@ const server = createServer(async (req, res) => {
         dispatchGrant={capability:route.capability,agentId:grant.agentId,orgId:grant.orgId,requires:route.requires ?? [route.capability],optional:route.optional ?? [],expiresAt,native:route.native===true,partitionKey:edgePartition};
         // Admission and dispatch must use the same parsed path, including
         // encoded company IDs and normalized segments.
-        const url = new URL(req.url!, 'http://knowledge.invalid');
+        const url = new URL(effectiveUrl, 'http://knowledge.invalid');
         replacementUrl = `${url.pathname}${url.search}`;
         // Storage scope: the workspace, or exactly its `workspace/key` partition (stored under that companyId).
         const scopeCompany = edgePartition === null ? attachment.companyId : partition!;
@@ -147,12 +194,14 @@ const server = createServer(async (req, res) => {
         if(route.collectionId) {
           const result=await app.inject({method:'GET',url:`/api/companies/${encodeURIComponent(scopeCompany)}/knowledge/collections`});
           attachmentAuthorized=result.statusCode===200 && result.json().some((item: {id:string})=>item.id===route.collectionId);
+          if(!attachmentAuthorized) resourceMissing=true;
         }
         if(route.documentId) {
           const result=await app.inject({method:'GET',url:`/api/knowledge/documents/${encodeURIComponent(route.documentId)}`});
           const owner=result.statusCode===200 ? result.json().companyId : null;
           // No cross-partition ID access: the document must live in exactly this edge's partition.
           attachmentAuthorized=edgePartition===null ? owner===attachment.companyId : typeof owner==='string' && normalizeKnowledgePartitionKey(owner)===partition;
+          if(!attachmentAuthorized) resourceMissing=true;
         }
         if(attachmentAuthorized && route.bodyKind) {
           const chunks: Buffer[]=[];
@@ -181,7 +230,7 @@ const server = createServer(async (req, res) => {
   // the live grant at dispatch, after consuming all caller-controlled delay.
   if(attachmentAuthorized && attachment && dispatchGrant) {
     for(const capability of dispatchGrant.requires) {
-      const current=await introspectAttachment(attachment,req.headers,capability);
+      const current=await agentAuth!.check(capability,'dispatch');
       const currentClaim=current ? edgePartitionClaim(current) : null;
       // A partition edited mid-request (Portal also fails deployment_grant_changed) never re-scopes it.
       attachmentAuthorized=!!current && current.agentId===dispatchGrant.agentId && current.orgId===dispatchGrant.orgId &&
@@ -192,13 +241,24 @@ const server = createServer(async (req, res) => {
       // Optional grants (native discovery: knowledge:engine:write) widen only what the catalog lists.
       const granted=[...dispatchGrant.requires];
       for(const capability of dispatchGrant.optional) {
-        const extra=await introspectAttachment(attachment,req.headers,capability);
+        const extra=await agentAuth!.check(capability,'dispatch');
         const extraClaim=extra ? edgePartitionClaim(extra) : null;
         if(extra && extra.agentId===dispatchGrant.agentId && extra.orgId===dispatchGrant.orgId && extraClaim?.ok && extraClaim.partitionKey===dispatchGrant.partitionKey) granted.push(capability);
       }
       researchBearer=attachmentResearch.issue({agentId:dispatchGrant.agentId,orgId:dispatchGrant.orgId,capabilities:granted,expiresAt:dispatchGrant.expiresAt,
         ...(dispatchGrant.partitionKey!==null ? {partitionKey:dispatchGrant.partitionKey} : {})}, dispatchGrant.native ? 'brain' : 'research');
       attachmentAuthorized=researchBearer!==null;
+    }
+  }
+  if (emergencyOwner && !['GET', 'HEAD', 'OPTIONS'].includes(req.method ?? '')) {
+    // The break-glass cookie is SameSite=Strict; a browser write must still come from this app's own origin.
+    const origin = req.headers.origin;
+    let sameOrigin = origin === undefined;
+    if (origin !== undefined) { try { sameOrigin = new URL(origin).host === req.headers.host; } catch { sameOrigin = false; } }
+    if (!sameOrigin) {
+      res.writeHead(403, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end('{"ok":false,"error":"origin_not_allowed"}');
+      return;
     }
   }
   if (browserResult.authorized && !['GET', 'HEAD', 'OPTIONS'].includes(req.method ?? '')) {
@@ -214,17 +274,47 @@ const server = createServer(async (req, res) => {
     if (freshBrowser.handled) return;
     if (!freshBrowser.authorized || freshBrowser.grant.userId !== browserResult.grant.userId) throw new Error('browser authorization changed');
   }
-  if (!publicHealth && !instanceAuthorized && !runtimeAuthorized && !attachmentAuthorized && !browserResult.authorized) {
+  if (!publicHealth && !instanceAuthorized && !runtimeAuthorized && !attachmentAuthorized && !ownerAuthorized) {
+    // A verified Portal app grant whose request the admission refused (another partition, a missing resource): the
+    // credential is fine, the action is not.
+    if (admittedGrant) {
+      const why = (agentAuth as { refusal?: { status: number; error: string } } | null)?.refusal ?? (resourceMissing ? { status: 404, error: "not_found" } : { status: 403, error: "request_denied" });
+      res.writeHead(why.status, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(JSON.stringify({ error: why.error }));
+      return;
+    }
     // A person opening the app without (or after) a Portal session gets a
     // readable relaunch page; API and agent callers keep the JSON contract.
-    if (!runtimePrincipal && wantsSessionPage(req)) { sendSessionEnded(req, res, browser?.portal ?? attachment?.portal); return; }
+    if (!runtimePrincipal && wantsSessionPage(req)) { sendSessionEnded(req, res, browser?.portal ?? attachment?.portal, contract.emergency.enabled); return; }
     res.writeHead(runtimePrincipal ? 403 : 401, { "content-type": "application/json", "cache-control": "no-store" });
     res.end(JSON.stringify({ ok: false, error: runtimePrincipal ? "runtime_route_denied" : "instance_auth_required" }));
     return;
   }
+  // Creates the Program would repeat on a retry (collections, documents, native writes) go through the edge ledger.
+  let idempotentClaim: Extract<ReturnType<typeof idempotency.claim>, { kind: "execute" }> | null = null;
+  if (admittedGrant && attachmentAuthorized && EDGE_IDEMPOTENT_OPERATIONS.has(admittedGrant.operation)) {
+    const refuse = (status: number, error: string) => {
+      if (researchBearer) attachmentResearch?.revoke(researchBearer);
+      res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(JSON.stringify({ error }));
+    };
+    const key = req.headers["idempotency-key"];
+    if (typeof key !== "string" || !IDEMPOTENCY_KEY.test(key)) { refuse(400, "idempotency_key_required"); return; }
+    const claimed = idempotency.claim({ agentId: admittedGrant.agentId, partition: admittedGrant.partitionKey, operation: admittedGrant.operation }, key, replacementBody);
+    if (claimed.kind === "conflict") { refuse(409, "idempotency_key_conflict"); return; }
+    if (claimed.kind === "in_progress") { refuse(409, "idempotency_in_progress"); return; }
+    if (claimed.kind === "outcome_unknown") { refuse(409, "idempotency_outcome_unknown"); return; }
+    if (claimed.kind === "replay") {
+      if (researchBearer) attachmentResearch?.revoke(researchBearer);
+      res.writeHead(claimed.status, { ...claimed.headers, "idempotent-replayed": "true", "content-length": String(claimed.body.length) });
+      res.end(claimed.body);
+      return;
+    }
+    idempotentClaim = claimed;
+  }
   const headers = { ...req.headers };
   delete headers["x-knowledge-settings-token"];
-  if (instanceAuthorized || browserResult.authorized) headers["x-knowledge-settings-token"] = settingsAuthority;
+  if (instanceAuthorized || ownerAuthorized) headers["x-knowledge-settings-token"] = settingsAuthority;
   delete headers["x-knowledge-instance-token"];
   // Display-only workspace name from the Portal browser grant; never accepted from a client.
   delete headers["x-knowledge-workspace-label"];
@@ -238,10 +328,10 @@ const server = createServer(async (req, res) => {
     headers.authorization = `Bearer ${minted}`;
     res.once('close', () => attachmentResearch?.revoke(minted));
   }
-  if (browserResult.authorized) {
+  if (ownerAuthorized) {
     delete headers.authorization;
     if (headers.cookie) {
-      const retained = headers.cookie.split(';').filter(value => !value.trim().startsWith('knowledge_browser=')).join(';');
+      const retained = headers.cookie.split(';').filter(value => !/^(?:knowledge_browser|__Host-tealbrick-emergency|tealbrick-emergency)=/u.test(value.trim())).join(';');
       if (retained.trim()) headers.cookie = retained;
       else delete headers.cookie;
     }
@@ -256,6 +346,15 @@ const server = createServer(async (req, res) => {
     const responseHeaders = { ...response.headers };
     delete responseHeaders["access-control-allow-origin"];
     res.writeHead(response.statusCode ?? 502, responseHeaders);
+    if (idempotentClaim) {
+      // Record the successful answer so a retry with the same key and body replays it.
+      const claim = idempotentClaim; const parts: Buffer[] = []; let size = 0, over = false;
+      response.on("data", (chunk: Buffer) => { size += chunk.length; if (size <= 524_288) parts.push(chunk); else over = true; });
+      response.on("end", () => {
+        if (over) claim.abandon();
+        else claim.finish(response.statusCode ?? 502, { "content-type": String(response.headers["content-type"] ?? "application/json") }, Buffer.concat(parts));
+      });
+    }
     response.pipe(res);
   });
   upstream.on("error", () => {
@@ -271,7 +370,7 @@ const server = createServer(async (req, res) => {
       res.end('{"ok":false,"error":"request_too_large"}');
       return;
     }
-    if (!res.headersSent && wantsSessionPage(req)) { sendSessionEnded(req, res, browser?.portal ?? attachment?.portal); return; }
+    if (!res.headersSent && wantsSessionPage(req)) { sendSessionEnded(req, res, browser?.portal ?? attachment?.portal, contract.emergency.enabled); return; }
     if (!res.headersSent) res.writeHead(401, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end('{"ok":false,"error":"request_denied"}');
   }
@@ -280,6 +379,6 @@ server.requestTimeout = 120_000;
 server.headersTimeout = 30_000;
 server.listen(Number(process.env.PORT ?? 5310), process.env.HOST ?? "0.0.0.0");
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => {
-  server.close(() => { void app.close().then(() => process.exit(0)); });
+  server.close(() => { wiring.close(); void app.close().then(() => process.exit(0)); });
   setTimeout(() => process.exit(1), 10_000).unref();
 });

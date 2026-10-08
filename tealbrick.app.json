@@ -1,0 +1,827 @@
+{
+  "$schema": "./node_modules/@tealbrick/contract/schema/tealbrick.miniapp.v1.schema.json",
+  "schema": "tealbrick.miniapp/v1",
+  "kind": "bridge",
+  "upstream": {
+    "name": "GBrain",
+    "repo": "https://github.com/garrytan/gbrain",
+    "license": "MIT",
+    "pinnedVersion": "0.48.2.0"
+  },
+  "app": {
+    "id": "knowledge",
+    "name": "Knowledge",
+    "major": 1,
+    "version": "0.4.3",
+    "summary": "Teal Brick Knowledge: canonical documents and collections, a GBrain memory engine and research notebooks, for people and agents of one workspace.",
+    "domain": "documents, collections, search, brain memory, research notebooks"
+  },
+  "licence": {
+    "product": "knowledge",
+    "major": 1
+  },
+  "runtime": {
+    "image": {
+      "repository": "ghcr.io/tealbrick/knowledge"
+    },
+    "port": 5310,
+    "volume": {
+      "path": "/data",
+      "required": true
+    },
+    "health": "/healthz",
+    "claim": "/.well-known/tealbrick/claim",
+    "instanceAuthEnv": "TEALBRICK_INSTANCE_TOKEN",
+    "principalsEnv": "TEALBRICK_SERVICE_PRINCIPALS",
+    "tenantEnv": "TEALBRICK_TENANT_ID",
+    "env": {
+      "static": {
+        "NODE_ENV": "production",
+        "HOST": "0.0.0.0",
+        "PORT": "5310",
+        "KNOWLEDGE_DATA_DIR": "/data",
+        "KNOWLEDGE_GBRAIN_HOME": "/data/gbrain-home",
+        "KNOWLEDGE_GBRAIN_AUTOSTART": "true"
+      },
+      "allow": [
+        "TEALBRICK_PORTAL_URL",
+        "TEALBRICK_DEPLOYMENT_ID",
+        "TEALBRICK_PORTAL_ORG_ID",
+        "TEALBRICK_PORTAL_INSTANCE_PROOF",
+        "TEALBRICK_PUBLIC_ORIGIN",
+        "TEALBRICK_EMERGENCY_CODE",
+        "KNOWLEDGE_INSTANCE_TOKEN",
+        "KNOWLEDGE_COMPANY_ID",
+        "KNOWLEDGE_PORTAL_ORG_ID",
+        "KNOWLEDGE_SERVICE_PRINCIPALS",
+        "KNOWLEDGE_PARTITIONS",
+        "KNOWLEDGE_PARTITION_AUTH_REQUIRED",
+        "KNOWLEDGE_MEMORY_ENGINE",
+        "KNOWLEDGE_HINDSIGHT_URL",
+        "KNOWLEDGE_HINDSIGHT_API_KEY",
+        "GBRAIN_BASE_URL",
+        "GBRAIN_TOKEN",
+        "KNOWLEDGE_GBRAIN_URL",
+        "KNOWLEDGE_GBRAIN_ADMIN_TOKEN",
+        "KNOWLEDGE_GBRAIN_PARTITION_TOKENS",
+        "KNOWLEDGE_BRAIN_EXTRACTION_TOKEN",
+        "KNOWLEDGE_OPEN_NOTEBOOK_BASE_URL",
+        "KNOWLEDGE_OPEN_NOTEBOOK_TOKEN",
+        "KNOWLEDGE_OPEN_NOTEBOOK_CHAT_MODEL_ID",
+        "KNOWLEDGE_OPEN_NOTEBOOK_BINDINGS",
+        "KNOWLEDGE_RULES_BASE_URL",
+        "KNOWLEDGE_RULES_AUTH_TOKEN",
+        "KNOWLEDGE_RULES_WORKSPACE_SLUG",
+        "KNOWLEDGE_RULES_ACTOR_ID",
+        "KNOWLEDGE_RULES_TIMEOUT_MS",
+        "RULES_BASE_URL",
+        "RULES_INTERNAL_AUTH_TOKEN",
+        "WORKSPACE_SLUG",
+        "KNOWLEDGE_FORGEJO_ALLOWED_BASE_URLS",
+        "KNOWLEDGE_DEFAULT_DOCS_PROVIDER",
+        "KNOWLEDGE_DEFAULT_DOCS_API_BASE_URL",
+        "KNOWLEDGE_DEFAULT_DOCS_OWNER",
+        "KNOWLEDGE_DEFAULT_DOCS_REPO",
+        "KNOWLEDGE_DEFAULT_DOCS_BRANCH",
+        "KNOWLEDGE_DEFAULT_DOCS_ROOT_PATH",
+        "KNOWLEDGE_DEFAULT_DOCS_SECRET_NAME",
+        "KNOWLEDGE_DEFAULT_DOCS_TOKEN_ENV_VAR",
+        "OPENAI_API_KEY"
+      ]
+    },
+    "providers": [
+      "railway",
+      "coolify",
+      "vps",
+      "existing-instance",
+      "local"
+    ]
+  },
+  "operations": [
+    {
+      "id": "knowledge.collections.list",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/companies/{companyId}/knowledge/collections",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "List the collections of the bound partition."
+    },
+    {
+      "id": "knowledge.collections.create",
+      "crud": [
+        "create"
+      ],
+      "method": "POST",
+      "path": "/api/companies/{companyId}/knowledge/collections",
+      "input": "#/schemas/CollectionCreate",
+      "effects": "writes-app-state",
+      "idempotency": "required",
+      "review": "allowed",
+      "summary": "Create a collection in the bound partition."
+    },
+    {
+      "id": "knowledge.documents.search",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/companies/{companyId}/knowledge/search",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "Search canonical documents of the bound partition (query parameter q)."
+    },
+    {
+      "id": "knowledge.documents.create",
+      "crud": [
+        "create"
+      ],
+      "method": "POST",
+      "path": "/api/knowledge/collections/{collectionId}/documents",
+      "input": "#/schemas/DocumentCreate",
+      "effects": "writes-app-state",
+      "idempotency": "required",
+      "review": "allowed",
+      "summary": "Create a document in a collection of the bound partition."
+    },
+    {
+      "id": "knowledge.documents.get",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/knowledge/documents/{documentId}",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "Read one document of the bound partition."
+    },
+    {
+      "id": "knowledge.brain.context",
+      "crud": [
+        "read"
+      ],
+      "method": "POST",
+      "path": "/api/brain/context",
+      "input": "#/schemas/BrainQuery",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "Retrieve answer context from the Brain. Read-only; the request body only carries the query."
+    },
+    {
+      "id": "knowledge.brain.recall",
+      "crud": [
+        "read"
+      ],
+      "method": "POST",
+      "path": "/api/brain/recall",
+      "input": "#/schemas/BrainQuery",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "Recall memories from the Brain. Read-only; the request body only carries the query."
+    },
+    {
+      "id": "knowledge.brain.entities",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/brain/entities",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "List or read Brain entities of the bound partition."
+    },
+    {
+      "id": "knowledge.engine.tools",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/brain/native/tools",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "List the native memory-engine tools this grant may call. Write tools are listed only when the grant also covers knowledge.engine.write."
+    },
+    {
+      "id": "knowledge.engine.read",
+      "crud": [
+        "read"
+      ],
+      "method": "POST",
+      "path": "/api/brain/native/{operation}",
+      "input": "#/schemas/NativeCall",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "Call a read-scoped operation of the selected memory engine in the bound partition."
+    },
+    {
+      "id": "knowledge.engine.write",
+      "crud": [
+        "create",
+        "update",
+        "delete"
+      ],
+      "method": "POST",
+      "path": "/api/brain/native/write/{operation}",
+      "input": "#/schemas/NativeCall",
+      "effects": "writes-app-state",
+      "idempotency": "required",
+      "review": "allowed",
+      "summary": "Call a write-scoped operation of the selected memory engine in the bound partition. Needs create, update and delete because the engine write surface spans all three."
+    },
+    {
+      "id": "knowledge.research-notebooks.list",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/research/engine/notebooks",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "List the research notebooks bound to this partition."
+    },
+    {
+      "id": "knowledge.research-notebooks.get",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/research/notebooks/{notebookId}/engine",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "Read one bound research notebook."
+    },
+    {
+      "id": "knowledge.research-sources.list",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/research/notebooks/{notebookId}/engine/sources",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "List the sources of a bound notebook."
+    },
+    {
+      "id": "knowledge.research-sources.get",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/research/notebooks/{notebookId}/engine/sources/{sourceId}",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "Read one source of a bound notebook."
+    },
+    {
+      "id": "knowledge.research-notes.list",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/research/notebooks/{notebookId}/engine/notes",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "List the notes of a bound notebook."
+    },
+    {
+      "id": "knowledge.research-notes.get",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/research/notebooks/{notebookId}/engine/notes/{noteId}",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "Read one note of a bound notebook."
+    },
+    {
+      "id": "knowledge.research-context.get",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/research/notebooks/{notebookId}/engine/context",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "Read the context set a chat answer uses."
+    },
+    {
+      "id": "knowledge.research-sources.add",
+      "crud": [
+        "create"
+      ],
+      "method": "POST",
+      "path": "/api/research/notebooks/{notebookId}/engine/sources",
+      "input": "#/schemas/ResearchSourceAdd",
+      "effects": "writes-app-state",
+      "idempotency": "required",
+      "review": "allowed",
+      "summary": "Add a text source (at most 512 KiB) to a bound notebook. Needs an Idempotency-Key header."
+    },
+    {
+      "id": "knowledge.research-sources.receipt-get",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/research/notebooks/{notebookId}/engine/write-receipts/{idempotencyKey}",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "Read the receipt of an earlier source write by its idempotency key."
+    },
+    {
+      "id": "knowledge.research-chat.session-create",
+      "crud": [
+        "create"
+      ],
+      "method": "POST",
+      "path": "/api/research/notebooks/{notebookId}/engine/chat/sessions",
+      "input": "#/schemas/ResearchChatSessionCreate",
+      "effects": "writes-app-state",
+      "idempotency": "required",
+      "review": "allowed",
+      "summary": "Start a chat session in a bound notebook. Needs an Idempotency-Key header."
+    },
+    {
+      "id": "knowledge.research-chat.session-get",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/research/notebooks/{notebookId}/engine/chat/sessions/{sessionId}",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "Read one chat session."
+    },
+    {
+      "id": "knowledge.research-chat.ask",
+      "crud": [
+        "create",
+        "read"
+      ],
+      "method": "POST",
+      "path": "/api/research/notebooks/{notebookId}/engine/chat/sessions/{sessionId}/messages",
+      "input": "#/schemas/ResearchChatMessage",
+      "effects": "writes-app-state",
+      "idempotency": "required",
+      "review": "allowed",
+      "summary": "Ask a question in a chat session. Spends the account model budget (model cost). Needs an Idempotency-Key header."
+    },
+    {
+      "id": "knowledge.research-chat.receipt-get",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/research/notebooks/{notebookId}/engine/chat/receipts/{idempotencyKey}",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "Read the receipt of an earlier chat turn by its idempotency key."
+    },
+    {
+      "id": "knowledge.documents.update",
+      "crud": [
+        "update"
+      ],
+      "method": "PATCH",
+      "path": "/api/knowledge/documents/{documentId}",
+      "effects": "writes-app-state",
+      "idempotency": "none",
+      "review": "allowed",
+      "summary": "Edit a document (owner session).",
+      "audience": "owner"
+    },
+    {
+      "id": "knowledge.documents.delete",
+      "crud": [
+        "delete"
+      ],
+      "method": "DELETE",
+      "path": "/api/knowledge/documents/{documentId}",
+      "effects": "writes-app-state",
+      "idempotency": "none",
+      "review": "allowed",
+      "summary": "Delete a document (owner session).",
+      "audience": "owner"
+    },
+    {
+      "id": "knowledge.documents.access-update",
+      "crud": [
+        "update"
+      ],
+      "method": "PUT",
+      "path": "/api/knowledge/documents/{documentId}/access",
+      "effects": "writes-app-state",
+      "idempotency": "none",
+      "review": "allowed",
+      "summary": "Change who may read a document (owner session).",
+      "audience": "owner"
+    },
+    {
+      "id": "knowledge.collections.delete",
+      "crud": [
+        "delete"
+      ],
+      "method": "DELETE",
+      "path": "/api/knowledge/collections/{collectionId}",
+      "effects": "writes-app-state",
+      "idempotency": "none",
+      "review": "allowed",
+      "summary": "Delete a collection (owner session).",
+      "audience": "owner"
+    },
+    {
+      "id": "knowledge.research-notebooks.delete",
+      "crud": [
+        "delete"
+      ],
+      "method": "DELETE",
+      "path": "/api/research/notebooks/{notebookId}",
+      "effects": "writes-app-state",
+      "idempotency": "none",
+      "review": "allowed",
+      "summary": "Delete a research notebook (owner session).",
+      "audience": "owner"
+    },
+    {
+      "id": "knowledge.research-sources.delete",
+      "crud": [
+        "delete"
+      ],
+      "method": "DELETE",
+      "path": "/api/research/sources/{sourceId}",
+      "effects": "writes-app-state",
+      "idempotency": "none",
+      "review": "allowed",
+      "summary": "Delete a research source (owner session).",
+      "audience": "owner"
+    },
+    {
+      "id": "knowledge.models.update",
+      "crud": [
+        "update"
+      ],
+      "method": "PUT",
+      "path": "/api/settings/models",
+      "effects": "writes-app-state",
+      "idempotency": "none",
+      "review": "allowed",
+      "summary": "Change the chat, embedding and reranker models (owner session).",
+      "audience": "owner"
+    }
+  ],
+  "schemas": {
+    "CollectionCreate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "DocumentCreate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "type": "string"
+        },
+        "bodyFormat": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    },
+    "BrainQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "query",
+        "scopeRef"
+      ],
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "enum": [
+            "task",
+            "thread",
+            "entity",
+            "general"
+          ]
+        },
+        "sourceIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "NativeCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "arguments": {
+          "type": "object"
+        }
+      }
+    },
+    "ResearchSourceAdd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "content"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ResearchChatSessionCreate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "ResearchChatMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "guidance": {
+    "version": "1",
+    "path": "/.well-known/tealbrick/guidance/1"
+  },
+  "settings": {
+    "schemaVersion": 1,
+    "groups": [
+      {
+        "id": "models",
+        "label": "Models",
+        "scope": "instance",
+        "fields": [
+          {
+            "key": "chat.provider",
+            "label": "Chat provider",
+            "type": "enum",
+            "enum": [
+              "openai",
+              "ollama",
+              "openrouter"
+            ]
+          },
+          {
+            "key": "chat.baseUrl",
+            "label": "Chat endpoint",
+            "type": "url",
+            "description": "Base address of the model service, ending in v1.",
+            "maxLength": 512
+          },
+          {
+            "key": "chat.model",
+            "label": "Chat model",
+            "type": "string",
+            "maxLength": 180
+          },
+          {
+            "key": "chat.reasoningEffort",
+            "label": "Chat reasoning effort",
+            "type": "enum",
+            "enum": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          {
+            "key": "chat.apiKey",
+            "label": "Chat API key",
+            "type": "secret",
+            "description": "Write-only. Leave empty to keep the saved key for the same provider and endpoint.",
+            "maxLength": 4096
+          },
+          {
+            "key": "embedding.provider",
+            "label": "Embedding provider",
+            "type": "enum",
+            "enum": [
+              "openai",
+              "llama-server",
+              "openrouter"
+            ]
+          },
+          {
+            "key": "embedding.baseUrl",
+            "label": "Embedding endpoint",
+            "type": "url",
+            "description": "Base address of the model service, ending in v1.",
+            "maxLength": 512
+          },
+          {
+            "key": "embedding.model",
+            "label": "Embedding model",
+            "type": "string",
+            "maxLength": 180
+          },
+          {
+            "key": "embedding.dimensions",
+            "label": "Embedding dimensions",
+            "type": "integer",
+            "description": "Vector size. Changing it on a brain that already holds memory needs a migration."
+          },
+          {
+            "key": "embedding.apiKey",
+            "label": "Embedding API key",
+            "type": "secret",
+            "description": "Write-only. Leave empty to keep the saved key for the same provider and endpoint.",
+            "maxLength": 4096
+          },
+          {
+            "key": "reranker.provider",
+            "label": "Reranker provider",
+            "type": "enum",
+            "enum": [
+              "llama-server-reranker",
+              "openrouter"
+            ]
+          },
+          {
+            "key": "reranker.baseUrl",
+            "label": "Reranker endpoint",
+            "type": "url",
+            "description": "Base address of the model service, ending in v1.",
+            "maxLength": 512
+          },
+          {
+            "key": "reranker.model",
+            "label": "Reranker model",
+            "type": "string",
+            "maxLength": 180
+          },
+          {
+            "key": "reranker.apiKey",
+            "label": "Reranker API key",
+            "type": "secret",
+            "description": "Write-only. Leave empty to keep the saved key for the same provider and endpoint.",
+            "maxLength": 4096
+          }
+        ]
+      },
+      {
+        "id": "providers",
+        "label": "Account provider keys",
+        "scope": "instance",
+        "fields": [
+          {
+            "key": "providers.openaiApiKey",
+            "label": "OpenAI API key",
+            "type": "secret",
+            "description": "Taken from the account connection. Used by the memory engine for embeddings when no model settings are saved.",
+            "maxLength": 512,
+            "source": "account",
+            "destination": "provider-env",
+            "env": "OPENAI_API_KEY",
+            "rotation": "update-credentials"
+          }
+        ]
+      }
+    ]
+  },
+  "frontend": {
+    "standalone": true,
+    "routes": {
+      "home": "/?view=library",
+      "settings": "/?view=settings"
+    },
+    "launch": "ticket-v1",
+    "embed": {
+      "allowed": false
+    }
+  },
+  "harnesses": {
+    "connector": {
+      "minConnector": "0.3.0"
+    },
+    "standalone": {
+      "mcp": {
+        "package": "@tealbrick/knowledge-agent",
+        "transport": "stdio"
+      },
+      "eve": {
+        "extension": "adapters/agent/extension"
+      }
+    },
+    "support": {
+      "eve": "supported",
+      "claude-code": "experimental",
+      "codex": "experimental",
+      "desktop": "experimental",
+      "hermes": "legacy",
+      "openclaw": "unsupported"
+    }
+  },
+  "companions": [
+    {
+      "app": "rules-approvals",
+      "relation": "enhances"
+    }
+  ],
+  "unlocks": [
+    {
+      "id": "knowledge.rules.governed-writes",
+      "label": "Rules-governed writes",
+      "requires": [
+        {
+          "app": "rules-approvals",
+          "major": ">=1",
+          "edge": {
+            "from": "knowledge",
+            "to": "rules-approvals",
+            "actions": [
+              "create",
+              "read"
+            ]
+          },
+          "companionOperations": [
+            "rules-approvals.gateway.evaluate"
+          ]
+        }
+      ],
+      "provides": {
+        "reviewModes": [
+          "rules-approval"
+        ]
+      },
+      "degrade": "hide",
+      "revocation": "finish-in-flight-then-deny"
+    }
+  ]
+}

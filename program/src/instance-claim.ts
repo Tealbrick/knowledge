@@ -28,6 +28,14 @@ export class KnowledgeInstanceClaim {
   }
 
   /**
+   * The same identity for the contract kit's claim endpoint (`/.well-known/tealbrick/claim`): one key, never regenerated.
+   * The key object stays in this process; it is handed only to the kit's claim signer.
+   */
+  get contractIdentity(): { readonly instanceId: string; readonly publicJwk: JsonWebKey; readonly privateKey: KeyObject } {
+    return { instanceId: this.instanceId, publicJwk: this.publicJwk, privateKey: this.key };
+  }
+
+  /**
    * Bind one Portal principal introspection to this instance, the Portal
    * audience, the bound company and the presented grant's digest. Short-lived;
    * never an entitlement by itself.

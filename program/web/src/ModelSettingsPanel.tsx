@@ -4,8 +4,8 @@ import { Button, CheckboxField, Feedback, SelectField, Tag, TextField } from "@t
 import { api, ApiError } from "./api";
 import { describeErrorCode } from "./errors";
 
-type ChatProvider = "openai" | "ollama" | "openrouter";
-type EmbeddingProvider = "openai" | "llama-server" | "openrouter";
+type ChatProvider = "openai" | "ollama" | "openrouter" | "anthropic" | "google";
+type EmbeddingProvider = "openai" | "llama-server" | "openrouter" | "google";
 type RerankerProvider = "llama-server-reranker" | "openrouter";
 type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high";
 
@@ -31,24 +31,53 @@ export type ModelSettingsStatus = {
 export type ResearchStatus = { status: string; error?: string; hint?: string };
 type Check = { component: string; ok: boolean; error?: string };
 
-/** One of three setups; each maps onto providers accepted by the server schema. */
-export type ProviderMode = "openai" | "openrouter" | "self-hosted";
+/** One setup per chat provider; each maps onto providers accepted by the server schema. */
+export type ProviderMode = "openai" | "openrouter" | "google" | "anthropic" | "self-hosted";
+/** Anthropic has no embeddings API, so its setup asks for a separate embedding provider. */
+export type EmbeddingChoice = "openai" | "openrouter" | "google" | "self-hosted";
+
+/** Providers with one official address; the API URL is not editable. */
+const FIXED_URL_MODES: ReadonlySet<ProviderMode> = new Set<ProviderMode>(["google", "anthropic"]);
+const GOOGLE_URL = "https://generativelanguage.googleapis.com";
+const ANTHROPIC_URL = "https://api.anthropic.com";
 
 const PRESETS: Record<ProviderMode, { label: string; url: string; chatModel: string; embeddingModel: string; dimensions: number; rerankerModel: string }> = {
   openai: { label: "OpenAI", url: "https://api.openai.com/v1", chatModel: "gpt-4.1-mini", embeddingModel: "text-embedding-3-small", dimensions: 1536, rerankerModel: "" },
   openrouter: { label: "OpenRouter", url: "https://openrouter.ai/api/v1", chatModel: "openai/gpt-4.1-mini", embeddingModel: "openai/text-embedding-3-small", dimensions: 1536, rerankerModel: "cohere/rerank-v3.5" },
+  google: { label: "Google (Gemini)", url: GOOGLE_URL, chatModel: "gemini-2.5-flash", embeddingModel: "gemini-embedding-2", dimensions: 768, rerankerModel: "" },
+  anthropic: { label: "Anthropic (Claude)", url: ANTHROPIC_URL, chatModel: "claude-sonnet-5", embeddingModel: "text-embedding-3-small", dimensions: 1536, rerankerModel: "" },
   "self-hosted": { label: "Self-hosted (Ollama and llama-server)", url: "http://127.0.0.1:11434/v1", chatModel: "", embeddingModel: "", dimensions: 768, rerankerModel: "" },
+};
+
+/** Embedding providers offered next to Anthropic chat. */
+const EMBEDDING_CHOICES: Record<EmbeddingChoice, { label: string; provider: EmbeddingProvider; url: string; model: string; dimensions: number }> = {
+  openai: { label: "OpenAI", provider: "openai", url: "https://api.openai.com/v1", model: "text-embedding-3-small", dimensions: 1536 },
+  openrouter: { label: "OpenRouter", provider: "openrouter", url: "https://openrouter.ai/api/v1", model: "openai/text-embedding-3-small", dimensions: 1536 },
+  google: { label: "Google (Gemini)", provider: "google", url: GOOGLE_URL, model: "gemini-embedding-2", dimensions: 768 },
+  "self-hosted": { label: "Self-hosted (llama-server)", provider: "llama-server", url: "http://127.0.0.1:8080/v1", model: "", dimensions: 768 },
 };
 
 const PROVIDERS: Record<ProviderMode, { chat: ChatProvider; embedding: EmbeddingProvider; reranker: RerankerProvider | null }> = {
   openai: { chat: "openai", embedding: "openai", reranker: null },
   openrouter: { chat: "openrouter", embedding: "openrouter", reranker: "openrouter" },
+  google: { chat: "google", embedding: "google", reranker: null },
+  anthropic: { chat: "anthropic", embedding: "openai", reranker: null }, // embedding is chosen separately
   "self-hosted": { chat: "ollama", embedding: "llama-server", reranker: "llama-server-reranker" },
 };
+
+/** Which embedding provider the saved Anthropic setup uses. */
+export function embeddingChoiceFromSaved(status: ModelSettingsStatus | undefined): EmbeddingChoice {
+  const provider = status?.embedding?.provider;
+  if (provider === "openrouter" || provider === "google") return provider;
+  if (provider === "llama-server") return "self-hosted";
+  return "openai";
+}
 
 export function modeFromSaved(status: ModelSettingsStatus | undefined): ProviderMode {
   const chat = status?.chat?.provider;
   if (chat === "openrouter") return "openrouter";
+  if (chat === "google") return "google";
+  if (chat === "anthropic") return "anthropic";
   if (chat === "ollama" || status?.embedding?.provider === "llama-server") return "self-hosted";
   return "openai";
 }
@@ -63,6 +92,7 @@ export function describeSaveError(error: Error): string[] {
     const failed = body.checks.filter((check) => !check.ok);
     if (failed.length) return failed.map((check) => `${COMPONENT_LABELS[check.component] ?? "Model"}: ${describeErrorCode(check.error ?? null, 422)}`);
   }
+  if (error.code === "embedding_provider_required") return ["Embedding model: Anthropic does not offer embeddings. Choose a separate embedding provider, such as OpenAI, Google, OpenRouter or a self-hosted server."];
   if (error.code === "model_api_key_required") return [`${COMPONENT_LABELS[body.component ?? ""] ?? "Model"}: enter an API key. A saved key is only reused for the same provider and URL.`];
   return [error.message];
 }
@@ -97,6 +127,7 @@ export function ModelSettingsPanel() {
   const [key, setKey] = useState("");
   const [chatModel, setChatModel] = useState(PRESETS.openai.chatModel);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
+  const [embeddingChoice, setEmbeddingChoice] = useState<EmbeddingChoice>("openai");
   const [embeddingUrl, setEmbeddingUrl] = useState("http://127.0.0.1:8080/v1");
   const [embeddingKey, setEmbeddingKey] = useState("");
   const [embeddingModel, setEmbeddingModel] = useState(PRESETS.openai.embeddingModel);
@@ -118,8 +149,10 @@ export function ModelSettingsPanel() {
     setReasoningEffort(saved.chat.reasoningEffort ?? "");
     setEmbeddingModel(saved.embedding.model);
     setDimensions(String(saved.embedding.dimensions ?? PRESETS[savedMode].dimensions));
-    if (savedMode === "self-hosted") setEmbeddingUrl(saved.embedding.baseUrl);
-    setShowUrl(saved.chat.baseUrl !== PRESETS[savedMode].url);
+    const savedChoice = embeddingChoiceFromSaved(saved);
+    setEmbeddingChoice(savedChoice);
+    if (savedMode === "self-hosted" || savedChoice === "self-hosted") setEmbeddingUrl(saved.embedding.baseUrl);
+    setShowUrl(!FIXED_URL_MODES.has(savedMode) && saved.chat.baseUrl !== PRESETS[savedMode].url);
     setUseReranker(Boolean(saved.reranker));
     if (saved.reranker) {
       setRerankerModel(saved.reranker.model);
@@ -140,17 +173,31 @@ export function ModelSettingsPanel() {
     setRerankerModel(preset.rerankerModel);
     if (!PROVIDERS[next].reranker) setUseReranker(false);
     setShowUrl(next === "self-hosted");
+    if (next === "anthropic") chooseEmbeddingChoice(embeddingChoice);
+  };
+  const chooseEmbeddingChoice = (next: EmbeddingChoice) => {
+    setEmbeddingChoice(next);
+    const choice = EMBEDDING_CHOICES[next];
+    setEmbeddingModel(choice.model);
+    setDimensions(String(choice.dimensions));
+    if (next === "self-hosted") setEmbeddingUrl(choice.url);
   };
 
   const providers = PROVIDERS[mode];
   const selfHosted = mode === "self-hosted";
-  const effectiveEmbeddingUrl = selfHosted ? embeddingUrl : url;
+  const anthropic = mode === "anthropic";
+  const fixedUrl = FIXED_URL_MODES.has(mode);
+  // Self-hosted and Anthropic setups carry their own embedding connection (URL and key).
+  const separateEmbedding = selfHosted || anthropic;
+  const embeddingProvider: EmbeddingProvider = anthropic ? EMBEDDING_CHOICES[embeddingChoice].provider : providers.embedding;
+  const embeddingUrlEditable = selfHosted || (anthropic && embeddingChoice === "self-hosted");
+  const effectiveEmbeddingUrl = anthropic ? (embeddingUrlEditable ? embeddingUrl : EMBEDDING_CHOICES[embeddingChoice].url) : selfHosted ? embeddingUrl : url;
   const effectiveRerankerUrl = selfHosted ? rerankerUrl : url;
   const keys = useMemo(() => ({
     chat: key.trim() || savedKeyFor(status.data, providers.chat, url),
-    embedding: selfHosted ? embeddingKey.trim() || savedKeyFor(status.data, providers.embedding, effectiveEmbeddingUrl) : Boolean(key.trim()) || savedKeyFor(status.data, providers.embedding, url),
+    embedding: separateEmbedding ? embeddingKey.trim() || savedKeyFor(status.data, embeddingProvider, effectiveEmbeddingUrl) : Boolean(key.trim()) || savedKeyFor(status.data, providers.embedding, url),
     reranker: !useReranker || !providers.reranker ? true : selfHosted ? rerankerKey.trim() || savedKeyFor(status.data, providers.reranker, effectiveRerankerUrl) : Boolean(key.trim()) || savedKeyFor(status.data, providers.reranker, url),
-  }), [key, embeddingKey, rerankerKey, status.data, providers, url, effectiveEmbeddingUrl, effectiveRerankerUrl, selfHosted, useReranker]);
+  }), [key, embeddingKey, rerankerKey, status.data, providers, url, embeddingProvider, effectiveEmbeddingUrl, effectiveRerankerUrl, selfHosted, separateEmbedding, useReranker]);
 
   const dimensionValue = Number(dimensions);
   const complete = Boolean(url.trim() && chatModel.trim() && embeddingModel.trim() && effectiveEmbeddingUrl.trim())
@@ -162,13 +209,13 @@ export function ModelSettingsPanel() {
     mutationFn: () => {
       const sharedKey = key.trim() || undefined;
       const body = {
-        chat: { provider: providers.chat, baseUrl: url.trim(), model: chatModel.trim(), ...(sharedKey ? { apiKey: sharedKey } : {}), ...(reasoningEffort ? { reasoningEffort } : {}) },
+        chat: { provider: providers.chat, baseUrl: url.trim(), model: chatModel.trim(), ...(sharedKey ? { apiKey: sharedKey } : {}), ...(reasoningEffort && !fixedUrl ? { reasoningEffort } : {}) },
         embedding: {
-          provider: providers.embedding,
+          provider: embeddingProvider,
           baseUrl: effectiveEmbeddingUrl.trim(),
           model: embeddingModel.trim(),
           dimensions: dimensionValue,
-          ...((selfHosted ? embeddingKey.trim() : sharedKey) ? { apiKey: selfHosted ? embeddingKey.trim() : sharedKey } : {}),
+          ...((separateEmbedding ? embeddingKey.trim() : sharedKey) ? { apiKey: separateEmbedding ? embeddingKey.trim() : sharedKey } : {}),
         },
         ...(useReranker && providers.reranker
           ? { reranker: {
@@ -206,24 +253,27 @@ export function ModelSettingsPanel() {
       <SelectField label="Provider" value={mode} onChange={(event) => chooseMode(event.target.value as ProviderMode)}>
         {(Object.keys(PRESETS) as ProviderMode[]).map((id) => <option key={id} value={id}>{PRESETS[id].label}</option>)}
       </SelectField>
-      {(showUrl || selfHosted) && <TextField label={selfHosted ? "Chat model URL (Ollama-compatible)" : "API URL"} value={url} onChange={(event) => setUrl(event.target.value)} />}
-      <TextField label={selfHosted ? "Chat model API key" : "API key"} type="password" autoComplete="off" value={key}
+      {(showUrl || selfHosted) && !fixedUrl && <TextField label={selfHosted ? "Chat model URL (Ollama-compatible)" : "API URL"} value={url} onChange={(event) => setUrl(event.target.value)} />}
+      <TextField label={selfHosted ? "Chat model API key" : anthropic ? "Anthropic API key" : mode === "google" ? "Google AI API key" : "API key"} type="password" autoComplete="off" value={key}
         placeholder={sharedKeySaved ? "Saved — leave blank to keep" : undefined}
         description={keyHint(sharedKeySaved) ?? (selfHosted ? "If your server does not check keys, enter any value." : undefined)}
         onChange={(event) => setKey(event.target.value)} />
       <TextField label="Chat model" value={chatModel} onChange={(event) => setChatModel(event.target.value)} />
-      <SelectField label="Reasoning effort" description="How much the chat model reasons before answering. Leave on default unless your model needs it." value={reasoningEffort} onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort | "")}>
+      {!fixedUrl && <SelectField label="Reasoning effort" description="How much the chat model reasons before answering. Leave on default unless your model needs it." value={reasoningEffort} onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort | "")}>
         <option value="">Model default</option>
         <option value="none">None</option>
         <option value="minimal">Minimal</option>
         <option value="low">Low</option>
         <option value="medium">Medium</option>
         <option value="high">High</option>
-      </SelectField>
-      {selfHosted && <>
-        <TextField label="Embedding model URL (llama-server)" value={embeddingUrl} onChange={(event) => setEmbeddingUrl(event.target.value)} />
+      </SelectField>}
+      {anthropic && <SelectField label="Embedding provider" description="Anthropic does not offer embeddings. Choose another provider for the embedding model." value={embeddingChoice} onChange={(event) => chooseEmbeddingChoice(event.target.value as EmbeddingChoice)}>
+        {(Object.keys(EMBEDDING_CHOICES) as EmbeddingChoice[]).map((id) => <option key={id} value={id}>{EMBEDDING_CHOICES[id].label}</option>)}
+      </SelectField>}
+      {separateEmbedding && <>
+        {embeddingUrlEditable && <TextField label="Embedding model URL (llama-server)" value={embeddingUrl} onChange={(event) => setEmbeddingUrl(event.target.value)} />}
         <TextField label="Embedding model API key" type="password" autoComplete="off" value={embeddingKey}
-          placeholder={savedKeyFor(status.data, providers.embedding, embeddingUrl) ? "Saved — leave blank to keep" : undefined}
+          placeholder={savedKeyFor(status.data, embeddingProvider, effectiveEmbeddingUrl) ? "Saved — leave blank to keep" : undefined}
           onChange={(event) => setEmbeddingKey(event.target.value)} />
       </>}
       <TextField label="Embedding model" value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} />
@@ -238,7 +288,7 @@ export function ModelSettingsPanel() {
           onChange={(event) => setRerankerKey(event.target.value)} />}
         <TextField label="Reranker model" value={rerankerModel} onChange={(event) => setRerankerModel(event.target.value)} />
       </>}
-      {!selfHosted && <div><Button size="small" type="button" onClick={() => { if (showUrl) setUrl(PRESETS[mode].url); setShowUrl(!showUrl); }}>{showUrl ? "Use the standard API URL" : "Use a different API URL"}</Button></div>}
+      {!selfHosted && !fixedUrl && <div><Button size="small" type="button" onClick={() => { if (showUrl) setUrl(PRESETS[mode].url); setShowUrl(!showUrl); }}>{showUrl ? "Use the standard API URL" : "Use a different API URL"}</Button></div>}
       <p className="settings-note">Use only model servers you trust. Saving sends a short test request to each model; provider charges may apply.</p>
     </fieldset>
     <div>

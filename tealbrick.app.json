@@ -633,14 +633,16 @@
             "enum": [
               "openai",
               "ollama",
-              "openrouter"
+              "openrouter",
+              "anthropic",
+              "google"
             ]
           },
           {
             "key": "chat.baseUrl",
             "label": "Chat endpoint",
             "type": "url",
-            "description": "Base address of the model service, ending in v1.",
+            "description": "Base address of the model service, ending in v1. Leave empty for Anthropic and Google, which use their official address.",
             "maxLength": 512
           },
           {
@@ -659,7 +661,8 @@
               "low",
               "medium",
               "high"
-            ]
+            ],
+            "description": "Not available for Anthropic or Google chat models."
           },
           {
             "key": "chat.apiKey",
@@ -675,14 +678,16 @@
             "enum": [
               "openai",
               "llama-server",
-              "openrouter"
-            ]
+              "openrouter",
+              "google"
+            ],
+            "description": "Anthropic has no embeddings API: with Anthropic chat, pick another embedding provider."
           },
           {
             "key": "embedding.baseUrl",
             "label": "Embedding endpoint",
             "type": "url",
-            "description": "Base address of the model service, ending in v1.",
+            "description": "Base address of the model service, ending in v1. Leave empty for Anthropic and Google, which use their official address.",
             "maxLength": 512
           },
           {

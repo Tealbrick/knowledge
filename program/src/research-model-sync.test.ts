@@ -276,6 +276,34 @@ describe("Research model sync", () => {
     expect(researchBaseUrl("openai", "https://proxy.example/v1")).toBe("https://proxy.example/v1");
   });
 
+  it("maps Anthropic and Google onto Open Notebook providers without a stored base URL", async () => {
+    const engine = new FakeEngine();
+    const hosted = ModelSettingsSchema.parse({
+      chat: { provider: "anthropic", baseUrl: "https://api.anthropic.com", model: "claude-sonnet-5", apiKey: "fake-anthropic-key" },
+      embedding: { provider: "google", baseUrl: "https://generativelanguage.googleapis.com", model: "gemini-embedding-2", apiKey: "fake-google-key", dimensions: 768 },
+    });
+    expect(await syncer(engine).sync(hosted)).toEqual({ status: "configured" });
+    expect(engine.credentials.map(({ name, provider, base_url, modalities }) => ({ name, provider, base_url, modalities }))).toEqual([
+      { name: "tealbrick-knowledge-anthropic", provider: "anthropic", base_url: null, modalities: ["language"] },
+      { name: "tealbrick-knowledge-google", provider: "google", base_url: null, modalities: ["embedding"] },
+    ]);
+    expect(engine.models.map(({ name, provider, type }) => ({ name, provider, type }))).toEqual([
+      { name: "claude-sonnet-5", provider: "anthropic", type: "language" },
+      { name: "gemini-embedding-2", provider: "google", type: "embedding" },
+    ]);
+    expect(researchBaseUrl("anthropic", "https://api.anthropic.com")).toBeNull();
+    expect(researchBaseUrl("google", "https://generativelanguage.googleapis.com/v1beta")).toBeNull();
+    // Google serves chat and embedding with one credential carrying both modalities.
+    const google = ModelSettingsSchema.parse({
+      chat: { provider: "google", baseUrl: "https://generativelanguage.googleapis.com", model: "gemini-2.5-flash", apiKey: "fake-google-key" },
+      embedding: { provider: "google", baseUrl: "https://generativelanguage.googleapis.com", model: "gemini-embedding-2", apiKey: "fake-google-key", dimensions: 768 },
+    });
+    const second = new FakeEngine();
+    expect(await syncer(second).sync(google)).toEqual({ status: "configured" });
+    expect(second.credentials).toHaveLength(1);
+    expect(second.credentials[0]).toMatchObject({ provider: "google", modalities: ["embedding", "language"] });
+  });
+
   it("reports upstream failures by code only", async () => {
     const engine = new FakeEngine();
     engine.failPath = /^\/api\/credentials$/u;

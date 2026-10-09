@@ -18,6 +18,9 @@
 # edges), while the runner's `control.healthz` wants exactly the four standard
 # keys. When `control.healthz` is the ONLY failing check, the step prints it and
 # passes. Any other failing check, or a missing report, fails the step.
+labels:
+  platform: linux/amd64
+
 when:
   - event: pull_request
   - event: push

@@ -10,6 +10,9 @@
 # The registry host comes from the Woodpecker secret registry_host, not from this file:
 # this repo is public and committed files do not name internal hosts.
 
+labels:
+  platform: linux/amd64
+
 when:
   - event: push
     branch: main

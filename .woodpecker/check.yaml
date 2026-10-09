@@ -8,6 +8,9 @@
 # Not run in any pipeline: the source-build acceptance run (image build plus
 # agent-first API acceptance) and the os-backports image build. Those stay
 # release-time jobs on the CI host or on Railway.
+labels:
+  platform: linux/amd64
+
 when:
   - event: pull_request
   - event: push

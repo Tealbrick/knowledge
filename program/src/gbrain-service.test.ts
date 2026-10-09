@@ -1,15 +1,15 @@
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { GBrainServiceConnection, GBrainServiceError, deterministicRequestId, principalClientKey } from "./gbrain-service.js";
 
 const admin = "admin-token-fixture-0123456789abcdef0123";
 const dirs: string[] = [];
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => { vi.unstubAllGlobals(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
-function fixture(options: { unknownSource?: boolean; tokenStatus?: () => number } = {}) {
+function fixture(options: { unknownSource?: boolean; tokenStatus?: () => number; mcp?: (request: { id: string; params: { name: string; arguments: Record<string, unknown> } }) => Record<string, unknown> } = {}) {
   const dataDir = mkdtempSync(path.join(os.tmpdir(), "gbrain-service-"));
   dirs.push(dataDir);
   const calls: Array<{ path: string; body: string }> = [];
@@ -30,10 +30,14 @@ function fixture(options: { unknownSource?: boolean; tokenStatus?: () => number 
       minted++;
       return Response.json({ access_token: `token-${minted}`, token_type: "bearer", expires_in: 3600 });
     }
+    if (target.pathname === "/mcp" && options.mcp) {
+      const request = JSON.parse(String(init?.body));
+      return Response.json({ jsonrpc: "2.0", id: request.id, result: options.mcp(request) });
+    }
     return new Response("{}", { status: 404 });
   }) as typeof fetch;
   const connection = () => new GBrainServiceConnection({ baseUrl: "http://gbrain.internal:3131", adminToken: admin, dataDir, fetch: fetcher });
-  return { dataDir, calls, connection, counts: () => ({ registered, minted }) };
+  return { dataDir, calls, connection, fetcher, counts: () => ({ registered, minted }) };
 }
 
 describe("GBrain service connection", () => {
@@ -80,6 +84,28 @@ describe("GBrain service connection", () => {
     expect(() => new GBrainServiceConnection({ baseUrl: "http://user:pw@gbrain:3131", adminToken: admin, dataDir: "/tmp" })).toThrow();
     expect(() => new GBrainServiceConnection({ baseUrl: "http://gbrain:3131/mcp", adminToken: admin, dataDir: "/tmp" })).toThrow();
     expect(() => new GBrainServiceConnection({ baseUrl: "http://gbrain:3131", adminToken: "short", dataDir: "/tmp" })).toThrow();
+  });
+
+  it("replays a canonical page write with the same request id after write_outcome_unknown (v0.60.123+)", async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const f = fixture({ mcp: request => {
+      const text = (value: unknown) => ({ content: [{ type: "text", text: JSON.stringify(value) }] });
+      if (request.params.name === "get_page") return { ...text({ error: "page_not_found", message: "missing" }), isError: true };
+      writes.push(request.params.arguments);
+      return writes.length === 1
+        ? { ...text({ error: "write_outcome_unknown", reason: "connection_lost", fix: { mcp: { tool: "get_write_request" } } }), isError: true }
+        : text({ status: "created", slug: request.params.arguments.slug });
+    } });
+    // MCP tool calls use the global fetch (bounded streaming transport).
+    vi.stubGlobal("fetch", f.fetcher);
+    expect(await f.connection().putCanonicalPage("kb-aaaaaaaaaaaaaaaaaaaaaaaa", "knowledge-docs/1", "body")).toMatchObject({ status: "created" });
+    expect(writes).toHaveLength(2);
+    // Same intent, same request id: upstream reads the retained request instead of admitting twice.
+    expect(writes[1]).toEqual(writes[0]);
+    // Canonical projections may drop a removed Timeline section (upstream v0.60.105+ refuses that otherwise).
+    expect(writes[0]).toMatchObject({ slug: "knowledge-docs/1", content: "body", drop_timeline: true });
+    expect(writes[0]!.request_id).toBe(deterministicRequestId("put_page", "kb-aaaaaaaaaaaaaaaaaaaaaaaa", "knowledge-docs/1",
+      "230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5", "create"));
   });
 
   it("derives stable UUID-shaped request ids that differ by intent", () => {

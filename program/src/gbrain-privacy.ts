@@ -1,6 +1,6 @@
 /**
  * Knowledge-side enforcement of the GBrain privacy fixes that unmodified upstream
- * (v0.60.57.0) does not yet carry. Applied to every result a separate GBrain service
+ * (v0.60.127.0) does not yet carry, or carries only partly (A1, A6, A9, A13). Applied to every result a separate GBrain service
  * returns, before it leaves Knowledge. Each rule fails closed: when Knowledge cannot
  * prove a value is world-visible inside the caller's source, it is withheld.
  *
@@ -11,6 +11,7 @@
  *   A6       pending_consolidation_count is withheld (it counts private facts too).
  *   A7       every facts/takes privacy fence is stripped from returned text; nested,
  *            overlapping or unclosed fences drop everything they could contain.
+ *            Upstream has its own strip since v0.60.58; this stays as defence in depth.
  *   A9       link/graph rows naming another source are dropped.
  *   A13      entity-card open_loops are withheld (evidence visibility is not provable here).
  */

@@ -45,7 +45,7 @@ export async function startFakeHindsight({ apiKey, version = '0.10.2' }) {
 }
 
 /** Fake `gbrain serve --http` (admin API, client_credentials, stateless MCP). */
-export async function startFakeGBrainService({ adminToken, tools, version = '0.60.57.0' }) {
+export async function startFakeGBrainService({ adminToken, tools, version = '0.60.127.0' }) {
   const calls = [];
   const clients = new Map();
   const tokens = new Map();

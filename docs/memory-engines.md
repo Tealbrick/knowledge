@@ -36,7 +36,7 @@ fail if any upstream operation is unaccounted for or unreachable.
 
 | Engine | Pin | Upstream | Exposed (read/write) | Excluded |
 |---|---|---:|---:|---:|
-| GBrain service | v0.60.57.0 | 156 | 88 (63/25) | 68 |
+| GBrain service | v0.60.127.0 | 161 | 89 (64/25) | 72 |
 | Hindsight service | v0.10.2 | 99 | 80 (46/34) | 19 |
 
 The embedded managed GBrain worker (vendored v0.48.2, the default topology)

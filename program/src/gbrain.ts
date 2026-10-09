@@ -1003,6 +1003,10 @@ export function gbrainServiceArgumentRefusal(operation: string, args: Record<str
   if (Object.hasOwn(args, "source_id") || Object.hasOwn(args, "source_ids")) return "source_id is selected by Knowledge";
   // Private facts are unreachable for every service caller; refuse to create write-only memory.
   if (["remember", "extract_facts", "ontology_propose"].includes(operation) && args.visibility === "private") return "Private visibility is not available through Knowledge; partition memory is shared within its Knowledge partition";
+  // remember.items (v0.60.77+) carries per-item visibility.
+  if (operation === "remember" && Array.isArray(args.items) && args.items.some(item => item !== null && typeof item === "object" && (item as Record<string, unknown>).visibility === "private")) {
+    return "Private visibility is not available through Knowledge; partition memory is shared within its Knowledge partition";
+  }
   if (operation === "capture" && Object.hasOwn(args, "local_file")) return "local_file reads the GBrain host filesystem and is not delegated";
   if (operation === "extract_entities" && args.trusted_extraction === true) return "trusted_extraction bypasses upstream review and is not delegated";
   // Host files: upstream loadImageInput reads paths and file:// URLs from the GBrain host.

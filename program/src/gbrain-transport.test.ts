@@ -57,6 +57,53 @@ describe("GBrain MCP compatibility", () => {
     await fixture(async (url) => { expect(await call(url)).toEqual(result); }, (res, id) => json(res, { jsonrpc: "2.0", id, result }));
   });
 
+  it("reads content[0] as the result when upstream appends notice or evidence blocks (v0.60.68+)", async () => {
+    // Shape of upstream toolResultWithNotices on an upgraded brain: the JSON result stays
+    // content[0]; the one-time behavior_changes notice and retrieval evidence are extra text blocks.
+    const notice = "[gbrain notice behavior_changes kind=info]\nwhy: This brain was upgraded; these behaviors are now on.";
+    const page = { slug: "people/henry", revision: "r1", content: "Henry" };
+    for (const content of [
+      [{ type: "text", text: JSON.stringify(page) }, { type: "text", text: notice }],
+      [{ type: "text", text: JSON.stringify(page) }, { type: "text", text: "Other names: Hank" }, { type: "text", text: notice }],
+      // Defensive: a notice block in front of the result is skipped too.
+      [{ type: "text", text: notice }, { type: "text", text: JSON.stringify(page) }],
+    ]) {
+      let meta: Record<string, unknown> | undefined;
+      await fixture(async (url) => {
+        expect(await callGBrainTool({ baseUrl: url, token: "disposable-test-token", name: "get_page", args: { slug: "people/henry" }, timeoutMs: 1000, onMeta: m => { meta = m; } })).toEqual(page);
+      }, (res, id) => json(res, { jsonrpc: "2.0", id, result: { content, _meta: { gbrain_notices: [{ code: "behavior_changes" }] } } }));
+      expect(meta).toEqual({ gbrain_notices: [{ code: "behavior_changes" }] });
+    }
+  });
+
+  it("resolves revision-aware page writes on an upgraded brain whose first reply carries a notice block", async () => {
+    const notice = "[gbrain notice behavior_changes kind=info]\nwhy: upgraded";
+    const sent: Array<{ name: string; args: Record<string, unknown> }> = [];
+    let first = true;
+    await fixture(async (url) => {
+      const { GBrainServiceConnection } = await import("./gbrain-service.js");
+      const fetcher: typeof fetch = async (input, init) => {
+        const target = String(input);
+        if (target.endsWith("/admin/login")) return new Response("{}", { status: 200, headers: { "set-cookie": "gbrain_admin=fixture; Path=/" } });
+        if (target.endsWith("/admin/api/register-client")) return Response.json({ clientId: "c1", clientSecret: "s1" });
+        if (target.endsWith("/token")) return Response.json({ access_token: "disposable-test-token", expires_in: 3600 });
+        return fetch(input, init);
+      };
+      const dataDir = (await import("node:fs")).mkdtempSync((await import("node:path")).join((await import("node:os")).tmpdir(), "gbrain-notice-"));
+      const service = new GBrainServiceConnection({ baseUrl: url, adminToken: "fixture-admin-token-0123456789abcdef0123", dataDir, fetch: fetcher });
+      await service.putCanonicalPage("kb-0123456789abcdef01234567", "knowledge-docs/doc-1", "body");
+      // The existing revision was read despite the notice block, so the write is an update, not a create.
+      expect(sent.find(call => call.name === "put_page")?.args.expected_revision).toBe("r7");
+    }, (res, id, args) => {
+      const name = sent.length === 0 || !Object.hasOwn(args, "content") ? "get_page" : "put_page";
+      sent.push({ name, args });
+      const body = name === "get_page" ? { slug: "knowledge-docs/doc-1", revision: "r7" } : { status: "updated" };
+      const content: Array<{ type: string; text: string }> = [{ type: "text", text: JSON.stringify(body) }];
+      if (first) { content.push({ type: "text", text: notice }); first = false; }
+      json(res, { jsonrpc: "2.0", id, result: { content } });
+    });
+  });
+
   it("preserves retrieval degradation instead of claiming a clean semantic result", async () => {
     await fixture(async url => {
       const runtime = new GBrainRuntime(loadConfig({ environment: "test", config: { gbrainBaseUrl: url, gbrainToken: "disposable-test-token" } }));

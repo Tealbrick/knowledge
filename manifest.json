@@ -1,6 +1,6 @@
 {
   "id": "knowledge",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "contract": {
     "status": "legacy-descriptor",
     "authoritative": "tealbrick.app.json",

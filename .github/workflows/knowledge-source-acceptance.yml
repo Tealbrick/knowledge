@@ -6,7 +6,7 @@ on:
       source_ref:
         description: Immutable Knowledge source tag to build
         required: true
-        default: release-knowledge-v0.5.0
+        default: release-knowledge-v0.5.1
 
 permissions:
   contents: read
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      SOURCE_REF: ${{ inputs.source_ref || 'release-knowledge-v0.5.0' }}
+      SOURCE_REF: ${{ inputs.source_ref || 'release-knowledge-v0.5.1' }}
       KNOWLEDGE_IMAGE: knowledge:source-${{ github.sha }}
       KNOWLEDGE_BUILD_MODE: source-build
       KNOWLEDGE_REGISTRY_ACCESS: public-source-repository
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           path: source
-          ref: ${{ inputs.source_ref || 'release-knowledge-v0.5.0' }}
+          ref: ${{ inputs.source_ref || 'release-knowledge-v0.5.1' }}
           fetch-depth: 0
           persist-credentials: false
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1

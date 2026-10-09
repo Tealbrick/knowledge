@@ -3,10 +3,10 @@
   "sourceOfTruth": "public Knowledge deployment and distribution settings",
   "sourceBuild": {
     "repository": "https://github.com/Tealbrick/knowledge",
-    "ref": "release-knowledge-v0.5.0",
+    "ref": "release-knowledge-v0.5.1",
     "refType": "branch",
-    "releaseTag": "v0.5.0",
-    "resolvedSourceSha": "e5286628f66578b4d8ff0e0d27da710e6ed1115a",
+    "releaseTag": "v0.5.1",
+    "resolvedSourceSha": "11361dbd5c2ccd2a78f886ee4c09f5d2815a1578",
     "rootDirectory": "/",
     "dockerfilePath": "deploy/container/Dockerfile",
     "branchProtection": {
@@ -172,10 +172,10 @@
     ],
     "sourceBuild": {
       "repository": "https://github.com/Tealbrick/knowledge",
-      "ref": "release-knowledge-v0.5.0",
+      "ref": "release-knowledge-v0.5.1",
       "refType": "branch",
-      "releaseTag": "v0.5.0",
-      "resolvedSourceSha": "e5286628f66578b4d8ff0e0d27da710e6ed1115a",
+      "releaseTag": "v0.5.1",
+      "resolvedSourceSha": "11361dbd5c2ccd2a78f886ee4c09f5d2815a1578",
       "rootDirectory": "/",
       "dockerfilePath": "deploy/container/Dockerfile",
       "branchProtection": {
@@ -216,7 +216,7 @@
     "architecture": "linux/amd64",
     "projectPolicy": "one customer workspace per dedicated project environment and three volumes",
     "requiredInputs": {
-      "knowledgeSource": "Public GitHub source at immutable tag v0.5.0, resolved to commit e5286628f66578b4d8ff0e0d27da710e6ed1115a",
+      "knowledgeSource": "Public GitHub source at immutable tag v0.5.1, resolved to commit 11361dbd5c2ccd2a78f886ee4c09f5d2815a1578",
       "TEALBRICK_PORTAL_URL": "Exact trusted Portal HTTPS origin",
       "TEALBRICK_DEPLOYMENT_ID": "Existing server-issued Teal Brick deployment ID, not RAILWAY_DEPLOYMENT_ID",
       "KNOWLEDGE_COMPANY_ID": "Existing server-bound workspace ID; never generated from browser labels",
@@ -292,12 +292,12 @@
         "name": "Knowledge",
         "source": {
           "repository": "https://github.com/Tealbrick/knowledge",
-          "ref": "release-knowledge-v0.5.0",
+          "ref": "release-knowledge-v0.5.1",
           "refType": "branch",
-          "releaseTag": "v0.5.0",
+          "releaseTag": "v0.5.1",
           "rootDirectory": "/",
           "dockerfilePath": "deploy/container/Dockerfile",
-          "resolvedSourceSha": "e5286628f66578b4d8ff0e0d27da710e6ed1115a",
+          "resolvedSourceSha": "11361dbd5c2ccd2a78f886ee4c09f5d2815a1578",
           "branchProtection": {
             "provider": "github",
             "requiredPullRequestReviews": 1,

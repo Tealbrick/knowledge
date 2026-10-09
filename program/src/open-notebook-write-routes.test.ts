@@ -270,7 +270,7 @@ describe("Open Notebook text-source write routes", () => {
     const readOnly = await app.inject({ method: "POST", url: writeUrl(), headers: { ...auth(readOnlyPrincipal.token), "idempotency-key": "scope-read-only" }, payload: payload() });
     expect(readOnly.statusCode).toBe(403);
     const otherCompany = await app.inject({ method: "POST", url: writeUrl(), headers: { ...auth(otherCompanyPrincipal.token), "idempotency-key": "scope-company" }, payload: payload() });
-    expect(otherCompany.statusCode).toBe(403);
+    expect(otherCompany.statusCode).toBe(404);
     expect(state.createCalls.count).toBe(0);
   });
 

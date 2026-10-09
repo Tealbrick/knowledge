@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createAppGrantAuthority } from "./app-grants.js";
 import { createContractAudit } from "./audit.js";
 import { loadKnowledgeManifest } from "./manifest.js";
+import { KIT_READ_PARTITIONS } from "./read-partitions.js";
 import { PORTAL, fakePortalFetch, grantToken, type FakeGrant } from "./test-support.js";
 
 const manifest = loadKnowledgeManifest();
@@ -166,5 +167,46 @@ describe("Portal app grants (tbag_) on Knowledge", () => {
       { kind: "grant", operation: "knowledge.collections.create", actor: "tealbrick-agent:agent-a", partition_key: null, outcome: "denied", code: "operation_not_granted" },
     ]);
     expect(JSON.stringify(rows)).not.toContain("tbag_");
+  });
+
+  it(`contract 2: binds the read set (kit ${KIT_READ_PARTITIONS ? "0.1.0-alpha.5+" : "0.1.0-alpha.4 with the local mirror"}); [write] alone is contract 1`, async () => {
+    const { authority } = setup({
+      [grantToken("r")]: { actions: ALL, agentId: "agent-r", extra: { partitionKey: "alpha", readPartitionKeys: ["alpha", "beta", null] } },
+      [grantToken("w")]: { actions: ALL, agentId: "agent-w", extra: { partitionKey: "beta", readPartitionKeys: ["beta"] } },
+      [grantToken("c")]: { actions: ALL, agentId: "agent-c", extra: { partitionKey: "beta" } },
+      [grantToken("n")]: { actions: ALL, agentId: "agent-n", extra: { partitionKey: null, readPartitionKeys: [null, "beta"] } },
+    });
+    const wide = await authority.admit(list("r"));
+    expect(wide.ok && wide.admitted).toMatchObject({ partitionKey: "alpha", readPartitionKeys: ["alpha", "beta", null] });
+    const narrow = await authority.admit(list("w"));
+    const contract1 = await authority.admit(list("c"));
+    if (!narrow.ok || !contract1.ok) throw new Error("expected both grants to be admitted");
+    expect("readPartitionKeys" in narrow.admitted).toBe(false);
+    const shape = ({ grant: _grant, auditId: _auditId, expiresAt: _expiresAt, agentId: _agentId, ...rest }: typeof narrow.admitted) => rest;
+    expect(shape(narrow.admitted)).toEqual(shape(contract1.admitted));
+    const defaultWrite = await authority.admit(list("n"));
+    expect(defaultWrite.ok && defaultWrite.admitted).toMatchObject({ partitionKey: null, readPartitionKeys: [null, "beta"] });
+    // The live recheck keeps the same read set; a changed one is a changed edge.
+    if (!wide.ok) throw new Error("expected the wide grant to be admitted");
+    expect(await authority.recheck({ headers: bearer("r") }, wide.admitted)).not.toBeNull();
+    expect(await authority.recheck({ headers: bearer("w") }, wide.admitted)).toBeNull();
+  });
+
+  it("contract 2: refuses a read set without the write key, with a bad key, duplicates or too many entries", async () => {
+    const grants: Record<string, FakeGrant> = {
+      [grantToken("m")]: { actions: ALL, extra: { partitionKey: "alpha", readPartitionKeys: ["beta"] } },
+      [grantToken("u")]: { actions: ALL, extra: { partitionKey: "alpha", readPartitionKeys: ["alpha", "Beta"] } },
+      [grantToken("d")]: { actions: ALL, extra: { partitionKey: "alpha", readPartitionKeys: ["alpha", "default"] } },
+      [grantToken("x")]: { actions: ALL, extra: { partitionKey: "alpha", readPartitionKeys: ["alpha", "alpha"] } },
+      [grantToken("e")]: { actions: ALL, extra: { partitionKey: "alpha", readPartitionKeys: [] } },
+      [grantToken("t")]: { actions: ALL, extra: { partitionKey: "alpha", readPartitionKeys: ["alpha", ...Array.from({ length: 64 }, (_, i) => `k${i}`)] } },
+      [grantToken("s")]: { actions: ALL, extra: { partitionKey: "alpha", readPartitionKeys: "alpha" } },
+    };
+    const { authority } = setup(grants);
+    for (const letter of ["m", "u", "d", "x", "e", "t", "s"]) {
+      const denied = await authority.admit(list(letter));
+      expect(denied.ok, letter).toBe(false);
+      expect(denied.ok ? 0 : denied.status, letter).toBeGreaterThanOrEqual(401);
+    }
   });
 });

@@ -80,8 +80,9 @@ test('per-edge partitions isolate every attachment and runtime route family on t
   assert.ok(ready, error);
   // Rollout gate: the public health probe Portal reads advertises the claim contract.
   const health = await (await fetch(`${base}/healthz`)).json();
-  assert.equal(health.partitionContract, 1);
+  assert.equal(health.partitionContract, 2);
   assert.equal(health.capabilities.edgePartitions, true);
+  assert.equal(health.capabilities.readPartitions, true);
 
   const admin = { 'x-knowledge-instance-token': instanceToken, 'content-type': 'application/json' };
   const as = attachment => ({ authorization: `Bearer ${attachment}`, 'x-tealbrick-agent-token': 'fixture-agent-token', 'content-type': 'application/json' });
@@ -124,8 +125,12 @@ test('per-edge partitions isolate every attachment and runtime route family on t
     ['default-attachment', `/api/companies/${encodeURIComponent(personal)}/knowledge/search?q=secret`, 'GET'],
   ]) {
     const response = await fetch(`${base}${path}`, { method, headers: as(who), ...(body ? { body: JSON.stringify(body) } : {}) });
-    assert.equal(response.status, 401, `${who} ${method} ${path}`);
-    assert.doesNotMatch(await response.text(), /only/);
+    // By id: uniform not-found (an id of another partition looks absent); by a foreign partition path: refused.
+    const byId = !path.startsWith('/api/companies/');
+    assert.equal(response.status, byId ? 404 : 401, `${who} ${method} ${path}`);
+    const text = await response.text();
+    assert.doesNotMatch(text, /only/);
+    if (byId) assert.deepEqual(JSON.parse(text), { error: 'not_found' });
   }
 
   // A malformed or reserved claim fails closed on every family; it never reaches the default partition.
@@ -187,8 +192,8 @@ test('per-edge partitions isolate every attachment and runtime route family on t
   assert.equal(runtimeListed.status, 200);
   assert.ok((await runtimeListed.json()).some(c => c.id === mine.id));
   assert.equal((await get(`/api/knowledge/documents/${note.id}`, runtimeAs(grant('p')))).status, 200);
-  assert.equal((await get(`/api/knowledge/documents/${secret.id}`, runtimeAs(grant('p')))).status, 403);
-  assert.equal((await get(`/api/knowledge/documents/${note.id}`, runtimeAs(grant('d')))).status, 403);
+  assert.equal((await get(`/api/knowledge/documents/${secret.id}`, runtimeAs(grant('p')))).status, 404);
+  assert.equal((await get(`/api/knowledge/documents/${note.id}`, runtimeAs(grant('d')))).status, 404);
   assert.equal((await get(`/api/knowledge/documents/${secret.id}`, runtimeAs(grant('d')))).status, 200);
   assert.equal((await get(`/api/companies/${company}/knowledge/collections`, runtimeAs(grant('x')))).status, 401, 'a malformed runtime claim denies');
   mark = banks().length;

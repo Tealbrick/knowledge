@@ -31,6 +31,13 @@ deployment engine's operations (GBrain or Hindsight) and current grants; pass
 `bank_id`, identity, or `remote` as arguments. Native `think` takes
 `arguments.question`.
 
+An edge can have a read set (partitions contract 2): reads (lists, search,
+documents by id, Research reads, Brain recall/context/entities and native
+lookups) then cover every partition you may read, merged, while every write
+still goes to your own partition. Name the workspace for your whole view, or
+`workspace/key` for one read partition; `GET /api/knowledge/partitions` lists
+them. An id outside them answers 404 `not_found`, exactly like a missing id.
+
 Use remember/recall/entity/synthesize/forget/context_pack/delta (GBrain) or
 retain_memories/recall_memories/reflect (Hindsight) according to the native
 catalog. Every write needs a stable `idempotencyKey`.

@@ -26,7 +26,7 @@
     },
     "port": 5310,
     "partitions": {
-      "contract": 1
+      "contract": 2
     },
     "volume": {
       "path": "/data",
@@ -113,7 +113,7 @@
       "effects": "read-only",
       "idempotency": "none",
       "review": "none",
-      "summary": "List the collections of the bound partition."
+      "summary": "List the collections the grant may read: its write partition and, with a read set, every partition of the read set."
     },
     {
       "id": "knowledge.collections.create",
@@ -126,7 +126,19 @@
       "effects": "writes-app-state",
       "idempotency": "required",
       "review": "allowed",
-      "summary": "Create a collection in the bound partition."
+      "summary": "Create a collection in the write partition."
+    },
+    {
+      "id": "knowledge.collections.get",
+      "crud": [
+        "read"
+      ],
+      "method": "GET",
+      "path": "/api/knowledge/collections/{collectionId}",
+      "effects": "read-only",
+      "idempotency": "none",
+      "review": "none",
+      "summary": "Read one collection of a partition the grant may read."
     },
     {
       "id": "knowledge.documents.search",
@@ -138,7 +150,7 @@
       "effects": "read-only",
       "idempotency": "none",
       "review": "none",
-      "summary": "Search canonical documents of the bound partition (query parameter q)."
+      "summary": "Search canonical documents the grant may read (query parameter q): the write partition and, with a read set, every partition of the read set."
     },
     {
       "id": "knowledge.documents.create",
@@ -151,7 +163,7 @@
       "effects": "writes-app-state",
       "idempotency": "required",
       "review": "allowed",
-      "summary": "Create a document in a collection of the bound partition."
+      "summary": "Create a document in a collection of the write partition."
     },
     {
       "id": "knowledge.documents.get",
@@ -163,7 +175,7 @@
       "effects": "read-only",
       "idempotency": "none",
       "review": "none",
-      "summary": "Read one document of the bound partition."
+      "summary": "Read one document of a partition the grant may read."
     },
     {
       "id": "knowledge.brain.context",
@@ -201,7 +213,7 @@
       "effects": "read-only",
       "idempotency": "none",
       "review": "none",
-      "summary": "List or read Brain entities of the bound partition."
+      "summary": "List or read Brain entities of the partitions the grant may read."
     },
     {
       "id": "knowledge.engine.tools",
@@ -226,7 +238,7 @@
       "effects": "read-only",
       "idempotency": "none",
       "review": "none",
-      "summary": "Call a read-scoped operation of the selected memory engine in the bound partition."
+      "summary": "Call a read-scoped operation of the selected memory engine in a partition the grant may read."
     },
     {
       "id": "knowledge.engine.write",
@@ -241,7 +253,7 @@
       "effects": "writes-app-state",
       "idempotency": "required",
       "review": "allowed",
-      "summary": "Call a write-scoped operation of the selected memory engine in the bound partition. Needs create, update and delete because the engine write surface spans all three."
+      "summary": "Call a write-scoped operation of the selected memory engine in the write partition. Needs create, update and delete because the engine write surface spans all three."
     },
     {
       "id": "knowledge.research-notebooks.list",
@@ -253,7 +265,7 @@
       "effects": "read-only",
       "idempotency": "none",
       "review": "none",
-      "summary": "List the research notebooks bound to this partition."
+      "summary": "List the research notebooks of the partitions the grant may read."
     },
     {
       "id": "knowledge.research-notebooks.get",
@@ -414,7 +426,7 @@
       "effects": "writes-app-state",
       "idempotency": "none",
       "review": "allowed",
-      "summary": "Edit a document of the bound partition."
+      "summary": "Edit a document of the write partition."
     },
     {
       "id": "knowledge.documents.delete",
@@ -426,7 +438,7 @@
       "effects": "writes-app-state",
       "idempotency": "none",
       "review": "allowed",
-      "summary": "Delete a document of the bound partition."
+      "summary": "Delete a document of the write partition."
     },
     {
       "id": "knowledge.documents.access-update",

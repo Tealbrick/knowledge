@@ -32,6 +32,36 @@ export function edgePartitionClaim(data) {
   return typeof key === 'string' && EDGE_PARTITION_KEY.test(key) && key !== 'default' ? {ok:true, partitionKey:key} : {ok:false};
 }
 
+/**
+ * Contract 2 read set (`readPartitionKeys`) of an attachment or app-grant answer, relative to its write key
+ * (`partitionKey`, absent = null = the workspace default). Absent = contract 1 (`readPartitionKeys: undefined`).
+ * Present, it must hold 1..64 unique entries, each null or an edge key, and contain the write key; anything else
+ * fails closed. A set that is exactly the write key is the contract 1 grant (`undefined`): same path, same answers.
+ */
+export const MAX_READ_PARTITIONS = 64;
+export function edgeReadPartitionsClaim(data) {
+  const write = edgePartitionClaim(data);
+  if (!write.ok) return {ok:false};
+  if (!Object.prototype.hasOwnProperty.call(data, 'readPartitionKeys')) return {ok:true, partitionKey:write.partitionKey, readPartitionKeys:undefined};
+  const list = data.readPartitionKeys;
+  if (!Array.isArray(list) || list.length < 1 || list.length > MAX_READ_PARTITIONS || new Set(list).size !== list.length) return {ok:false};
+  if (list.some(key => key !== null && !(typeof key === 'string' && EDGE_PARTITION_KEY.test(key) && key !== 'default'))) return {ok:false};
+  if (!list.includes(write.partitionKey)) return {ok:false};
+  return {ok:true, partitionKey:write.partitionKey, readPartitionKeys: list.length === 1 ? undefined : Object.freeze([...list])};
+}
+/** Same write key and the same read set (as a set) in two answers of one request. */
+export function sameEdgeScope(left, right) {
+  const a = edgeReadPartitionsClaim(left), b = edgeReadPartitionsClaim(right);
+  if (!a.ok || !b.ok || a.partitionKey !== b.partitionKey) return false;
+  if (a.readPartitionKeys === undefined || b.readPartitionKeys === undefined) return a.readPartitionKeys === b.readPartitionKeys;
+  return a.readPartitionKeys.length === b.readPartitionKeys.length && a.readPartitionKeys.every(key => b.readPartitionKeys.includes(key));
+}
+/** The effective partitions of a read set (`workspace` for null, else `workspace/key`), lower-case. */
+export function effectiveReadPartitions(companyId, readPartitionKeys) {
+  const base = companyId.trim().toLowerCase();
+  return readPartitionKeys.map(key => key === null ? base : `${base}/${key}`);
+}
+
 /** `workspace/key`: a candidate edge-partition child of the bound workspace (confirmed after introspection). */
 function partitionChildReference(reference, companyId) {
   const base = companyId.trim().toLowerCase(), value = reference.trim().toLowerCase();
@@ -61,6 +91,8 @@ export function attachmentRoute(method, rawUrl, companyId, options = {}) {
   }
   const collection = /^\/api\/knowledge\/collections\/([^/]+)\/documents$/u.exec(path);
   if (collection && method === 'POST') return {capability:'knowledge:documents:write', collectionId:decodeURIComponent(collection[1]),bodyKind:'document'};
+  const collectionItem = /^\/api\/knowledge\/collections\/([^/]+)$/u.exec(path);
+  if (collectionItem && method === 'GET') return {capability:'knowledge:documents:read', collectionId:decodeURIComponent(collectionItem[1])};
   const document = /^\/api\/knowledge\/documents\/([^/]+)$/u.exec(path);
   if (document && method === 'GET') return {capability:'knowledge:documents:read', documentId:decodeURIComponent(document[1])};
   if (path.startsWith('/api/brain/native/')) return nativeAttachmentRoute(method, path, options.nativeOperationPolicy);
@@ -135,7 +167,7 @@ export async function introspectAttachment(config, headers, capability) {
       data.companyId!==config.companyId || data.capability!==capability ||
       data.orgId!==config.portalOrgId ||
       typeof data.orgId!=='string' || !data.orgId || typeof data.agentId!=='string' || !data.agentId ||
-      !Number.isFinite(expiry) || expiry<=Date.now() || !edgePartitionClaim(data).ok) return null;
+      !Number.isFinite(expiry) || expiry<=Date.now() || !edgeReadPartitionsClaim(data).ok) return null;
     return data;
   } catch { return null; }
 }

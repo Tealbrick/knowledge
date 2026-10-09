@@ -158,7 +158,7 @@ describe("Open Notebook Knowledge routes", () => {
     openApps.push(fixture.app);
     const endpoint = "/api/research/notebooks/notebook:alpha/engine/context";
     expect((await fixture.app.inject({ url: endpoint })).statusCode).toBe(401);
-    expect((await fixture.app.inject({ url: endpoint, headers: bearer(betaPrincipal.token) })).statusCode).toBe(403);
+    expect((await fixture.app.inject({ url: endpoint, headers: bearer(betaPrincipal.token) })).statusCode).toBe(404);
     for (const query of ["sourceId=source:beta", "notebook_id=notebook:beta", "context_config=forged", "companyId=company-beta"]) {
       expect((await fixture.app.inject({ url: `${endpoint}?${query}`, headers: bearer(alphaPrincipal.token) })).statusCode).toBe(400);
     }
@@ -179,8 +179,8 @@ describe("Open Notebook Knowledge routes", () => {
     } });
     openApps.push(fixture.app);
     const response = await fixture.app.inject({ url: "/api/research/notebooks/notebook:alpha/engine/context", headers: bearer(alphaPrincipal.token) });
-    expect(response.statusCode).toBe(403);
-    expect(response.json()).toEqual({ error: "notebook_scope_denied" });
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "not_found" });
   });
 
   it.each([
@@ -246,7 +246,7 @@ describe("Open Notebook Knowledge routes", () => {
     const endpoint = "/api/research/notebooks/notebook:alpha/engine/notes/note:alpha";
 
     expect((await fixture.app.inject({ method: "GET", url: endpoint })).statusCode).toBe(401);
-    expect((await fixture.app.inject({ method: "GET", url: endpoint, headers: bearer(betaPrincipal.token) })).statusCode).toBe(403);
+    expect((await fixture.app.inject({ method: "GET", url: endpoint, headers: bearer(betaPrincipal.token) })).statusCode).toBe(404);
     expect((await fixture.app.inject({ method: "GET", url: `${endpoint}?notebookId=notebook:beta`, headers: bearer(alphaPrincipal.token) })).statusCode).toBe(400);
     expect((await fixture.app.inject({
       method: "GET",
@@ -272,7 +272,7 @@ describe("Open Notebook Knowledge routes", () => {
 
     const ownerChanged = await buildApp({ resolveNotebookCompany: () => "company-other" });
     openApps.push(ownerChanged.app);
-    expect((await ownerChanged.app.inject({ method: "GET", url: endpoint, headers: bearer(alphaPrincipal.token) })).statusCode).toBe(403);
+    expect((await ownerChanged.app.inject({ method: "GET", url: endpoint, headers: bearer(alphaPrincipal.token) })).statusCode).toBe(404);
     expect(ownerChanged.calls).toEqual([]);
   });
 
@@ -294,8 +294,8 @@ describe("Open Notebook Knowledge routes", () => {
       url: "/api/research/notebooks/notebook:alpha/engine/notes/note:alpha",
       headers: bearer(alphaPrincipal.token),
     });
-    expect(response.statusCode).toBe(403);
-    expect(response.json()).toEqual({ error: "notebook_scope_denied" });
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "not_found" });
     expect(response.body).not.toContain(note.content!);
   });
 
@@ -343,7 +343,7 @@ describe("Open Notebook Knowledge routes", () => {
 
     const response = await app.inject({ method: "GET", url: "/api/research/notebooks/notebook:alpha/engine", headers: bearer(alphaPrincipal.token) });
     expect(response.statusCode).toBe(404);
-    expect(response.json()).toEqual({ error: "notebook_not_found" });
+    expect(response.json()).toEqual({ error: "not_found" });
     expect(calls).toEqual([]);
   });
 
@@ -377,9 +377,9 @@ describe("Open Notebook Knowledge routes", () => {
   it.each([
     ["missing bearer", "/api/research/notebooks/notebook:alpha/engine", {}, 401, "authentication_required"],
     ["unknown bearer", "/api/research/notebooks/notebook:alpha/engine", bearer("revoked-or-unknown"), 401, "authentication_required"],
-    ["missing object", "/api/research/notebooks/notebook:missing/engine", bearer(alphaPrincipal.token), 404, "notebook_not_found"],
-    ["cross-company principal", "/api/research/notebooks/notebook:alpha/engine", bearer(betaPrincipal.token), 403, "notebook_scope_denied"],
-    ["current owner changed", "/api/research/notebooks/notebook:alpha/engine", bearer(alphaPrincipal.token), 403, "notebook_scope_denied"],
+    ["missing object", "/api/research/notebooks/notebook:missing/engine", bearer(alphaPrincipal.token), 404, "not_found"],
+    ["cross-company principal", "/api/research/notebooks/notebook:alpha/engine", bearer(betaPrincipal.token), 404, "not_found"],
+    ["current owner changed", "/api/research/notebooks/notebook:alpha/engine", bearer(alphaPrincipal.token), 404, "not_found"],
     ["insufficient capability", "/api/research/notebooks/notebook:alpha/engine", bearer("no-research-capability"), 403, "insufficient_capability"],
   ] as const)("rejects %s before any upstream call", async (label, url, headers, statusCode, error) => {
     const fixture = await buildApp({

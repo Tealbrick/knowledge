@@ -89,10 +89,13 @@ it("denies foreign objects, conflicting/parent scopes, forged tokens and reposit
     for (const method of ["GET", "PATCH", "DELETE"] as const) {
       const r = await app.inject({ method, url: `/api/knowledge/documents/${foreign.id}`, headers: agentHeaders,
         ...(method === "PATCH" ? { payload: { title: "Forged" } } : {}) });
-      expect(r.statusCode).toBe(403);
+      // Uniform not-found: a foreign ID answers exactly like a missing one.
+      expect(r.statusCode).toBe(404);
+      expect(r.json()).toEqual({ error: "not_found" });
     }
-    for (const payload of [{ title: "Bad parent", parentDocumentId: foreign.id }, { title: "Bad scope", companyId: "fixture-b" }]) {
-      expect((await app.inject({ method: "POST", url: `/api/knowledge/collections/${collections[0].id}/documents`, headers: agentHeaders, payload })).statusCode).toBe(400);
+    // A foreign parent ID is hidden like a missing one; a foreign scope selector conflicts with the collection (400).
+    for (const [payload, status] of [[{ title: "Bad parent", parentDocumentId: foreign.id }, 404], [{ title: "Bad scope", companyId: "fixture-b" }, 400]] as const) {
+      expect((await app.inject({ method: "POST", url: `/api/knowledge/collections/${collections[0].id}/documents`, headers: agentHeaders, payload })).statusCode).toBe(status);
     }
     expect((await app.inject({ method: "GET", url: "/api/companies/fixture-a/knowledge/collections", headers: { authorization: "Bearer forged" } })).statusCode).toBe(401);
     expect((await app.inject({ method: "POST", url: "/api/companies/fixture-a/knowledge/collections", headers: agentHeaders,

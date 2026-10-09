@@ -10,8 +10,9 @@ import {
   type OperationAuditEvent,
 } from "@tealbrick/contract";
 
-import { parseEdgePartitionClaim } from "../partition-authority.js";
+import { parseEdgePartitionClaim, parseReadPartitionKeys } from "../partition-authority.js";
 import type { ContractAudit } from "./audit.js";
+import { effectiveReadPartitions, grantReadPartitionKeys, readSetIntrospection, samePartitionSet, type ReadPartitionKeys, type ReadSetIntrospection } from "./read-partitions.js";
 
 /**
  * Agent access with Portal app grants (`tbag_`), verified by the contract kit.
@@ -25,6 +26,10 @@ import type { ContractAudit } from "./audit.js";
  *   `partitionKey` as `GrantResult.partitionKey` (string, explicit `null`, or absent as `undefined`; manifest
  *   `runtime.partitions` declares that Knowledge binds it). A present but malformed claim denies; it never falls back to
  *   the default partition. The grammar and the `<companyId>/<key>` binding are the attachment path's (partition-authority.ts).
+ * - the contract 2 read set (`readPartitionKeys`, manifest `runtime.partitions.contract: 2`): writes stay bound to
+ *   `partitionKey`; reads may use every partition of the read set. The kit's `effectiveReadPartitions` gives the set;
+ *   a set that is exactly `[partitionKey]` is the contract 1 grant and keeps the contract 1 path byte for byte. Each
+ *   key must match the edge grammar and the set must contain the write key, or the grant is refused.
  * - live re-verification at dispatch (the kit's positive cache is off: every check asks Portal), so a slow upload
  *   cannot outlive a revocation or a re-scoped edge.
  * - metadata-only audit rows.
@@ -59,6 +64,11 @@ export interface AdmittedGrant {
   readonly expiresAt: number;
   /** Validated per-edge partition key; null = the workspace default partition. */
   readonly partitionKey: string | null;
+  /**
+   * Contract 2 only, when wider than `[partitionKey]`: the validated read set (contains `partitionKey`; null = the
+   * workspace default partition). Absent = reads stay in `partitionKey` (contract 1).
+   */
+  readonly readPartitionKeys?: ReadPartitionKeys;
   readonly grant: VerifiedGrant;
   readonly auditId: string;
 }
@@ -107,6 +117,25 @@ export function parseGrantPartitionClaim(partitionKey: string | null | undefined
   return claim.ok ? claim : { ok: false, reason: "invalid" };
 }
 
+/**
+ * The read set a verified grant carries beyond its write partition: undefined for contract 1 (absent, or exactly
+ * `[partitionKey]`), the validated set otherwise, null when it is malformed for Knowledge (refuse).
+ */
+export function grantReadSet(grant: VerifiedGrant, partitionKey: string | null, presented: ReadPartitionKeys | undefined): ReadPartitionKeys | undefined | null {
+  if (presented === undefined) return undefined;
+  const reads = effectiveReadPartitions({ ...grant, partitionKey, readPartitionKeys: presented });
+  if (!reads) return null;
+  const parsed = parseReadPartitionKeys(reads, partitionKey);
+  if (!parsed) return null;
+  return parsed.length === 1 ? undefined : parsed;
+}
+
+function grantToken(headers: Record<string, string | string[] | undefined>): string | null {
+  const value = singleHeader(headers, "authorization");
+  const match = typeof value === "string" ? /^Bearer\s+(tbag_[A-Za-z0-9_-]{1,512})$/u.exec(value.trim()) : null;
+  return match?.[1] ?? null;
+}
+
 const deny = (status: 401 | 403 | 503, error: string): AppGrantAdmission => ({
   ok: false, status, error, headers: status === 401 ? { "www-authenticate": 'Bearer error="invalid_token"' } : {},
 });
@@ -115,8 +144,10 @@ export function createAppGrantAuthority(options: AppGrantOptions): AppGrantAutho
   const { manifest, portal } = options;
   const now = options.now ?? Date.now;
   let verifier: GrantVerifier | null = null;
+  let readSets: ReadSetIntrospection = readSetIntrospection(options.fetch ?? fetch, "");
   if (portal) {
     try {
+      readSets = readSetIntrospection(options.fetch ?? fetch, new URL(APP_GRANT_INTROSPECT_PATH, portal.url).href);
       verifier = createGrantVerifier({
         mode: "l1",
         manifest,
@@ -130,7 +161,7 @@ export function createAppGrantAuthority(options: AppGrantOptions): AppGrantAutho
           orgId: portal.orgId,
           // Every check asks Portal: admission and dispatch must see a revocation or a re-scoped edge at once.
           cacheTtlMs: 0,
-          fetch: options.fetch ?? fetch,
+          fetch: readSets.fetch,
           ...(options.now ? { now } : {}),
         },
         ...(options.now ? { now } : {}),
@@ -195,10 +226,16 @@ export function createAppGrantAuthority(options: AppGrantOptions): AppGrantAutho
         record("denied", 403, code, null);
         return deny(403, code);
       }
+      const reads = grantReadSet(grant, claim.partitionKey, grantReadPartitionKeys(grant, grantToken(request.headers), readSets));
+      if (reads === null) {
+        record("denied", 403, "partition_claim_invalid", null);
+        return deny(403, "partition_claim_invalid");
+      }
       const auditId = record("admitted", null, null, claim.partitionKey);
       return {
         ok: true,
-        admitted: { operation: operation.id, agentId: grant.agentId, orgId: portal!.orgId, expiresAt: grant.expiresAt, partitionKey: claim.partitionKey, grant, auditId },
+        admitted: { operation: operation.id, agentId: grant.agentId, orgId: portal!.orgId, expiresAt: grant.expiresAt, partitionKey: claim.partitionKey,
+          ...(reads ? { readPartitionKeys: reads } : {}), grant, auditId },
       };
     },
     async recheck(request, admitted) {
@@ -208,6 +245,9 @@ export function createAppGrantAuthority(options: AppGrantOptions): AppGrantAutho
         if (!grant.ok || !verifier.authorizeOperation(grant, admitted.operation).allowed) return null;
         const claim = parseGrantPartitionClaim(grant.partitionKey);
         if (!claim.ok || claim.partitionKey !== admitted.partitionKey) return null;
+        // A read set edited mid-request never re-scopes it either.
+        const reads = grantReadSet(grant, claim.partitionKey, grantReadPartitionKeys(grant, grantToken(request.headers), readSets));
+        if (reads === null || !samePartitionSet(reads, admitted.readPartitionKeys)) return null;
         if (grant.principalKind !== "agent" || grant.agentId !== admitted.agentId) return null;
         return { ...admitted, expiresAt: grant.expiresAt, grant };
       } catch {

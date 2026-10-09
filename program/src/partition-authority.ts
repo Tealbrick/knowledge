@@ -57,11 +57,20 @@ export const EDGE_PARTITION_KEY = /^[a-z][a-z0-9-]{0,39}$/u;
  * Advertised on /healthz, /api/status and /bootstrap.json so Portal can refuse
  * partitioned edges to an instance that would ignore the claim (rollout gate).
  */
-export const EDGE_PARTITION_CONTRACT = 1;
+export const EDGE_PARTITION_CONTRACT = 2;
 export const EDGE_PARTITION_SUPPORT = Object.freeze({
-  capabilities: Object.freeze({ edgePartitions: true as const }),
+  capabilities: Object.freeze({ edgePartitions: true as const, readPartitions: true as const }),
   partitionContract: EDGE_PARTITION_CONTRACT,
 });
+
+/** Contract 2: at most this many entries in a read set (`readPartitionKeys`), as in @tealbrick/contract. */
+export const MAX_READ_PARTITIONS = 64;
+
+/**
+ * Capabilities a read-only partition grant carries (contract 2 read sets). A read set never grants
+ * create, update, delete, research writes or native engine writes.
+ */
+export const READ_CAPABILITIES: ReadonlySet<string> = new Set(["knowledge:read", "brain:read", "research:read", "brain:native:read"]);
 
 /**
  * Edge keys share the hierarchical namespace: `workspace/key` is also a
@@ -111,6 +120,33 @@ export function parseEdgePartitionClaim(record: unknown): EdgePartitionClaim {
     : { ok: false };
 }
 
+export type EdgeReadPartitionsClaim =
+  | { readonly ok: true; readonly readPartitionKeys: readonly (string | null)[] | undefined }
+  | { readonly ok: false };
+
+/**
+ * Parse Portal's optional contract 2 read set (`readPartitionKeys`) of an attachment, introspection or
+ * runtime-principal answer. Absent stays `undefined` (contract 1: reads stay in the write partition).
+ * Present, it must be 1..64 unique entries, each `null` (the workspace default scope) or an edge key,
+ * and it must contain the write key (`partitionKey`, `null` = default). Anything else fails closed.
+ */
+export function parseEdgeReadPartitionsClaim(record: unknown, writeKey: string | null): EdgeReadPartitionsClaim {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return { ok: false };
+  if (!Object.prototype.hasOwnProperty.call(record, "readPartitionKeys")) return { ok: true, readPartitionKeys: undefined };
+  const list = parseReadPartitionKeys((record as Record<string, unknown>).readPartitionKeys, writeKey);
+  return list ? { ok: true, readPartitionKeys: list } : { ok: false };
+}
+
+/** A contract 2 read set relative to its write key, or null when it is malformed (deny). */
+export function parseReadPartitionKeys(value: unknown, writeKey: string | null): readonly (string | null)[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_READ_PARTITIONS) return null;
+  for (const key of value) {
+    if (key !== null && !(typeof key === "string" && EDGE_PARTITION_KEY.test(key) && key !== "default")) return null;
+  }
+  if (new Set(value).size !== value.length || !value.includes(writeKey)) return null;
+  return Object.freeze([...value] as (string | null)[]);
+}
+
 /**
  * The storage/engine partition an edge-bound caller works in: the workspace
  * partition without a claim (unchanged behaviour), else its `company/key` child.
@@ -130,7 +166,13 @@ export function effectiveKnowledgePartition(companyId: string, partitionKey: str
  */
 export interface KnowledgeBoundPartition {
   readonly alias: string;
+  /** The write partition. */
   readonly partitionKey: string;
+  /**
+   * Contract 2 only (a read set wider than the write partition): every effective partition the
+   * principal may read, the write partition first. Absent means reads stay in `partitionKey`.
+   */
+  readonly readPartitions?: readonly string[];
 }
 
 export function boundPartitionFor(companyId: string, partitionKey: string | null): KnowledgeBoundPartition | null {
@@ -138,6 +180,68 @@ export function boundPartitionFor(companyId: string, partitionKey: string | null
   const alias = normalizeKnowledgePartitionKey(companyId);
   const effective = effectiveKnowledgePartition(companyId, partitionKey);
   return alias && effective ? Object.freeze({ alias, partitionKey: effective }) : null;
+}
+
+/**
+ * The scope an edge claim binds: the effective write partition, the bound partition (selectors naming the
+ * workspace are narrowed to the write partition) and the effective read partitions (write partition first).
+ *
+ * Contract 1 (no read set) and a read set that equals the write key give exactly the contract 1 result:
+ * `bound` is null for the default partition and `{alias, partitionKey}` otherwise, with no `readPartitions`.
+ * A wider read set (contract 2) always binds, also for a default write partition, and carries `readPartitions`.
+ */
+export type EdgeScope =
+  | { readonly ok: true; readonly write: string; readonly bound: KnowledgeBoundPartition | null; readonly readPartitions: readonly string[] }
+  | { readonly ok: false };
+
+export function edgeScopeFor(companyId: string, partitionKey: string | null, readPartitionKeys?: readonly (string | null)[]): EdgeScope {
+  const alias = normalizeKnowledgePartitionKey(companyId);
+  const write = effectiveKnowledgePartition(companyId, partitionKey);
+  if (!alias || !write) return { ok: false };
+  if (readPartitionKeys === undefined) {
+    const bound = partitionKey === null ? null : boundPartitionFor(companyId, partitionKey);
+    return partitionKey !== null && !bound ? { ok: false } : { ok: true, write, bound, readPartitions: Object.freeze([write]) };
+  }
+  if (!readPartitionKeys.includes(partitionKey)) return { ok: false };
+  const reads: string[] = [write];
+  for (const key of readPartitionKeys) {
+    const effective = effectiveKnowledgePartition(companyId, key);
+    if (!effective) return { ok: false };
+    if (!reads.includes(effective)) reads.push(effective);
+  }
+  if (reads.length === 1) return edgeScopeFor(companyId, partitionKey);
+  return { ok: true, write, bound: Object.freeze({ alias, partitionKey: write, readPartitions: Object.freeze(reads) }), readPartitions: Object.freeze(reads) };
+}
+
+/**
+ * Partition grants for an edge principal: exact on the write partition with every capability, plus (contract 2)
+ * an exact, read-only grant on each other partition of the read set. Nothing ever has breadth or depth.
+ */
+export function edgePartitionGrants(scope: Extract<EdgeScope, { ok: true }>, capabilities: readonly string[]): readonly KnowledgePartitionGrant[] {
+  const readOnly = Object.freeze(capabilities.filter((capability) => READ_CAPABILITIES.has(capability)));
+  return Object.freeze([
+    Object.freeze({ partitionKey: scope.write, breadth: "exact" as const, maxDepth: 0, capabilities: Object.freeze([...capabilities]) }),
+    ...(readOnly.length ? scope.readPartitions.filter((partition) => partition !== scope.write)
+      .map((partition) => Object.freeze({ partitionKey: partition, breadth: "exact" as const, maxDepth: 0, capabilities: readOnly })) : []),
+  ]);
+}
+
+/**
+ * Contract 2 read view: a read whose selector is the principal's own (write) partition — usually by naming the
+ * workspace — reads every partition of its read set that the capability is granted on. Any other selection
+ * (an explicit read partition, a write, a contract 1 principal) reads exactly one partition (null).
+ */
+export function readViewFor(
+  principal: KnowledgeServicePrincipal | null | undefined,
+  partitionKey: string,
+  capability: string,
+  authorized: (partition: string) => boolean = (partition) => authorizeKnowledgePartition(principal, partition, capability).allowed,
+): readonly string[] | null {
+  const bound = principal?.boundPartition;
+  if (!bound?.readPartitions || bound.readPartitions.length < 2 || partitionKey !== bound.partitionKey) return null;
+  if (!READ_CAPABILITIES.has(capability)) return null;
+  const view = bound.readPartitions.filter(authorized);
+  return view.length > 1 ? Object.freeze(view) : null;
 }
 
 /** Map a caller-supplied partition selector through the principal's bound-partition alias. */
@@ -220,6 +324,32 @@ export function authorizeKnowledgePartition(
     : { allowed: false, partitionKey, grant: null, reason: "outside_grant" };
 }
 
+/**
+ * Uniform not-found: whether an object in `partition` must look absent to this principal for an operation needing
+ * `capability`. True when no grant on that partition allows any capability of the same kind (reads: the read
+ * capabilities; writes: everything else), so the principal cannot even learn that the object exists. A partition it
+ * may write but not with this exact capability (a narrowed grant) stays a 403 refusal, as does a capability the
+ * principal lacks entirely.
+ */
+export function partitionHiddenFrom(
+  principal: KnowledgeServicePrincipal | null | undefined,
+  partition: string,
+  capability: string,
+): boolean {
+  const decision = authorizeKnowledgePartition(principal, partition, capability);
+  if (decision.allowed || decision.reason !== "outside_grant" || !principal) return false;
+  const reads = READ_CAPABILITIES.has(capability);
+  const held = new Set(principal.capabilities.flatMap((held) =>
+    held === "knowledge:write" ? ["knowledge:create", "knowledge:update", "knowledge:delete"] : [held]));
+  return ![...held].filter((held) => READ_CAPABILITIES.has(held) === reads)
+    .some((held) => authorizeKnowledgePartition(principal, partition, held).allowed);
+}
+
+/** Whether the principal holds a capability at all (in any partition); no partition is consulted. */
+export function principalHoldsCapability(principal: KnowledgeServicePrincipal | null | undefined, capability: string): boolean {
+  return !!principal && includesKnowledgeCapability(principal.capabilities, capability);
+}
+
 export function partitionGrantSummaries(principal: KnowledgeServicePrincipal): readonly Record<string, unknown>[] {
   return effectiveKnowledgePartitionGrants(principal).map((grant) => ({
     partitionKey: normalizeKnowledgePartitionKey(grant.partitionKey),
@@ -240,5 +370,10 @@ declare module "fastify" {
   interface FastifyRequest {
     /** Set only after server-side principal and partition checks pass. */
     knowledgePartitionKey?: string;
+    /**
+     * Contract 2: set only for a read of the principal's own partition when its read set is wider (see
+     * readViewFor); every entry passed the same partition authorization. Lists, search and Brain reads use it.
+     */
+    knowledgeReadPartitions?: readonly string[];
   }
 }

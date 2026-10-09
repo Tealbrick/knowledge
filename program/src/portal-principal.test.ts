@@ -194,7 +194,7 @@ describe("Program enforces the live Portal grant like any service principal", ()
       const foreign = (await app.inject({ method: "POST", url: "/api/companies/fixture-b/knowledge/collections", headers, payload: { name: "Foreign" } })).json();
       const agent = { authorization: `Bearer ${grant}` };
       expect((await app.inject({ method: "GET", url: "/api/companies/fixture-b/knowledge/collections", headers: agent })).statusCode).toBe(403);
-      expect((await app.inject({ method: "POST", url: `/api/knowledge/collections/${foreign.id}/documents`, headers: agent, payload: { title: "x" } })).statusCode).toBe(403);
+      expect((await app.inject({ method: "POST", url: `/api/knowledge/collections/${foreign.id}/documents`, headers: agent, payload: { title: "x" } })).statusCode).toBe(404);
     } finally { await app.close(); }
   });
 });

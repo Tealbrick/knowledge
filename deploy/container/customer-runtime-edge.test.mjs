@@ -81,7 +81,9 @@ test('direct runtime enforces all CRUD subsets, isolation, identity, claim admin
       if (mask & 2) assert.equal(receipt.name, 'private-collection-metadata');
       else assert.deepEqual(receipt, { id: deleteCollection.id, deleted: true });
     }
-    assert.equal((await call(`/api/knowledge/documents/${foreign.id}`, 'GET', h)).status, 403);
+    // A foreign id looks absent to a reader; a principal without read is refused before any lookup (same for any id).
+    assert.equal((await call(`/api/knowledge/documents/${foreign.id}`, 'GET', h)).status, mask & 2 ? 404 : 403, `foreign read subset ${mask}`);
+    assert.equal((await call('/api/knowledge/documents/kdoc_missing', 'GET', h)).status, mask & 2 ? 404 : 403, `missing read subset ${mask}`);
     assert.equal((await call('/api/tealbrick/claim', 'GET', h)).status, 403);
     for (const path of ['/api/status', '/api/events', '/api/knowledge/collections', '/api/brain/extract-facts']) {
       assert.equal((await call(path, 'GET', h)).status, 403);
@@ -113,7 +115,8 @@ test('direct runtime enforces all CRUD subsets, isolation, identity, claim admin
   }, { name: 'Forged authority' })).status, 403);
   assert.equal((await call('/api/companies/customer-b/knowledge/collections', 'POST', full, { name: 'No' })).status, 403);
   assert.equal((await call('/api/companies/customer-a/knowledge/collections', 'POST', full, { name: 'No', sourceConfig: { provider: 'github_repo', owner: 'evil', repo: 'evil' } })).status, 403);
-  assert.equal((await call(`/api/knowledge/collections/${a.id}/documents`, 'POST', full, { title: 'No', parentDocumentId: foreign.id })).status, 400);
+  // A parent id of another workspace looks absent (uniform not-found).
+  assert.equal((await call(`/api/knowledge/collections/${a.id}/documents`, 'POST', full, { title: 'No', parentDocumentId: foreign.id })).status, 404);
   assert.equal((await call('/api/companies/customer-a/knowledge/collections', 'GET', { authorization: 'Bearer forged-token', 'x-tealbrick-agent-token': principals[15].token })).status, 401);
   assert.equal((await call('/api/research/engine/notebooks', 'GET', full)).status, 403);
   assert.equal((await call('/api/research/engine/notebooks', 'GET', { authorization: `Bearer ${principals[16].token}` })).status, 200);

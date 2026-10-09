@@ -42,14 +42,19 @@ test('contract control endpoints, launch and emergency login on the instance edg
   assert.equal(health.status, 200);
   assert.deepEqual({ ok: health.body.ok, app: health.body.app, version: health.body.version, major: health.body.major },
     { ok: true, app: 'knowledge', version: manifest.app.version, major: manifest.app.major });
-  assert.equal(health.body.partitionContract, 1);
+  assert.equal(health.body.partitionContract, 2);
   assert.equal(health.body.capabilities.edgePartitions, true);
+  assert.equal(health.body.capabilities.readPartitions, true);
   assert.doesNotMatch(JSON.stringify(health.body), new RegExp(`${company}|${org}|${deployment}|${portal.url}`));
 
   // --- the manifest, unauthenticated, equal to the release file
   const served = await json(await at('/.well-known/tealbrick/manifest'));
   assert.equal(served.status, 200);
-  assert.deepEqual(served.body, manifest);
+  // The release file declares partitions contract 2 (read sets). An edge whose contract kit predates read sets
+  // (@tealbrick/contract before 0.1.0-alpha.5) serves contract 1 instead: what it can verify. Nothing else differs.
+  assert.deepEqual(manifest.runtime.partitions, { contract: 2 });
+  assert.ok([1, 2].includes(served.body.runtime.partitions.contract));
+  assert.deepEqual(served.body, { ...manifest, runtime: { ...manifest.runtime, partitions: served.body.runtime.partitions } });
 
   // --- claim: one identity on both paths and both credential spellings; browser requests rejected; proof verifies
   assert.equal((await at('/.well-known/tealbrick/claim')).status, 401);

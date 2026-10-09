@@ -183,9 +183,9 @@ describe("partitioned attachment principal in Research", () => {
       // Another partition and the workspace default are refused at the notebook scope.
       for (const partitionKey of ["other", undefined]) {
         const denied = await app.inject({ method: "POST", url: `${chat}/sessions`, headers: { ...bearer(partitionKey), "idempotency-key": "shared-key" }, payload: {} });
-        expect(denied.statusCode, String(partitionKey)).toBe(403);
-        expect((await app.inject({ url: `${chat}/sessions/${sessionId}`, headers: bearer(partitionKey) })).statusCode, String(partitionKey)).toBe(403);
-        expect((await app.inject({ method: "POST", url: `/api/research/notebooks/${notebooks.personal}/engine/sources`, headers: { ...bearer(partitionKey), "idempotency-key": "shared-key" }, payload: { title: "x", content: "y" } })).statusCode, String(partitionKey)).toBe(403);
+        expect(denied.statusCode, String(partitionKey)).toBe(404);
+        expect((await app.inject({ url: `${chat}/sessions/${sessionId}`, headers: bearer(partitionKey) })).statusCode, String(partitionKey)).toBe(404);
+        expect((await app.inject({ method: "POST", url: `/api/research/notebooks/${notebooks.personal}/engine/sources`, headers: { ...bearer(partitionKey), "idempotency-key": "shared-key" }, payload: { title: "x", content: "y" } })).statusCode, String(partitionKey)).toBe(404);
       }
       // The same idempotency key in a sibling's own notebook is a fresh claim, not a replay of the personal receipt.
       const sibling = await app.inject({ method: "POST", url: `/api/research/notebooks/${notebooks.other}/engine/chat/sessions`, headers: { ...bearer("other"), "idempotency-key": "shared-key" }, payload: {} });

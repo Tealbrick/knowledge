@@ -201,7 +201,7 @@ describe("principal-owned durable Research chat routes", () => {
     expect((await denied.create()).statusCode).toBe(403); expect(denied.state.creates).toBe(0);
     const revoked = await fixture({ contextRevokes: true });
     const id = (await revoked.create()).json().receipt.sessionId;
-    expect((await revoked.message(id)).statusCode).toBe(403); expect(revoked.state.executes).toBe(0);
+    expect((await revoked.message(id)).statusCode).toBe(404); expect(revoked.state.executes).toBe(0);
   });
 
   it("rechecks notebook read grants before replaying cached answers and receipts", async () => {
@@ -209,12 +209,12 @@ describe("principal-owned durable Research chat routes", () => {
     const replayId = (await replay.create()).json().receipt.sessionId;
     expect((await replay.message(replayId)).statusCode).toBe(201);
     replay.revokeReadAtHandler();
-    expect((await replay.message(replayId)).statusCode).toBe(403);
+    expect((await replay.message(replayId)).statusCode).toBe(404);
 
     const receipt = await fixture({ dynamicRead: true });
     const receiptId = (await receipt.create()).json().receipt.sessionId;
     expect((await receipt.message(receiptId)).statusCode).toBe(201);
     receipt.revokeReadAtHandler();
-    expect((await receipt.app.inject({ url: `${base}/receipts/turn-1`, headers: headers() })).statusCode).toBe(403);
+    expect((await receipt.app.inject({ url: `${base}/receipts/turn-1`, headers: headers() })).statusCode).toBe(404);
   });
 });

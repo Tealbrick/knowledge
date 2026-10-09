@@ -5,6 +5,23 @@ import type {MemoryEngine} from "./memory-engine.js";
 import {BrainExtractions} from "./brain-extractions.js";
 import {normalizeKnowledgePartitionKey} from "./partition-authority.js";
 import {nativeOperationAuthorized} from "./brain-native-policy.js";
+import {fanOut, mergeNativeResults} from "./brain-read-view.js";
+
+/**
+ * Contract 2: native reads that run once per partition of the read set and merge (stateless lookups, lists and
+ * searches). Every other read (cursors and session packs such as delta and context_pack, model calls such as
+ * synthesize, think and reflect, bank administration views) runs in one partition only: the one the request selects,
+ * its own by default; a request names a read partition to use that one instead.
+ */
+export const FAN_OUT_NATIVE_READS: ReadonlySet<string> = new Set([
+  // GBrain
+  "recall", "entity", "query", "search", "get_page", "list_pages", "get_chunks", "resolve_slugs", "get_links", "get_backlinks",
+  "traverse_graph", "get_timeline", "find_trajectory", "takes_list", "takes_search",
+  // Hindsight
+  "recall_memories", "list_memories", "get_memory", "list_entities", "get_entity", "get_entity_graph", "get_graph", "list_documents",
+  "get_document", "list_document_chunks", "get_chunk", "search_knowledge_base", "get_knowledge_page", "get_knowledge_base_tree",
+  "list_mental_models", "get_mental_model", "list_tags",
+]);
 
 const requestSchema=z.object({partitionKey:z.string().min(1).max(256),arguments:z.record(z.string(),z.unknown())}).strict();
 /** Native engine operations one principal may have in flight; beyond it the route answers 429. */
@@ -47,7 +64,11 @@ export function registerNativeMemoryRoutes(app: FastifyInstance, options: {brain
     }
     inFlight.set(owner,running+1);
     try {
+    // Contract 2: a read of its own partition reads every partition of the principal's read set, merged.
+    const view=!writes && FAN_OUT_NATIVE_READS.has(operation) ? request.knowledgeReadPartitions : undefined;
     const execute=async()=>{
+      if(view) return mergeNativeResults(await fanOut(view,(scope)=>options.brain.nativeOperation(operation,input.arguments,scope,principal.principalId)),
+        typeof input.arguments.limit==="number" ? input.arguments.limit : undefined);
       const value=await options.brain.nativeOperation(operation,input.arguments,partition,principal.principalId);
       // A handler/storage failure may follow a partial write. Hold the receipt;
       // never turn a transport or internal failure into permission to retry it.

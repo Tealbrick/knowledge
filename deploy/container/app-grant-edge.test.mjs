@@ -149,7 +149,11 @@ test('app grants and attachments reach the same data per partition; every refusa
   // The attachment edge for the same partition sees the same collection and note: one partition, two ways in.
   assert.ok((await (await call('GET', `/api/companies/${company}/knowledge/collections`, attached('personal-attachment'))).json()).some(c => c.id === mine.id));
   assert.equal((await call('GET', `/api/knowledge/documents/${personalNote.id}`, attached('personal-attachment'))).status, 200);
-  assert.equal((await call('GET', `/api/knowledge/documents/${note.id}`, attached('personal-attachment'))).status, 401, 'the attachment path is unchanged');
+  // Uniform not-found (0.5.0): on the attachment path too, an id of another partition answers exactly like a missing id.
+  const foreignAttached = await call('GET', `/api/knowledge/documents/${note.id}`, attached('personal-attachment'));
+  const missingAttached = await call('GET', '/api/knowledge/documents/kdoc_missing', attached('personal-attachment'));
+  assert.equal(foreignAttached.status, 404);
+  assert.deepEqual([missingAttached.status, await missingAttached.text()], [404, await foreignAttached.text()]);
   const personalSearch = await (await call('GET', `/api/companies/${company}/knowledge/search?q=secret`, as(grant('p')))).text();
   assert.match(personalSearch, /personal-only/);
   assert.doesNotMatch(personalSearch, /polygonface-only/);

@@ -1,8 +1,9 @@
 # Per-edge memory partitions
 
-Implemented source contract, 7 October 2026. Knowledge side of
-Tealbrick/portal-core#38 (phase 1, same workspace only). This document does not
-assert a deployment or human UAT.
+Implemented source contract, 7 October 2026 (contract 1) and 9 October 2026
+(contract 2, read-many / write-one). Knowledge side of Tealbrick/portal-core#38
+(phase 1, same workspace only) and of the "one Knowledge, walled views per agent"
+decision. This document does not assert a deployment or human UAT.
 
 A workspace owner can give each canvas edge to a Knowledge node its own memory
 partition, for example `personal`. An agent on the `personal` edge never reads
@@ -50,10 +51,84 @@ Every agent grant is exact on the effective partition (`breadth: exact`,
 | Runtime principals (all direct-runtime routes) | The principal's grant is exact on the partition. A selector that names the workspace id (path `companyId`, `companyId`/`partitionKey` query or body, Brain `scopeRef`) is narrowed to the partition; any other selector is denied. |
 | `/api/brain/recall`, `/api/brain/context`, `/api/brain/entities` | The edge forces `partitionKey` (and `scopeRef`) to the partition. |
 | `/api/brain/native/*` | The edge forces the partition; the minted bearer is exact on it. |
-| Research engine routes | The minted Research bearer is exact on the partition. Notebooks of other partitions are not listed and return `notebook_scope_denied`. |
+| Research engine routes | The minted Research bearer is exact on the partition. Notebooks of other partitions are not listed and answer 404 `not_found`, like a notebook that does not exist. |
 
 A partitioned caller may name its workspace id; that always means its own
 partition. It never reaches the workspace data.
+
+## Contract 2: read sets (read-many / write-one)
+
+`tealbrick.app.json` declares `runtime.partitions: {"contract": 2}`. An edge can
+then also carry a read set: Portal sends `readPartitionKeys` next to
+`partitionKey`, on the same three paths:
+
+| Path | Field read by Knowledge |
+| --- | --- |
+| Portal attachments | `readPartitionKeys` in every `/api/deployment-access/introspect` answer |
+| App grants (`tbag_`) | `readPartitionKeys` in the `/api/runtime/app-grant/introspect` answer (`GrantResult.readPartitionKeys`, `effectiveReadPartitions` of `@tealbrick/contract` 0.1.0-alpha.5) |
+| Runtime principals (`tbkg_`) | `readPartitionKeys` in the `/api/runtime/knowledge-principal/introspect` answer |
+
+Rules:
+
+- `partitionKey` stays the write partition. `readPartitionKeys` lists 1 to 64
+  unique entries; each is `null` (the workspace default partition) or an edge
+  key with the grammar above. It must contain the write key. Anything else
+  fails closed, like a malformed `partitionKey`.
+- No `readPartitionKeys`, or a read set that is exactly the write key, is the
+  contract 1 grant. It takes the contract 1 code path and gets the same
+  answers, byte for byte.
+- All introspections of one request (extra Research capabilities, optional
+  native capabilities, the dispatch re-check) must report the same write key
+  and the same read set, or the request is denied.
+
+The principal of such an edge has an exact grant on the write partition with
+all its capabilities, plus an exact, read-only grant on each other partition of
+the read set (`knowledge:read`, `brain:read`, `research:read`,
+`brain:native:read` only). `GET /api/knowledge/partitions` lists them.
+
+Behaviour:
+
+| Surface | Contract 2 |
+| --- | --- |
+| Writes: create, update and delete of documents and collections, Research sources, chat sessions and turns, memory-engine writes, `extract-facts` | Write partition only. A selector that names another partition is refused (403); an object of another partition answers 404 `not_found`. |
+| `collections` (list), `search` | A request that names the workspace (or the write partition) covers every partition of the read set. Naming one read partition (`workspace/key`) covers only that one. Search within a collection of a read partition reads that partition. |
+| `documents/{id}`, `collections/{id}`, trees, revisions | Readable when the object lives in any partition of the read set. |
+| Research notebooks, sources, notes, context, chat sessions | Notebooks of every read partition are listed and readable; writes (sources, chat sessions, turns, receipts) only in notebooks of the write partition. |
+| `/api/brain/recall`, `/api/brain/context`, `/api/brain/entities` | One engine call per read partition (its own GBrain source or Hindsight bank, derived as for one partition), merged. An entity by slug is read from the first read partition that has it. |
+| `/api/brain/native/*` reads | Lookups, lists and searches (for example `recall`, `search`, `get_page`, `recall_memories`, `list_documents`) run once per read partition and merge. Reads that keep state or spend model budget (`delta`, `context_pack`, `synthesize`, `think`, `reflect` and the other administration views) run in one partition: the write partition, or the read partition named in `partitionKey`. |
+
+Merge rule (`program/src/brain-read-view.ts`): when every item has a numeric
+engine score, items are ordered by score, highest first, ties by read-set order
+(write partition first) and then by the engine's order. Otherwise the lists
+are interleaved by rank. Exact duplicates are dropped, and the result is capped
+at the requested `limit`. The partition of each item is kept internally and is
+never added to an answer. Only partitions of the read set are ever queried. A
+merged Program answer is `ok` only when every partition answered; the answers
+of the partitions that did answer are still merged. A native lookup that is
+not a list takes the first partition that answers.
+
+At the instance edge, contract 2 reads of attachments and app grants go to the
+Program with a per-request bearer that carries the read set, so the Program
+applies the rules above. Contract 2 writes keep the contract 1 edge path, bound
+to the write partition. Runtime principals reach the Program directly.
+
+Contract 1 grants and the owner are not affected. Rules policy can only narrow
+this further (per operation and partition); it never widens a read set.
+
+## Uniform not-found and random ids
+
+An object id that does not exist, or that lives outside the partitions the
+caller may use for the operation (the read set for reads, the write partition
+for writes), gets one answer on every agent path: 404 `{"error":"not_found"}`.
+The lookup work is the same in both cases. A caller without the capability at
+all gets 403 before any object lookup, for any id. A partition named directly
+(a path or `partitionKey` selector) that the caller may not use stays a 403
+refusal.
+
+New object ids are random: the prefix and 20 base32 characters from the system
+random generator (`kdoc_…`, `kcol_…`, `krev_…`, `notebook_…` and so on), so ids
+of one partition reveal nothing about another. Ids of earlier releases
+(`kdoc_0001`) stay valid; every reader treats ids as opaque strings.
 
 ## Shared namespace
 
@@ -133,15 +208,31 @@ Knowledge advertises support on three surfaces. Portal reads the first one:
 
 | Surface | Fields |
 | --- | --- |
-| `GET /healthz` (public, the recipe `healthPath`) | `capabilities.edgePartitions: true`, `partitionContract: 1` |
-| `GET /api/status` | `capabilities.edgePartitions: true`, `partitionContract: 1` |
-| `GET /bootstrap.json` | `capabilities.edgePartitions: true`, `partitionContract: 1` |
+| `GET /healthz` (public, the recipe `healthPath`) | `capabilities.edgePartitions: true`, `capabilities.readPartitions: true`, `partitionContract: 2` |
+| `GET /api/status` | `capabilities.edgePartitions: true`, `capabilities.readPartitions: true`, `partitionContract: 2` |
+| `GET /bootstrap.json` | `capabilities.edgePartitions: true`, `capabilities.readPartitions: true`, `partitionContract: 2` |
 
 Portal must refuse to save or issue a partitioned edge (and must not send
 `partitionKey`) unless `/healthz` answers `partitionContract >= 1`. An
 instance without these fields is older than this contract.
 
+Portal must also refuse to save or issue an edge with a read set (and must
+not send `readPartitionKeys`) unless `/healthz` answers `partitionContract >= 2`
+(or `capabilities.readPartitions: true`).
+
 Deploy this Knowledge release before Portal issues partitioned edges. An older
 instance edge ignores `partitionKey` in the introspection answer and would
 treat a partitioned attachment as a default one. An older Program rejects a
 runtime-principal answer that contains `partitionKey`, which fails closed.
+
+Read sets: an instance before contract 2 fails closed on `readPartitionKeys`
+on the runtime-principal path (an unknown answer field) and on the app-grant
+path (the 0.1.0-alpha.4 kit refuses unknown fields), but an older attachment
+edge ignores the field and serves only the write partition. Portal therefore
+gates read sets on `partitionContract >= 2`.
+
+The served manifest (`/.well-known/tealbrick/manifest`) declares what the
+installed contract kit can verify: contract 2 with `@tealbrick/contract`
+0.1.0-alpha.5 or later, else contract 1. With the 0.1.0-alpha.4 pin, read sets
+still work on every path (the app-grant path validates the field like alpha.5,
+`program/src/contract/read-partitions.ts`).

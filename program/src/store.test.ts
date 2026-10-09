@@ -58,14 +58,15 @@ describe("KnowledgeStore snapshot migration", () => {
       title: "Upgrade output",
     });
 
-    expect(notebook.id).toBe("notebook_0001");
-    expect(source?.id).toBe("source_0001");
-    expect(output?.id).toBe("output_0001");
+    // New ids are random (0.5.0); the restored snapshot still loads and persists them.
+    expect(notebook.id).toMatch(/^notebook_[a-z2-7]{20}$/u);
+    expect(source?.id).toMatch(/^source_[a-z2-7]{20}$/u);
+    expect(output?.id).toMatch(/^output_[a-z2-7]{20}$/u);
     expect(persistence.saved).toMatchObject({
       ownerBindings: [],
-      notebooks: [expect.objectContaining({ id: "notebook_0001" })],
-      sources: [expect.objectContaining({ id: "source_0001" })],
-      outputs: [expect.objectContaining({ id: "output_0001" })],
+      notebooks: [expect.objectContaining({ id: notebook.id })],
+      sources: [expect.objectContaining({ id: source!.id })],
+      outputs: [expect.objectContaining({ id: output!.id })],
     });
   });
 });

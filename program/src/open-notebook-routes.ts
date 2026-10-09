@@ -414,8 +414,10 @@ export function registerOpenNotebookRoutes(
     }
     const notebookId = request.params?.notebookId;
     const mapping = mappings.byKnowledgeId.get(notebookId);
+    // Uniform not-found: a notebook that does not exist, is not mapped, or lives outside the partitions this principal
+    // may use for the operation (its read set for reads, its write partition for writes) gets one answer.
     if (!mapping) {
-      sendError(reply, 404, "notebook_not_found");
+      sendError(reply, 404, "not_found");
       return;
     }
     let currentCompany: string | null;
@@ -426,12 +428,12 @@ export function registerOpenNotebookRoutes(
       return;
     }
     if (currentCompany === null) {
-      sendError(reply, 404, "notebook_not_found");
+      sendError(reply, 404, "not_found");
       return;
     }
     const partition = authorizeKnowledgePartition(principal, mapping.companyId, capability);
     if (typeof currentCompany !== "string" || !currentCompany || currentCompany !== mapping.companyId || !partition.allowed) {
-      sendError(reply, 403, "notebook_scope_denied");
+      sendError(reply, 404, "not_found");
       return;
     }
     request.knowledgePrincipal = principal;
@@ -459,10 +461,10 @@ export function registerOpenNotebookRoutes(
     } catch {
       return sendError(reply, 503, "notebook_owner_unavailable");
     }
-    if (currentCompany === null) return sendError(reply, 404, "notebook_not_found");
+    if (currentCompany === null) return sendError(reply, 404, "not_found");
     const partition = authorizeKnowledgePartition(principal, mapping.companyId, capability);
     if (typeof currentCompany !== "string" || !currentCompany || currentCompany !== mapping.companyId || !partition.allowed) {
-      return sendError(reply, 403, "notebook_scope_denied");
+      return sendError(reply, 404, "not_found");
     }
     request.knowledgePrincipal = principal;
     request.knowledgePartitionKey = partition.partitionKey;

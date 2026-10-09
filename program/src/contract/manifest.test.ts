@@ -3,15 +3,24 @@ import { describe, expect, it } from "vitest";
 import { crossValidateUnlocks, validateManifest, type Manifest } from "@tealbrick/contract";
 
 import { buildKnowledgeApp } from "../app.js";
-import { loadKnowledgeManifest } from "./manifest.js";
+import { kitManifest, loadKnowledgeManifest } from "./manifest.js";
+import { KIT_READ_PARTITIONS } from "./read-partitions.js";
 
 const read = (relative: string) => JSON.parse(readFileSync(new URL(relative, import.meta.url), "utf8"));
 const manifest = loadKnowledgeManifest();
 
 describe("tealbrick.app.json (tealbrick.miniapp/v1)", () => {
   it("validates with no errors and no warnings", () => {
-    const result = validateManifest(read("../../../tealbrick.app.json"));
-    expect(result).toMatchObject({ ok: true, errors: [], warnings: [] });
+    // Declared contract 2 (read sets). A kit before 0.1.0-alpha.5 only knows contract 1: everything else must still validate.
+    const raw = read("../../../tealbrick.app.json");
+    expect(raw.runtime.partitions).toEqual({ contract: 2 });
+    const checked = KIT_READ_PARTITIONS ? raw : { ...raw, runtime: { ...raw.runtime, partitions: { contract: 1 } } };
+    expect(validateManifest(checked)).toMatchObject({ ok: true, errors: [], warnings: [] });
+  });
+
+  it("declares to Portal what the installed kit can verify: contract 2 with read sets, else contract 1", () => {
+    expect(manifest.runtime.partitions).toEqual({ contract: KIT_READ_PARTITIONS ? 2 : 1 });
+    expect(kitManifest(read("../../../tealbrick.app.json"))).toEqual(manifest);
   });
 
   it("is one release with the program package and the legacy descriptor", () => {
@@ -43,7 +52,7 @@ describe("tealbrick.app.json (tealbrick.miniapp/v1)", () => {
   it("classifies every operation, owner operations stay owner-only and none is external", () => {
     const agents = manifest.operations.filter((op) => (op.audience ?? "agent") === "agent");
     const owners = manifest.operations.filter((op) => op.audience === "owner");
-    expect({ total: manifest.operations.length, agents: agents.length, owners: owners.length }).toEqual({ total: 31, agents: 26, owners: 5 });
+    expect({ total: manifest.operations.length, agents: agents.length, owners: owners.length }).toEqual({ total: 32, agents: 27, owners: 5 });
     expect(owners.map((op) => op.id).sort()).toEqual([
       "knowledge.collections.delete", "knowledge.documents.access-update",
       "knowledge.models.update", "knowledge.research-notebooks.delete", "knowledge.research-sources.delete",

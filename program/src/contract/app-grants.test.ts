@@ -45,7 +45,7 @@ describe("Portal app grants (tbag_) on Knowledge", () => {
     expect(portal.calls[0]!.headers.get("x-tealbrick-instance-proof")).toBe(PORTAL.instanceProof);
   });
 
-  it("binds a per-edge partition claim (the kit's strict parser never sees it) and validates it like an attachment", async () => {
+  it("binds a per-edge partition claim (from GrantResult.partitionKey) and validates it like an attachment", async () => {
     const { authority } = setup({
       [grantToken("p")]: { actions: ALL, extra: { partitionKey: "personal" } },
       [grantToken("u")]: { actions: ALL, extra: { partitionKey: "Personal" } },

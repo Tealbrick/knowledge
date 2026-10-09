@@ -472,6 +472,27 @@ describe("Knowledge Program", () => {
     await app.close();
   });
 
+  it("treats DELETE with a JSON content type and an empty body as no body, and nothing else", async () => {
+    const app = await buildKnowledgeApp({ environment: "test" });
+    const headers = { "content-type": "application/json" };
+
+    const emptyDelete = await app.inject({ method: "DELETE", url: "/api/knowledge/documents/doc-absent", headers, payload: "" });
+    expect(emptyDelete.statusCode).toBe(404);
+    expect(emptyDelete.json()).toMatchObject({ error: expect.any(String) });
+    const blankDelete = await app.inject({ method: "DELETE", url: "/api/knowledge/documents/doc-absent", headers, payload: "  " });
+    expect(blankDelete.statusCode).toBe(404);
+
+    // Other methods and malformed bodies keep Fastify's own refusal.
+    const emptyPost = await app.inject({ method: "POST", url: "/api/knowledge/collections/c/documents", headers, payload: "" });
+    expect(emptyPost.statusCode).toBe(400);
+    const badDelete = await app.inject({ method: "DELETE", url: "/api/knowledge/documents/doc-absent", headers, payload: "{" });
+    expect(badDelete.statusCode).toBe(400);
+    const poisoned = await app.inject({ method: "POST", url: "/api/knowledge/collections/c/documents", headers, payload: '{"__proto__":{"x":1}}' });
+    expect(poisoned.statusCode).toBe(400);
+
+    await app.close();
+  });
+
   it("allows loopback App fetches from the desktop web shell", async () => {
     const app = await buildKnowledgeApp({ environment: "test" });
 

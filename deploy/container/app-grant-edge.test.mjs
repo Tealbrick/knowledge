@@ -193,6 +193,10 @@ test('app grants and attachments reach the same data per partition; every refusa
   assert.deepEqual(await denied('PATCH', `/api/knowledge/documents/${defaultDoc.id}`, grant('k'), { title: 'x' }), { status: 403, error: 'operation_not_granted' });
   assert.equal((await call('DELETE', `/api/knowledge/documents/${mineDoc.id}`, bare(grant('p')))).status, 200);
   assert.equal(await adminStatus(mineDoc.id), 404);
+  // A DELETE that still declares a JSON body type with an empty body (Content-Length: 0) is a DELETE without a body.
+  const emptyJsonDoc = await newDoc(grant('p'), mine.id, 'Empty JSON delete');
+  assert.equal((await fetch(`${base}/api/knowledge/documents/${emptyJsonDoc.id}`, { method: 'DELETE', headers: as(grant('p')), body: '' })).status, 200);
+  assert.equal(await adminStatus(emptyJsonDoc.id), 404);
   assert.equal((await call('DELETE', `/api/knowledge/documents/${defaultDoc.id}`, bare(grant('k')))).status, 200, 'a delete grant deletes');
   assert.equal(await adminStatus(defaultDoc.id), 404);
   assert.deepEqual(await denied('DELETE', `/api/knowledge/documents/${defaultDoc.id}`, grant('f')), { status: 404, error: 'not_found' }, 'a deleted document looks absent');

@@ -4,7 +4,6 @@ import {
   createGrantGuard,
   createGrantVerifier,
   routeOperation,
-  tokenDigest,
   type GrantResult,
   type GrantVerifier,
   type Manifest,
@@ -22,10 +21,10 @@ import type { ContractAudit } from "./audit.js";
  * `POST /api/runtime/app-grant/introspect` whether the grant is live and which manifest operations it covers.
  * This module adds what Knowledge needs on top of the kit and nothing else:
  *
- * - the per-edge memory partition (`partitionKey`) a grant may carry. The kit's app-grant parser refuses unknown
- *   answer keys, so the claim is read from the raw Portal answer by a thin `fetch` wrapper, removed before the kit
- *   parses it, and bound to the grant's digest. A present but malformed claim denies; it never falls back to the
- *   default partition. The grammar and the `<companyId>/<key>` binding are the attachment path's (partition-authority.ts).
+ * - the per-edge memory partition a grant carries. The kit's app-grant parser exposes the Portal answer's
+ *   `partitionKey` as `GrantResult.partitionKey` (string, explicit `null`, or absent as `undefined`; manifest
+ *   `runtime.partitions` declares that Knowledge binds it). A present but malformed claim denies; it never falls back to
+ *   the default partition. The grammar and the `<companyId>/<key>` binding are the attachment path's (partition-authority.ts).
  * - live re-verification at dispatch (the kit's positive cache is off: every check asks Portal), so a slow upload
  *   cannot outlive a revocation or a re-scoped edge.
  * - metadata-only audit rows.
@@ -86,59 +85,26 @@ export interface AppGrantAuthority {
 }
 
 const GRANT_PRESENTED = /^Bearer\s+tbag_[A-Za-z0-9_-]{1,512}$/u;
-const MAX_ENTRIES = 2_000;
-const MAX_ANSWER_BYTES = 32_768;
-
 function singleHeader(headers: Record<string, string | string[] | undefined>, name: string): string | undefined {
   const value = headers[name];
   return typeof value === "string" ? value : undefined;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
-
 /**
  * The partition a grant answer binds. Unlike the attachment path (an absent key is the default partition there), a
  * `tbag_` answer must state it: a string binds `<companyId>/<key>`, an explicit `null` is the default company scope,
  * an ABSENT key is refused (`partition_binding_required`) and a malformed one is refused (`partition_claim_invalid`).
- * Portal Core does not send the key yet, so until it does every `tbag_` call is refused, never defaulted.
+ * A Portal that does not send the key gets no access, never the default.
  */
 type GrantPartitionClaim =
   | { readonly ok: true; readonly partitionKey: string | null }
   | { readonly ok: false; readonly reason: "absent" | "invalid" };
 
-export function parseGrantPartitionClaim(record: unknown): GrantPartitionClaim {
-  if (!isRecord(record)) return { ok: false, reason: "invalid" };
-  if (!Object.prototype.hasOwnProperty.call(record, "partitionKey")) return { ok: false, reason: "absent" };
-  if (record.partitionKey === null) return { ok: true, partitionKey: null };
-  const claim = parseEdgePartitionClaim(record);
+export function parseGrantPartitionClaim(partitionKey: string | null | undefined): GrantPartitionClaim {
+  if (partitionKey === undefined) return { ok: false, reason: "absent" };
+  if (partitionKey === null) return { ok: true, partitionKey: null };
+  const claim = parseEdgePartitionClaim({ partitionKey });
   return claim.ok ? claim : { ok: false, reason: "invalid" };
-}
-
-type PartitionEntry = { readonly claim: GrantPartitionClaim; readonly until: number };
-
-/** Wraps fetch for the kit: lifts `partitionKey` out of the Portal answer so the kit's strict parser accepts it. */
-function partitionCapturingFetch(base: typeof fetch, sink: Map<string, PartitionEntry>, now: () => number): typeof fetch {
-  return (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-    const response = await base(input, init);
-    if (!response.ok) return response;
-    let token: unknown;
-    try { token = JSON.parse(String(init?.body ?? "")).token; } catch { token = undefined; }
-    const text = await response.text();
-    const passthrough = () => new Response(text, { status: response.status, headers: { "content-type": response.headers.get("content-type") ?? "application/json" } });
-    if (typeof token !== "string" || text.length > MAX_ANSWER_BYTES) return passthrough();
-    let data: unknown;
-    try { data = JSON.parse(text); } catch { return passthrough(); }
-    if (!isRecord(data)) return passthrough();
-    const claim = parseGrantPartitionClaim(data);
-    const { partitionKey: _removed, ...rest } = data;
-    const expiresAt = typeof data.expiresAt === "number" && Number.isFinite(data.expiresAt) ? data.expiresAt : now() + 60_000;
-    if (sink.size >= MAX_ENTRIES) {
-      for (const [key, entry] of sink) if (entry.until <= now()) sink.delete(key);
-      while (sink.size >= MAX_ENTRIES) sink.delete(sink.keys().next().value as string);
-    }
-    sink.set(tokenDigest(token), { claim, until: Math.max(expiresAt, now()) + 5_000 });
-    return new Response(JSON.stringify(rest), { status: response.status, headers: { "content-type": "application/json" } });
-  }) as typeof fetch;
 }
 
 const deny = (status: 401 | 403 | 503, error: string): AppGrantAdmission => ({
@@ -148,7 +114,6 @@ const deny = (status: 401 | 403 | 503, error: string): AppGrantAdmission => ({
 export function createAppGrantAuthority(options: AppGrantOptions): AppGrantAuthority {
   const { manifest, portal } = options;
   const now = options.now ?? Date.now;
-  const sink = new Map<string, PartitionEntry>();
   let verifier: GrantVerifier | null = null;
   if (portal) {
     try {
@@ -165,7 +130,7 @@ export function createAppGrantAuthority(options: AppGrantOptions): AppGrantAutho
           orgId: portal.orgId,
           // Every check asks Portal: admission and dispatch must see a revocation or a re-scoped edge at once.
           cacheTtlMs: 0,
-          fetch: partitionCapturingFetch(options.fetch ?? fetch, sink, now),
+          fetch: options.fetch ?? fetch,
           ...(options.now ? { now } : {}),
         },
         ...(options.now ? { now } : {}),
@@ -184,12 +149,6 @@ export function createAppGrantAuthority(options: AppGrantOptions): AppGrantAutho
         },
       })
     : null;
-
-  const partitionFor = (headers: Record<string, string | string[] | undefined>): PartitionEntry["claim"] | null => {
-    const token = /^Bearer\s+(\S+)$/u.exec(singleHeader(headers, "authorization")?.trim() ?? "")?.[1];
-    const entry = token ? sink.get(tokenDigest(token)) : undefined;
-    return entry && entry.until > now() ? entry.claim : null;
-  };
 
   const authority: AppGrantAuthority = {
     configured: verifier !== null,
@@ -229,10 +188,10 @@ export function createAppGrantAuthority(options: AppGrantOptions): AppGrantAutho
         record("denied", 403, GRANT_ERROR_CODES.notCompanion, null);
         return deny(403, GRANT_ERROR_CODES.notCompanion);
       }
-      const claim = partitionFor(request.headers);
-      if (!claim || !claim.ok) {
+      const claim = parseGrantPartitionClaim(grant.partitionKey);
+      if (!claim.ok) {
         // Absent is not "default": a Portal that does not state the partition gets no access at all.
-        const code = claim && claim.reason === "absent" ? "partition_binding_required" : "partition_claim_invalid";
+        const code = claim.reason === "absent" ? "partition_binding_required" : "partition_claim_invalid";
         record("denied", 403, code, null);
         return deny(403, code);
       }
@@ -247,8 +206,8 @@ export function createAppGrantAuthority(options: AppGrantOptions): AppGrantAutho
       try {
         const grant = await verifier.verifyGrant({ headers: request.headers });
         if (!grant.ok || !verifier.authorizeOperation(grant, admitted.operation).allowed) return null;
-        const claim = partitionFor(request.headers);
-        if (!claim || !claim.ok || claim.partitionKey !== admitted.partitionKey) return null;
+        const claim = parseGrantPartitionClaim(grant.partitionKey);
+        if (!claim.ok || claim.partitionKey !== admitted.partitionKey) return null;
         if (grant.principalKind !== "agent" || grant.agentId !== admitted.agentId) return null;
         return { ...admitted, expiresAt: grant.expiresAt, grant };
       } catch {

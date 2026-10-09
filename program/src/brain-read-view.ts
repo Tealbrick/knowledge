@@ -1,3 +1,6 @@
+import { GBRAIN_MAX_RESPONSE_BYTES } from "./gbrain-transport.js";
+import { HINDSIGHT_MAX_RESPONSE_BYTES } from "./hindsight-client.js";
+
 /**
  * Contract 2 Brain reads over a read set: one engine call per read partition (its own GBrain source or Hindsight
  * bank, derived exactly as for a single partition), merged into one answer.
@@ -161,20 +164,88 @@ function report<T>(settled: readonly Settled<T>[], ok: (value: T) => boolean, er
 
 interface EngineResult { readonly ok: boolean; readonly status?: unknown; readonly tool?: unknown; readonly data?: unknown; readonly error?: unknown; readonly retrieval?: unknown }
 
+/** Bounds for a merged answer. Counts and token budgets are the caller's; bytes are the engine's response cap. */
+export interface MergeBounds {
+  /** At most this many items (the caller's limit). */
+  readonly limit?: number;
+  /** Token budget of the items (Hindsight `max_tokens`), estimated as UTF-8 bytes / 4 of each item's text. */
+  readonly maxTokens?: number;
+  /** The serialized answer stays at or under this many bytes; items are dropped from the end, `truncated: true`. */
+  readonly maxBytes?: number;
+}
+
+/** The response cap of the engine a merged answer comes from: what one partition could at most have answered. */
+export function engineResponseCap(engine: string): number {
+  return engine === "hindsight" ? HINDSIGHT_MAX_RESPONSE_BYTES : GBRAIN_MAX_RESPONSE_BYTES;
+}
+
+const positive = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.trunc(value) : undefined;
+
+/**
+ * The caller's bounds in native arguments, wherever the engine takes them: `limit` / `max_results` at the top level
+ * or in Hindsight's `body`, and Hindsight's `body.max_tokens`. The smallest count wins.
+ */
+export function nativeMergeBounds(args: Record<string, unknown>, maxBytes: number): MergeBounds {
+  const body = args.body && typeof args.body === "object" && !Array.isArray(args.body) ? args.body as Record<string, unknown> : {};
+  const counts = [args.limit, args.max_results, body.limit, body.max_results].map(positive).filter((value): value is number => value !== undefined);
+  const maxTokens = positive(body.max_tokens) ?? positive(args.max_tokens);
+  return { ...(counts.length ? { limit: Math.min(...counts) } : {}), ...(maxTokens ? { maxTokens } : {}), maxBytes };
+}
+
+function itemTokens(item: unknown): number {
+  const record = item && typeof item === "object" && !Array.isArray(item) ? item as Record<string, unknown> : null;
+  const text = record ? ["text", "content", "chunk_text", "compiled_truth"].map((field) => record[field]).find((value) => typeof value === "string") : undefined;
+  return Math.ceil(Buffer.byteLength(typeof text === "string" ? text : JSON.stringify(item) ?? "", "utf8") / 4);
+}
+
+/** Keep items in order while their estimated tokens fit the budget (always at least the first item). */
+function withinTokens(items: unknown[], scopes: number[], maxTokens: number | undefined): { items: unknown[]; scopes: number[] } {
+  if (maxTokens === undefined) return { items, scopes };
+  let used = 0, kept = 0;
+  for (const item of items) {
+    const tokens = itemTokens(item);
+    if (kept > 0 && used + tokens > maxTokens) break;
+    used += tokens;
+    kept += 1;
+  }
+  return { items: items.slice(0, kept), scopes: scopes.slice(0, kept) };
+}
+
+interface MergedData { readonly items: unknown[]; readonly scopes: number[]; readonly build: (items: unknown[]) => unknown }
+
 /** Merge list-shaped answers: arrays, or objects that share one list field (other fields from the first answer). */
-function mergeData(datas: readonly unknown[], limit: number | undefined): { data: unknown; scopes?: number[] } | null {
+function mergeData(datas: readonly unknown[], bounds: MergeBounds): MergedData | null {
+  let merged: MergedList, build: (items: unknown[]) => unknown;
   if (datas.length && datas.every(Array.isArray)) {
-    const merged = mergeRankedLists(datas as unknown[][], limit);
-    return { data: merged.items, scopes: merged.scopes };
-  }
-  if (datas.length && datas.every((value) => value && typeof value === "object" && !Array.isArray(value))) {
+    merged = mergeRankedLists(datas as unknown[][], bounds.limit);
+    build = (items) => items;
+  } else if (datas.length && datas.every((value) => value && typeof value === "object" && !Array.isArray(value))) {
     const field = MERGEABLE_LIST_FIELDS.find((name) => datas.every((value) => Array.isArray((value as Record<string, unknown>)[name])));
-    if (field) {
-      const merged = mergeRankedLists(datas.map((value) => (value as Record<string, unknown[]>)[field]!), limit);
-      return { data: { ...(datas[0] as Record<string, unknown>), [field]: merged.items }, scopes: merged.scopes };
-    }
+    if (!field) return null;
+    merged = mergeRankedLists(datas.map((value) => (value as Record<string, unknown[]>)[field]!), bounds.limit);
+    build = (items) => ({ ...(datas[0] as Record<string, unknown>), [field]: items });
+  } else {
+    return null;
   }
-  return null;
+  const kept = withinTokens(merged.items, merged.scopes, bounds.maxTokens);
+  return { items: kept.items, scopes: kept.scopes, build };
+}
+
+/**
+ * The answer `assemble(items)` builds, with as many merged items as fit `maxBytes` once serialized (largest prefix;
+ * `truncated: true` when items were dropped). Never larger than the engine could have answered for one partition.
+ */
+function boundedAnswer<A extends object>(merged: MergedData, maxBytes: number | undefined, assemble: (data: unknown, truncated: boolean) => A): { answer: A; kept: number } {
+  const size = (count: number) => Buffer.byteLength(JSON.stringify(assemble(merged.build(merged.items.slice(0, count)), count < merged.items.length)), "utf8");
+  if (maxBytes === undefined || size(merged.items.length) <= maxBytes) {
+    return { answer: assemble(merged.build(merged.items), false), kept: merged.items.length };
+  }
+  let low = 0, high = merged.items.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (size(middle) <= maxBytes) low = middle; else high = middle - 1;
+  }
+  return { answer: assemble(merged.build(merged.items.slice(0, low)), true), kept: low };
 }
 
 /**
@@ -183,20 +254,17 @@ function mergeData(datas: readonly unknown[], limit: number | undefined): { data
  * partition shows in its status. Data that cannot be merged keeps the first answer (the write partition when it
  * is in the view). When every partition fails, the answer is the first engine error, as for a single partition.
  */
-export function mergeEngineResults<R extends EngineResult>(settled: readonly Settled<R>[], limit?: number): R & Partial<FanOutReport> & { readonly scopes?: number[] } {
+export function mergeEngineResults<R extends EngineResult>(settled: readonly Settled<R>[], bounds: MergeBounds = {}): R & Partial<FanOutReport> & { readonly scopes?: number[]; readonly truncated?: boolean } {
   const answered = settled.flatMap((entry) => "thrown" in entry || !entry.value.ok ? [] : [entry.value]);
   if (!answered.length) {
     const failed = settled.find((entry): entry is { partition: string; value: R } => !("thrown" in entry));
     return failed ? failed.value : ({ ok: false, status: "unavailable", data: null, error: "unavailable" } as unknown as R);
   }
-  const merged = mergeData(answered.map((result) => result.data), limit);
-  return {
-    ...answered[0]!,
-    ok: true,
-    data: merged ? merged.data : answered[0]!.data,
-    ...(merged?.scopes ? { scopes: merged.scopes } : {}),
-    ...report(settled, (result) => result.ok, (result) => result.error),
-  };
+  const statuses = report(settled, (result) => result.ok, (result) => result.error);
+  const merged = mergeData(answered.map((result) => result.data), bounds);
+  if (!merged) return { ...answered[0]!, ok: true, ...statuses };
+  const { answer, kept } = boundedAnswer(merged, bounds.maxBytes, (data, truncated) => ({ ...answered[0]!, ok: true, data, ...statuses, ...(truncated ? { truncated: true } : {}) }));
+  return { ...answer, scopes: merged.scopes.slice(0, kept) };
 }
 
 /** Drop the internal per-item partition record before an answer leaves the Program. */
@@ -211,13 +279,15 @@ export function withoutScopes<R extends { readonly scopes?: number[] }>(result: 
  * write partition first). Every merged answer carries `partitions`/`partial`. With no answer at all, the first
  * engine error is the answer; when every partition threw, this throws (the route answers 503 as for one partition).
  */
-export function mergeNativeResults(settled: readonly Settled<Record<string, any>>[], limit?: number): Record<string, any> {
+export function mergeNativeResults(settled: readonly Settled<Record<string, any>>[], bounds: MergeBounds = {}): Record<string, any> {
   const answered = settled.flatMap((entry) => "thrown" in entry || entry.value?.ok !== true ? [] : [entry.value]);
   if (!answered.length) {
     const failed = settled.find((entry): entry is { partition: string; value: Record<string, any> } => !("thrown" in entry));
     if (!failed) throw new Error("every read partition failed");
     return failed.value;
   }
-  const merged = mergeData(answered.map((result) => result.data), limit);
-  return { ...answered[0], ...(merged ? { data: merged.data } : {}), ...report(settled, (result) => result?.ok === true, (result) => result?.error) };
+  const statuses = report(settled, (result) => result?.ok === true, (result) => result?.error);
+  const merged = mergeData(answered.map((result) => result.data), bounds);
+  if (!merged) return { ...answered[0], ...statuses };
+  return boundedAnswer(merged, bounds.maxBytes, (data, truncated) => ({ ...answered[0], data, ...statuses, ...(truncated ? { truncated: true } : {}) })).answer;
 }

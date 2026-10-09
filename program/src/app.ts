@@ -35,7 +35,7 @@ import {
   readViewFor,
 } from "./partition-authority.js";
 import { ATTACHMENT_TOKEN_PATTERN } from "./attachment-research-principal.js";
-import { EngineCallLimiter, fanOut, mergeEngineResults, withoutScopes, type FanOutReport } from "./brain-read-view.js";
+import { EngineCallLimiter, engineResponseCap, fanOut, mergeEngineResults, withoutScopes, type FanOutReport } from "./brain-read-view.js";
 import { OpenNotebookAdapter } from "./open-notebook.js";
 import { registerOpenNotebookRoutes } from "./open-notebook-routes.js";
 import { ResearchWriteLedger } from "./research-write-ledger.js";
@@ -3829,7 +3829,7 @@ export async function buildKnowledgeApp(
   const fanOutFor = (request: FastifyRequest) => ({ limiter: engineCalls, principalId: request.knowledgePrincipal?.principalId ?? "anonymous" });
   // No silent drop: a fan-out answer names every read partition's outcome (absent for a single-partition read).
   const fanOutReport = (result: object) => "partitions" in result && "partial" in result
-    ? { partitions: (result as FanOutReport).partitions, partial: (result as FanOutReport).partial } : {};
+    ? { partitions: (result as FanOutReport).partitions, partial: (result as FanOutReport).partial, ...("truncated" in result && result.truncated ? { truncated: true } : {}) } : {};
 
   app.get("/api/brain/entities", async (request) => {
     const query = BrainEntitiesQuerySchema.parse(request.query);
@@ -3999,7 +3999,7 @@ export async function buildKnowledgeApp(
     const view = request.knowledgeReadPartitions;
     // Contract 2: one query per read partition, merged by score (brain-read-view.ts).
     const result = view
-      ? withoutScopes(mergeEngineResults(await fanOut(view, (partition) => brain.query({ query: input.query, limit: input.limit, partitionKey: partition, expand: input.expand, detail: input.detail }), fanOutFor(request)), input.limit))
+      ? withoutScopes(mergeEngineResults(await fanOut(view, (partition) => brain.query({ query: input.query, limit: input.limit, partitionKey: partition, expand: input.expand, detail: input.detail }), fanOutFor(request)), { limit: input.limit, maxBytes: engineResponseCap(brain.engine) }))
       : await brain.query({ query: input.query, limit: input.limit, partitionKey, expand: input.expand, detail: input.detail });
     return {
       ok: result.ok,
@@ -4024,7 +4024,8 @@ export async function buildKnowledgeApp(
     const recallIn = (partition: string | undefined) => brain.recall({ query: input.query, limit: input.limit, partitionKey: partition, grep: input.grep, entity: input.entity, sessionId: input.sessionId, includeExpired: input.includeExpired, budgetTokens: input.budgetTokens, since: input.since, supersessions: input.supersessions, includePending: input.includePending });
     const view = request.knowledgeReadPartitions;
     // Contract 2: one recall per read partition (its own source or bank), merged by score (brain-read-view.ts).
-    const result = view ? withoutScopes(mergeEngineResults(await fanOut(view, recallIn, fanOutFor(request)), input.limit)) : await recallIn(partitionKey);
+    const result = view ? withoutScopes(mergeEngineResults(await fanOut(view, recallIn, fanOutFor(request)),
+      { limit: input.limit, ...(input.budgetTokens ? { maxTokens: input.budgetTokens } : {}), maxBytes: engineResponseCap(brain.engine) })) : await recallIn(partitionKey);
     return {
       ok: result.ok,
       source: "gbrain-adapter",

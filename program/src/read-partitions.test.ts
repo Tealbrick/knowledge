@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildKnowledgeApp } from "./app.js";
 import { createAttachmentResearchAuthority } from "./attachment-research-principal.js";
-import { FAN_OUT_CONCURRENCY, MAX_ENGINE_CALLS_PER_PRINCIPAL, mergeEngineResults, mergeNativeResults, mergeRankedLists } from "./brain-read-view.js";
+import { FAN_OUT_CONCURRENCY, MAX_ENGINE_CALLS_PER_PRINCIPAL, mergeEngineResults, mergeNativeResults, mergeRankedLists, nativeMergeBounds } from "./brain-read-view.js";
+import { GBRAIN_MAX_RESPONSE_BYTES } from "./gbrain-transport.js";
 import { GBrainRuntime } from "./gbrain.js";
 import { hindsightBankForPartition } from "./hindsight-client.js";
 import { registerOpenNotebookRoutes, type OpenNotebookRouteAdapter } from "./open-notebook-routes.js";
@@ -516,5 +517,45 @@ describe("no silent drop: per-partition status on every fan-out read", () => {
     expect(recall.json()).not.toHaveProperty("partitions");
     const native = await app.inject({ method: "POST", url: "/api/brain/native/search", headers: as("A"), payload: { partitionKey: companyId, arguments: { query: "q" } } });
     expect(native.statusCode).toBe(503);
+  });
+});
+
+describe("native fan-out limits and response cap", () => {
+  it("reads the caller's limit wherever the engine takes it", () => {
+    expect(nativeMergeBounds({ body: { limit: 2 } }, 10)).toEqual({ limit: 2, maxBytes: 10 });
+    expect(nativeMergeBounds({ limit: 5, body: { max_results: 3 } }, 10)).toEqual({ limit: 3, maxBytes: 10 });
+    expect(nativeMergeBounds({ body: { query: "q", max_tokens: 9 } }, 10)).toEqual({ maxTokens: 9, maxBytes: 10 });
+    expect(nativeMergeBounds({ limit: "7", body: { limit: -1 } }, 10)).toEqual({ maxBytes: 10 });
+  });
+
+  it("applies a limit nested under the Hindsight body, and max_tokens, after the merge", async () => {
+    const apiKey = "hindsight-tenant-key-fixture-only-000000";
+    const bank = { [hindsightBankForPartition(pa)]: "alpha", [hindsightBankForPartition(pb)]: "beta" };
+    const fake = await startFakeHindsight({ apiKey, answer: (call) => call.bank && call.path.endsWith("/memories/recall")
+      ? { results: [1, 2, 3].map((rank) => ({ id: `${bank[call.bank!]}-${rank}`, text: `${bank[call.bank!]} memory ${rank}` })) } : undefined });
+    try {
+      const app = await knowledge({ memoryEngine: "hindsight", hindsightUrl: fake.baseUrl, hindsightApiKey: apiKey });
+      const recall = async (body: Record<string, unknown>) => (await app.inject({ method: "POST", url: "/api/brain/native/recall_memories", headers: as("A"),
+        payload: { partitionKey: companyId, arguments: { body: { query: "q", ...body } } } })).json();
+      expect((await recall({})).data.results.map((m: { id: string }) => m.id)).toEqual(["alpha-1", "beta-1", "alpha-2", "beta-2", "alpha-3", "beta-3"]);
+      const limited = await recall({ limit: 3 });
+      expect(limited.data.results.map((m: { id: string }) => m.id)).toEqual(["alpha-1", "beta-1", "alpha-2"]);
+      expect(limited.partitions).toEqual([{ partition: pa, ok: true }, { partition: pb, ok: true }]);
+      // "alpha memory 1" is 14 bytes, about 4 tokens: a budget of 9 keeps two memories.
+      expect((await recall({ max_tokens: 9 })).data.results.map((m: { id: string }) => m.id)).toEqual(["alpha-1", "beta-1"]);
+    } finally { await fake.close(); }
+  });
+
+  it("keeps a merged answer under the engine's response cap and flags the truncation", async () => {
+    const big = "x".repeat(1_500_000);
+    vi.spyOn(GBrainRuntime.prototype, "nativeOperation").mockImplementation(async (_op, _args, partitionKey) =>
+      ({ ok: true, data: [{ slug: `${partitionKey}-1`, text: big }, { slug: `${partitionKey}-2`, text: "small" }] }));
+    const app = await knowledge();
+    const response = await app.inject({ method: "POST", url: "/api/brain/native/search", headers: as("A"), payload: { partitionKey: companyId, arguments: { query: "q" } } });
+    expect(response.statusCode).toBe(200);
+    expect(Buffer.byteLength(response.body)).toBeLessThanOrEqual(GBRAIN_MAX_RESPONSE_BYTES);
+    const answer = response.json();
+    expect(answer).toMatchObject({ ok: true, truncated: true, partial: false });
+    expect(answer.data.map((row: { slug: string }) => row.slug)).toEqual([`${pa}-1`]);
   });
 });

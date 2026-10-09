@@ -5,7 +5,7 @@ import type {MemoryEngine} from "./memory-engine.js";
 import {BrainExtractions} from "./brain-extractions.js";
 import {normalizeKnowledgePartitionKey} from "./partition-authority.js";
 import {nativeOperationAuthorized} from "./brain-native-policy.js";
-import {EngineCallLimiter, fanOut, mergeNativeResults} from "./brain-read-view.js";
+import {EngineCallLimiter, engineResponseCap, fanOut, mergeNativeResults, nativeMergeBounds} from "./brain-read-view.js";
 
 /**
  * Contract 2: native reads that run once per partition of the read set and merge (stateless lookups, lists and
@@ -73,7 +73,8 @@ export function registerNativeMemoryRoutes(app: FastifyInstance, options: {brain
     const view=!writes && FAN_OUT_NATIVE_READS.has(operation) ? request.knowledgeReadPartitions : undefined;
     const execute=async()=>{
       if(view) return mergeNativeResults(await fanOut(view,(scope)=>options.brain.nativeOperation(operation,input.arguments,scope,principal.principalId),{limiter:engineCalls,principalId:owner}),
-        typeof input.arguments.limit==="number" ? input.arguments.limit : undefined);
+        // The caller's limit (top level or Hindsight body) and the engine's response cap bound the merged answer.
+        nativeMergeBounds(input.arguments,engineResponseCap(options.brain.engine)));
       const value=await engineCalls.run(owner,()=>options.brain.nativeOperation(operation,input.arguments,partition,principal.principalId));
       // A handler/storage failure may follow a partial write. Hold the receipt;
       // never turn a transport or internal failure into permission to retry it.

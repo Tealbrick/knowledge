@@ -64,6 +64,11 @@ Configuration is server-side. Start with [the environment example](program/.env.
 
 ## Release status
 
+> **0.4.x maintenance line.** Knowledge 0.4.5 is the only 0.4.x release that may run on a data
+> directory that Knowledge 0.5.0 or later has used (0.5.0 writes random record ids). Never run
+> 0.4.3 or 0.4.4 on such a data directory: they give new records duplicate ids. To go back from
+> 0.5.0, use 0.4.5 or restore a backup taken before the upgrade.
+
 The release evidence records source publication, optional image evidence,
 adapter artifact, security review, and isolated persistence checks separately.
 Container checks use synthetic providers and do not establish real model quality, complete

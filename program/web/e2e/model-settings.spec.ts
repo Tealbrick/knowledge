@@ -69,6 +69,9 @@ test("without owner authority the panel explains it is owner-only and cannot sav
 test("a rejected key is reported per model in plain words", async ({ page }) => {
   const panel = await openModels(page);
   await expect(panel.getByText("Not set up")).toBeVisible();
+  // OpenAI defaults: GPT-6 Luna with low reasoning effort.
+  await expect(panel.getByLabel("Chat model")).toHaveValue("gpt-6-luna");
+  await expect(panel.getByLabel("Reasoning effort")).toHaveValue("low");
   await expect(panel.getByRole("button", { name: "Save and test connection" })).toBeDisabled();
   await panel.getByRole("button", { name: "Use a different API URL" }).click();
   await panel.getByLabel("API URL").fill(fixtureUrl);

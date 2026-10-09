@@ -35,9 +35,14 @@ export const GBRAIN_PROVIDER_ENV: Readonly<Record<string, { readonly key: string
   google: { key: "GOOGLE_GENERATIVE_AI_API_KEY" },
 });
 
-/** Defaults offered for each hosted provider (chat, embedding, vector size). */
+/**
+ * Defaults offered for each hosted provider (chat, embedding, vector size).
+ * `chatReasoningEffort` is the default reasoning effort for that provider's chat
+ * model. Only providers in REASONING_EFFORT_PROVIDERS may have one: Anthropic and
+ * Google have none, so they never send it.
+ */
 export const PROVIDER_DEFAULTS = Object.freeze({
-  openai: { baseUrl: "https://api.openai.com/v1", chatModel: "gpt-4.1-mini", embeddingModel: "text-embedding-3-small", dimensions: 1536 },
+  openai: { baseUrl: "https://api.openai.com/v1", chatModel: "gpt-6-luna", chatReasoningEffort: "low", embeddingModel: "text-embedding-3-small", dimensions: 1536 },
   // The memory engine's current Google embedding model; 768 is its default vector size.
   google: { baseUrl: FIXED_ENDPOINTS.google!, chatModel: "gemini-2.5-flash", embeddingModel: "gemini-embedding-2", dimensions: 768 },
   anthropic: { baseUrl: FIXED_ENDPOINTS.anthropic!, chatModel: "claude-sonnet-5" },

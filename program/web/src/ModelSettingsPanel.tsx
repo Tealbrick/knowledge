@@ -46,8 +46,8 @@ const FIXED_URL_MODES: ReadonlySet<ProviderMode> = new Set<ProviderMode>(["googl
 const GOOGLE_URL = "https://generativelanguage.googleapis.com";
 const ANTHROPIC_URL = "https://api.anthropic.com";
 
-const PRESETS: Record<ProviderMode, { label: string; url: string; chatModel: string; embeddingModel: string; dimensions: number; rerankerModel: string }> = {
-  openai: { label: "OpenAI", url: "https://api.openai.com/v1", chatModel: "gpt-4.1-mini", embeddingModel: "text-embedding-3-small", dimensions: 1536, rerankerModel: "" },
+export const PRESETS: Record<ProviderMode, { label: string; url: string; chatModel: string; reasoningEffort?: ReasoningEffort; embeddingModel: string; dimensions: number; rerankerModel: string }> = {
+  openai: { label: "OpenAI", url: "https://api.openai.com/v1", chatModel: "gpt-6-luna", reasoningEffort: "low", embeddingModel: "text-embedding-3-small", dimensions: 1536, rerankerModel: "" },
   openrouter: { label: "OpenRouter", url: "https://openrouter.ai/api/v1", chatModel: "openai/gpt-4.1-mini", embeddingModel: "openai/text-embedding-3-small", dimensions: 1536, rerankerModel: "cohere/rerank-v3.5" },
   google: { label: "Google (Gemini)", url: GOOGLE_URL, chatModel: "gemini-2.5-flash", embeddingModel: "gemini-embedding-2", dimensions: 768, rerankerModel: "" },
   anthropic: { label: "Anthropic (Claude)", url: ANTHROPIC_URL, chatModel: "claude-sonnet-5", embeddingModel: "text-embedding-3-small", dimensions: 1536, rerankerModel: "" },
@@ -139,7 +139,7 @@ export function ModelSettingsPanel() {
   const [url, setUrl] = useState(PRESETS.openai.url);
   const [key, setKey] = useState("");
   const [chatModel, setChatModel] = useState(PRESETS.openai.chatModel);
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">(PRESETS.openai.reasoningEffort ?? "");
   const [embeddingChoice, setEmbeddingChoice] = useState<EmbeddingChoice>("openai");
   const [embeddingUrl, setEmbeddingUrl] = useState("http://127.0.0.1:8080/v1");
   const [embeddingKey, setEmbeddingKey] = useState("");
@@ -181,6 +181,7 @@ export function ModelSettingsPanel() {
     const preset = PRESETS[next];
     setUrl(preset.url);
     setChatModel(preset.chatModel);
+    setReasoningEffort(preset.reasoningEffort ?? "");
     setEmbeddingModel(preset.embeddingModel);
     setDimensions(String(preset.dimensions));
     setRerankerModel(preset.rerankerModel);

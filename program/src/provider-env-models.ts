@@ -16,6 +16,10 @@ import { ModelSettingsSchema, readModelSettings, type ModelSettings } from "./mo
  * Values are read from the process environment and used in memory only. They are
  * never written to disk, logged or returned. A save in Settings -> Models takes
  * precedence from then on, and Portal Connections no longer changes the models.
+ *
+ * The OpenAI default chat model is `gpt-6-luna` with `low` reasoning effort
+ * (PROVIDER_DEFAULTS.openai). These are defaults only: saved owner settings are
+ * never rewritten, and a saved chat model keeps exactly the effort the owner chose.
  */
 
 /** Provider key variables, as declared by the manifest's provider-env fields. */
@@ -69,7 +73,12 @@ export function providerEnvModelSettings(env: Env, pinned: PinnedEmbedding | nul
   });
   const defaults = PROVIDER_DEFAULTS[embeddingProvider];
   const parsed = ModelSettingsSchema.safeParse({
-    chat: { ...connection(chatProvider), model: PROVIDER_DEFAULTS[chatProvider].chatModel },
+    chat: {
+      ...connection(chatProvider),
+      model: PROVIDER_DEFAULTS[chatProvider].chatModel,
+      // Only OpenAI has a default reasoning effort; Anthropic and Google must not carry one.
+      ...(chatProvider === "openai" ? { reasoningEffort: PROVIDER_DEFAULTS.openai.chatReasoningEffort } : {}),
+    },
     embedding: {
       ...connection(embeddingProvider),
       model: pinned?.model ?? defaults.embeddingModel,

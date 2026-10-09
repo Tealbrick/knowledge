@@ -1881,6 +1881,20 @@ export async function buildKnowledgeApp(
     }
   });
 
+  // A DELETE carries no body, but some clients (and the Teal Brick connector) still send
+  // `Content-Type: application/json` with an empty body. Fastify refuses that (FST_ERR_CTP_EMPTY_JSON_BODY);
+  // for DELETE alone it is treated as "no body". Every other method and every non-empty body keeps Fastify's
+  // own JSON parsing, including its prototype-poisoning errors.
+  const defaultJsonParser = app.getDefaultJsonParser("error", "error");
+  app.removeContentTypeParser("application/json");
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (request, body, done) => {
+    if (request.method === "DELETE" && String(body).trim() === "") {
+      done(null, undefined);
+      return;
+    }
+    defaultJsonParser(request, body as string, done);
+  });
+
   app.addContentTypeParser(
     /^multipart\/form-data/u,
     { parseAs: "buffer" },

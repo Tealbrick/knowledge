@@ -25,6 +25,9 @@
       "repository": "ghcr.io/tealbrick/knowledge"
     },
     "port": 5310,
+    "partitions": {
+      "contract": 1
+    },
     "volume": {
       "path": "/data",
       "required": true

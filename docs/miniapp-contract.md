@@ -2,7 +2,7 @@
 
 Knowledge ships one release manifest, [`tealbrick.app.json`](../tealbrick.app.json)
 (schema `tealbrick.miniapp/v1`), and serves the standard control endpoints of
-`@tealbrick/contract` **0.1.0-alpha.3** (pinned exactly in `program/package.json`).
+`@tealbrick/contract` **0.1.0-alpha.4** (pinned exactly in `program/package.json`).
 Portal, the connector and the desktop app read the manifest instead of knowing
 Knowledge by name. The older internal descriptor, [`manifest.json`](../manifest.json), is
 marked `legacy-descriptor` and is kept only for tools that still read it.
@@ -18,6 +18,8 @@ grants** (`tbag_`), and the control endpoints.
 - `kind: "bridge"`, `upstream`: GBrain `0.48.2.0`, MIT. GBrain is vendored and embedded in
   the image (`sidecars/gbrain`), so the manifest declares no GBrain sidecar. The
   contract validator therefore has no sidecar image to match the pin against, and says nothing.
+- `runtime.partitions: { "contract": 1 }` is declared (alpha.4): Knowledge binds app-grant calls to
+  `<tenant>/<partitionKey>` and refuses grants without the field. Portal Core sends `partitionKey` only to apps that declare it.
 - `runtime.sidecars` is **not** declared. Open Notebook and SurrealDB must share one generated
   password, and alpha.3 cannot express a secret shared between two sidecars. The Railway
   template keeps its three-service topology (see `deploy/container/RAILWAY.md`). This is
@@ -36,7 +38,7 @@ grants** (`tbag_`), and the control endpoints.
   (a test fails otherwise). The image workflow checks it against the release tag and runs the validator.
 
 ```sh
-npx --yes @tealbrick/contract@0.1.0-alpha.3 validate tealbrick.app.json \
+npx --yes @tealbrick/contract@0.1.0-alpha.4 validate tealbrick.app.json \
   --companion path/to/rules-approvals/tealbrick.app.json
 ```
 
@@ -135,10 +137,9 @@ rewrite and per-request Research/engine bearer.
   never reaches a child, a child never reaches the default or a sibling. An explicit `partitionKey: null` is the default
   company scope. An **absent** `partitionKey` is refused with 403 `partition_binding_required` and never falls back to the
   default or unpartitioned scope; a present but malformed claim is refused with 403 `partition_claim_invalid`. The same
-  check runs again at dispatch. **`tbag_` grants are refused until Core sends `partitionKey`; agents keep the
-  attachment-grant path meanwhile** (the attachment path is unchanged). The kit's strict app-grant parser rejects unknown
-  answer keys, so a thin `fetch` wrapper lifts the claim out of the raw answer before the kit parses it
-  (`program/src/contract/app-grants.ts`).
+  check runs again at dispatch. The kit's app-grant parser (alpha.4) carries the claim as
+  `GrantResult.partitionKey` (`string | null`, absent stays `undefined`); `program/src/contract/app-grants.ts` reads it
+  from there. The attachment path is unchanged.
 - **Errors** (kit codes): 401 `grant_required|grant_invalid|grant_expired|grant_denied|grant_revoked`; 403
   `operation_not_granted|operation_unknown|operation_owner_only|companion_not_declared`; 503
   `grant_verification_unavailable|portal_unconfigured`. Knowledge adds 403 `partition_claim_invalid`, 403 `partition_binding_required`, 403
@@ -194,12 +195,10 @@ tealbrick-conformance run --app http://127.0.0.1:28551 --manifest tealbrick.app.
   --audit-command "sqlite3 -json /tmp/knowledge-conformance/contract-audit.sqlite 'select * from contract_audit'" --slow --json
 ```
 
-Result with `@tealbrick/conformance` 0.1.0-alpha.1 (with the Rules companion descriptor): 25 pass, 1 fail, 11 skip.
-
-**Known deviation, `control.healthz`.** The check wants `/healthz` to be exactly `{ok, app, version, major}`. Knowledge
-also answers `service`, `partitionContract` and `capabilities.edgePartitions`, because Portal Core reads those
-from the public `/healthz` to decide whether it may save a partitioned edge. Dropping them would make Core
-refuse every partitioned edge. The fields go when Core reads partition support from the manifest or an authenticated endpoint.
+Run with `@tealbrick/conformance` 0.1.0-alpha.2, which allows extra non-secret `/healthz` fields
+(`service`, `partitionContract` and `capabilities.edgePartitions`, which Portal Core reads to gate partitioned edges), so
+`control.healthz` passes and CI (`.woodpecker/conformance.yaml`) fails on any failing check. Its fake Portal does not send
+`partitionKey` yet, so CI preloads a stand-in that adds `partitionKey: null` to the app-grant answers.
 
 The other skips are the checks the runner cannot run against an app alone (connector, desktop, runtime-config ack, unlocks,
 account tokens, Portal logout, human UI states), plus L2.

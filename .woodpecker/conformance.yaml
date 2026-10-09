@@ -6,18 +6,14 @@
 # Hindsight service (program/scripts/fixtures/fake-engines.mjs), so the run
 # checks the contract surface, not answer quality.
 #
-# The published fake Portal does not state a memory partition in its app-grant
-# answers, and neither does Portal Core yet. Knowledge refuses a grant that does
-# not state one (fail closed), so the app process preloads a stand-in that adds the
-# explicit company scope (`partitionKey: null`) to those answers, as Core will for
-# an unpartitioned edge. Nothing else is changed in what the app receives.
+# The published fake Portal (conformance 0.1.0-alpha.2) still does not state a memory
+# partition in its app-grant answers. Knowledge declares `runtime.partitions` and refuses
+# a grant that does not state one (fail closed), so the app process preloads a stand-in
+# that adds the explicit company scope (`partitionKey: null`) to those answers, as Portal
+# Core does for an unpartitioned edge. Nothing else is changed in what the app receives.
+# Remove the stand-in when the fake Portal sends `partitionKey` itself.
 #
-# Fails when the runner reports `ok: false`, with one exception: Knowledge's
-# GET /healthz also carries `service`, `partitionContract` and
-# `capabilities.edgePartitions` (Portal Core reads them to gate partitioned
-# edges), while the runner's `control.healthz` wants exactly the four standard
-# keys. When `control.healthz` is the ONLY failing check, the step prints it and
-# passes. Any other failing check, or a missing report, fails the step.
+# Fails when the runner reports `ok: false` or the report is missing.
 labels:
   platform: linux/amd64
 
@@ -45,7 +41,7 @@ steps:
         mkdir -p "$RUN/data" "$RUN/runner"
         corepack enable && corepack prepare pnpm@9.15.4 --activate
         (cd program && pnpm install --frozen-lockfile)
-        npm install --prefix "$RUN/runner" --no-audit --no-fund @tealbrick/conformance@0.1.0-alpha.1
+        npm install --prefix "$RUN/runner" --no-audit --no-fund @tealbrick/conformance@0.1.0-alpha.2
         CLI="$RUN/runner/node_modules/@tealbrick/conformance/dist/cli.js"
         wait_for() { # url, seconds
           node -e 'const [u,s]=process.argv.slice(1);const end=Date.now()+s*1000;(async()=>{for(;;){try{if((await fetch(u)).ok)return}catch{}if(Date.now()>end){console.error("timeout waiting for "+u);process.exit(1)}await new Promise(r=>setTimeout(r,500))}})()' "$1" "$2"
@@ -104,10 +100,5 @@ steps:
           const failing = r.checks.filter((c) => c.status === "FAIL");
           console.log("conformance summary", JSON.stringify(r.summary), "ok=" + r.ok);
           for (const c of failing) console.log("FAIL", c.id, (c.evidence || []).filter((e) => String(e).startsWith("FAIL")).slice(0, 3).join(" | "));
-          if (r.ok === true && failing.length === 0) process.exit(0);
-          if (failing.length === 1 && failing[0].id === "control.healthz") {
-            console.log("ACCEPTED: control.healthz is the only failing check (known runner strictness: /healthz also carries partition capability fields that Portal Core reads).");
-            process.exit(0);
-          }
-          process.exit(1);
+          process.exit(r.ok === true && failing.length === 0 ? 0 : 1);
         ' "$RUN/report.json" "$RUN/run.out"

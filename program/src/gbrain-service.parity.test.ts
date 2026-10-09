@@ -91,6 +91,44 @@ describe.skipIf(!repo)("GBrain service parity (real upstream)", () => {
     expect(JSON.stringify(page.data)).not.toContain("<!--- gbrain:facts:begin");
   });
 
+  it("re-projects a document whose Timeline section was removed (upstream v0.60.105+ timeline refusal)", async () => {
+    const withTimeline = "Kickoff notes.\n\n## Timeline\n\n- **2026-10-01** | Kickoff with the meetup hosts\n- **2026-10-08** | Second session\n";
+    const created = await runtime.projectDocument(document("doc-timeline", "fixture-a", withTimeline));
+    expect(created.ok, created.error).toBe(true);
+    expect((await runtime.getTimeline({ slug: "knowledge-docs/doc-timeline", partitionKey: "fixture-a" })).data).toHaveLength(2);
+    const updated = await runtime.projectDocument(document("doc-timeline", "fixture-a", "Kickoff notes, timeline moved elsewhere."));
+    expect(updated.ok, updated.error).toBe(true);
+    const page = await runtime.getPage({ slug: "knowledge-docs/doc-timeline", partitionKey: "fixture-a" });
+    expect(JSON.stringify(page.data)).toContain("timeline moved elsewhere");
+    expect((await runtime.getTimeline({ slug: "knowledge-docs/doc-timeline", partitionKey: "fixture-a" })).data).toEqual([]);
+  });
+
+  it("relays upstream put_page refusals to agents instead of writing (.md slugs, dropped timeline rows)", async () => {
+    const md = await runtime.nativeOperation("put_page", { slug: "notes/agent-note.md", content: "# Note\n\nBody." }, "fixture-a", "agent-henry");
+    expect(md.ok).toBe(false);
+    const seeded = await runtime.nativeOperation("put_page", { slug: "notes/agent-timeline", content: "# Agent\n\n## Timeline\n\n- **2026-10-01** | First entry\n" }, "fixture-a", "agent-henry");
+    expect(seeded.ok, JSON.stringify(seeded.error)).toBe(true);
+    const current = await runtime.nativeOperation("get_page", { slug: "notes/agent-timeline" }, "fixture-a", "agent-henry");
+    const revision = current.data?.revision;
+    expect((await runtime.nativeOperation("get_timeline", { slug: "notes/agent-timeline" }, "fixture-a", "agent-henry")).data).toHaveLength(1);
+    const dropped = await runtime.nativeOperation("put_page", { slug: "notes/agent-timeline", content: "# Agent\n\nNo timeline now.", ...(revision ? { expected_revision: revision } : {}) }, "fixture-a", "agent-henry");
+    expect(dropped.ok).toBe(false);
+    expect(JSON.stringify(dropped.error)).toContain("timeline_rows_would_be_removed");
+  });
+
+  it("never returns a stored credential (upstream retrieval redaction, v0.60.31+)", async () => {
+    // Built at runtime so no credential-shaped literal is committed.
+    const fakeKey = ["AKIA", "Q".repeat(12), "WXYZ"].join("");
+    const remembered = await runtime.nativeOperation("remember", { fact: `Henry's old deploy key was ${fakeKey}`, entity: "henry-keys", provenance: "conversation: parity" }, "fixture-a", "agent-henry");
+    const responses = [remembered,
+      await runtime.nativeOperation("recall", { entity: "henry-keys" }, "fixture-a", "agent-henry"),
+      await runtime.nativeOperation("entity", { name: "henry-keys" }, "fixture-a", "agent-henry"),
+      await runtime.recall({ query: "deploy key", partitionKey: "fixture-a" })];
+    for (const response of responses) expect(JSON.stringify(response)).not.toContain(fakeKey);
+    expect(remembered.ok, JSON.stringify(remembered.error)).toBe(true);
+    expect(JSON.stringify(responses[1])).toContain("<REDACTED:aws_access_key>");
+  });
+
   it("freezes every memory write for a migration while reads continue", async () => {
     process.env.KNOWLEDGE_BRAIN_WRITES = "paused";
     try {
@@ -153,6 +191,7 @@ describe.skipIf(!repo)("GBrain service parity (real upstream)", () => {
     const other = await runtime.nativeOperation("recall", { entity: "henry" }, "fixture-b", "agent-henry");
     expect(JSON.stringify(other.data ?? null)).not.toContain("Mondays");
     expect((await runtime.nativeOperation("remember", { [field]: "secret", entity: "henry", visibility: "private" }, "fixture-a", "agent-henry")).ok).toBe(false);
+    expect((await runtime.nativeOperation("remember", { items: [{ [field]: "secret", entity: "henry", provenance: "conversation: parity", visibility: "private" }] }, "fixture-a", "agent-henry")).ok).toBe(false);
     expect((await runtime.nativeOperation("recall", { entity: "henry", source_id: knowledgePartitionSourceId("fixture-b") }, "fixture-a", "agent-henry")).ok).toBe(false);
     const factId = String((recalled.data.facts ?? []).find((fact: { text?: string; fact?: string }) => JSON.stringify(fact).includes("Mondays"))?.id ?? "");
     expect(factId).not.toBe("");

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+/** Upstream agent-output NOTICE_PREFIX: a model-facing notice block, never the tool result. */
+const GBRAIN_NOTICE_PREFIX = "[gbrain notice ";
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -36,7 +38,7 @@ function resultData(message: unknown, id: string, onMeta?: (meta: Record<string,
       const first = Array.isArray(result.content) ? result.content.find(item => record(item) && item.type === "text") : undefined;
       code = record(first) && typeof first.text === "string" ? JSON.parse(first.text).error : undefined;
     } catch { /* generic redacted error below */ }
-    const safe = ["permission_denied", "scope_denied", "embedding_failed", "extraction_failed", "rate_limited", "invalid_params", "page_not_found", "revision_conflict", "unavailable", "operation_failed"];
+    const safe = ["permission_denied", "scope_denied", "embedding_failed", "extraction_failed", "rate_limited", "invalid_params", "page_not_found", "revision_conflict", "write_outcome_unknown", "unavailable", "operation_failed"];
     throw new Error(`GBrain tool execution failed${typeof code === "string" && safe.includes(code) ? `: ${code}` : ""}`);
   }
   if (record(result._meta)) onMeta?.(result._meta);
@@ -49,6 +51,17 @@ function resultData(message: unknown, id: string, onMeta?: (meta: Record<string,
   if (text.some((item) => typeof item.text !== "string")) throw new Error("Invalid GBrain text content");
   if (text.length === 1) {
     try { return JSON.parse(text[0].text as string); } catch { return text[0].text; }
+  }
+  // Upstream (v0.60.68+) keeps the JSON result in the first text block and appends model-facing
+  // notice blocks (`[gbrain notice <code> ...]`, e.g. the one-time `behavior_changes` notice on an
+  // upgraded brain) and retrieval evidence lines as extra text blocks. The same notices also
+  // arrive structured in `_meta.gbrain_notices` (relayed through onMeta above).
+  const body = text.filter((item) => !(item.text as string).startsWith(GBRAIN_NOTICE_PREFIX));
+  if (body.length === 1 && body.length < text.length) {
+    try { return JSON.parse(body[0].text as string); } catch { return body[0].text; }
+  }
+  if (body.length > 1) {
+    try { return JSON.parse(body[0].text as string); } catch { /* not a JSON result: keep every part below */ }
   }
   // Preserve multi-part/non-text results instead of silently discarding all but one block.
   return result;

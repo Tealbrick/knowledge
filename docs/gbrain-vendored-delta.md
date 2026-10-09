@@ -2,6 +2,8 @@
 
 Researched 2026-10-05 for the move to an unmodified upstream GBrain service ([gbrain-upstream-service.md](gbrain-upstream-service.md)). Since then, C1 (missing `src/core/output/`) is fixed and A5–A14 are recorded in THIRD_PARTY_NOTICES.
 
+Historical record at v0.60.57.0. The service pin is now v0.60.127.0; the re-check at that pin (A7 upstreamed in v0.60.58, A1/A6/A9/A13 still enforced in Knowledge) is in [gbrain-upstream-service.md](gbrain-upstream-service.md) (section Privacy).
+
 ## Sources
 
 - Knowledge: `this repository` at `origin/main` = `ad0d54d5f691`. Vendored tree `sidecars/gbrain`, VERSION 0.48.2.0.

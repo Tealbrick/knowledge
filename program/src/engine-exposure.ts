@@ -103,6 +103,8 @@ const GBRAIN_POLICY_EXCLUSIONS: Readonly<Record<string, string>> = {
   loops_close: "Delta A13: acts on open loops, which Knowledge withholds because their evidence visibility is not provable at the pin.",
   loops_mute: "Delta A13: acts on open loops, which Knowledge withholds because their evidence visibility is not provable at the pin.",
   loops_unmute: "Delta A13: acts on open loops, which Knowledge withholds because their evidence visibility is not provable at the pin.",
+  put_pages: "Batch page write (v0.60.127.0): Knowledge's per-page argument guards (reserved knowledge-docs/ and knowledge-research/ projections) are enforced on put_page, which stays exposed; the batch form is not delegated until those guards cover every pages[] entry.",
+  rate_answer: "Retrieval feedback (v0.60.127.0) retunes the partition's shared ranking; it is off by default upstream (feedback.enabled=false) and the answer_id it needs arrives only in upstream _meta and notice blocks, which the native route does not relay.",
 };
 
 let gbrainCache: EngineExposure | null = null;
@@ -110,7 +112,7 @@ let gbrainCache: EngineExposure | null = null;
 /** The pinned GBrain service (`gbrain serve --http`, one OAuth client per source and principal). */
 export function gbrainServiceExposure(): EngineExposure {
   if (gbrainCache) return gbrainCache;
-  const surface = loadSurface<{ provenance: Record<string, string>; operations: GBrainUpstreamOperation[] }>("gbrain-0.60.57.0.json");
+  const surface = loadSurface<{ provenance: Record<string, string>; operations: GBrainUpstreamOperation[] }>("gbrain-0.60.127.0.json");
   const exposed = new Map<string, NativeOperationPolicy>();
   const excluded = new Map<string, string>();
   for (const op of surface.operations) {

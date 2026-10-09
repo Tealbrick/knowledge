@@ -55,6 +55,7 @@ const REFUSED: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ["get_calibration_profile", { holder: "people/charlie-example" }],
   ["get_calibration_profile", { holder: "self" }],
   ["extract_facts", { turn_text: "x", visibility: "private" }],
+  ["remember", { items: [{ fact: "a", provenance: "p" }, { fact: "b", provenance: "p", visibility: "private" }] }],
   ["capture", { local_file: "/etc/passwd" }],
   ["put_page", { slug: "knowledge-docs/doc-1", content: "x" }],
   ["query", { query: "x", source_id: "kb-000000000000000000000000" }],
@@ -72,6 +73,7 @@ describe("GBrain service argument refusals at the Knowledge boundary", () => {
       ["ontology_propose", { entity: "e", dimension: "d", value: "v", visibility: "world" }],
       ["get_calibration_profile", {}],
       ["put_page", { slug: "notes/agent", content: "x" }],
+      ["remember", { items: [{ fact: "a", provenance: "p", visibility: "world" }, { fact: "b", provenance: "p" }] }],
     ] as const) expect(gbrainServiceArgumentRefusal(op, args as Record<string, unknown>), `${op} ${JSON.stringify(args)}`).toBeNull();
   });
 

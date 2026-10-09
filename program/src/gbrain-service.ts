@@ -230,8 +230,11 @@ export class GBrainServiceConnection {
     for (let attempt = 0; attempt < 2; attempt++) {
       const revision = await this.pageRevision(sourceId, slug);
       try {
-        return await this.call(sourceId, "put_page", {
-          slug, content, ...(revision ? { expected_revision: revision } : {}),
+        return await this.replayIfOutcomeUnknown(sourceId, "put_page", {
+          // The Knowledge document is canonical: a projection that no longer has a Timeline
+          // section must remove its dated rows (upstream v0.60.105+ refuses that remotely
+          // with timeline_rows_would_be_removed unless drop_timeline is set).
+          slug, content, drop_timeline: true, ...(revision ? { expected_revision: revision } : {}),
           request_id: deterministicRequestId("put_page", sourceId, slug, contentHash, revision ?? "create"),
         });
       } catch (error) {
@@ -245,7 +248,21 @@ export class GBrainServiceConnection {
   async deleteCanonicalPage(sourceId: string, slug: string) {
     const revision = await this.pageRevision(sourceId, slug);
     if (!revision) return { status: "absent" };
-    return this.call(sourceId, "delete_page", { slug, expected_revision: revision, request_id: deterministicRequestId("delete_page", sourceId, slug, revision) });
+    return this.replayIfOutcomeUnknown(sourceId, "delete_page", { slug, expected_revision: revision, request_id: deterministicRequestId("delete_page", sourceId, slug, revision) });
+  }
+
+  /**
+   * Upstream (v0.60.123+) answers `write_outcome_unknown` when its database session kept dropping
+   * during admission. Replaying the SAME request_id is a read of the retained request upstream,
+   * never a second admission: it returns the accepted write, or admits it when nothing was
+   * recorded. So one identical replay is safe; a new request_id never is.
+   */
+  private async replayIfOutcomeUnknown(sourceId: string, name: string, args: Record<string, unknown> & { request_id: string }) {
+    try { return await this.call(sourceId, name, args); }
+    catch (error) {
+      if (error instanceof Error && error.message.endsWith(": write_outcome_unknown")) return this.call(sourceId, name, args);
+      throw error;
+    }
   }
 
   private async pageRevision(sourceId: string, slug: string): Promise<string | null> {

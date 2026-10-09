@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@tealbrick/contract':
-        specifier: 0.1.0-alpha.5
-        version: 0.1.0-alpha.5
+        specifier: 0.1.0-alpha.6
+        version: 0.1.0-alpha.6
       '@tealbrick/ui':
         specifier: 0.2.2
         version: 0.2.2(react@19.2.8)
@@ -255,6 +255,14 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@noble/curves@2.4.0':
+    resolution: {integrity: sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew==}
+    engines: {node: '>= 20.19.0'}
+
+  '@noble/hashes@2.4.0':
+    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
+    engines: {node: '>= 20.19.0'}
 
   '@oxc-project/types@0.144.0':
     resolution: {integrity: sha512-nuhZIOLuI6TFQ32I/WnUx+SCPY7SdSKwgnFHydAuoS1+Z4BRcaP+RRJmGzl9lw+0OFF7UmaESf7KQRXaNLHypg==}
@@ -594,8 +602,8 @@ packages:
     peerDependencies:
       react: ^18 || ^19
 
-  '@tealbrick/contract@0.1.0-alpha.5':
-    resolution: {integrity: sha512-jWqCi1QeCmTAe07ugn2sCJW/kMseDPCZ4I6St4VG30qROlkeUxFkR8DL6yaMF1qeydS2FkwwlTLgFZKDkfgHpg==}
+  '@tealbrick/contract@0.1.0-alpha.6':
+    resolution: {integrity: sha512-I1/QJkYbxK1Tc7qBinNFtyvF8B6PvTKWeyghN4CtdPvGQoBJSWH9Ve1jkdqF21neoYM84bO8cQ5KC0MesF+XSw==}
     engines: {node: '>=24'}
     hasBin: true
 
@@ -1401,6 +1409,12 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
+  '@noble/curves@2.4.0':
+    dependencies:
+      '@noble/hashes': 2.4.0
+
+  '@noble/hashes@2.4.0': {}
+
   '@oxc-project/types@0.144.0': {}
 
   '@pinojs/redact@0.4.0': {}
@@ -1669,8 +1683,9 @@ snapshots:
       '@tanstack/query-core': 5.102.8
       react: 19.2.8
 
-  '@tealbrick/contract@0.1.0-alpha.5':
+  '@tealbrick/contract@0.1.0-alpha.6':
     dependencies:
+      '@noble/curves': 2.4.0
       zod: 4.5.4
 
   '@tealbrick/ui@0.2.2(react@19.2.8)':

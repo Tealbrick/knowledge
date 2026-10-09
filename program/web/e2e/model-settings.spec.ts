@@ -76,7 +76,10 @@ test("a rejected key is reported per model in plain words", async ({ page }) => 
   await panel.getByRole("button", { name: "Use a different API URL" }).click();
   await panel.getByLabel("API URL").fill(fixtureUrl);
   await panel.getByLabel("API key", { exact: true }).fill("wrong-key");
+  // The fixture's model names are not in the recommendation list: use the advanced (other model) fields.
+  await panel.getByLabel("Other model (advanced)").first().check();
   await panel.getByLabel("Chat model").fill("knowledge-structural-fixture-chat");
+  await panel.getByLabel("Other model (advanced)").nth(1).check();
   await panel.getByLabel("Embedding model").fill("knowledge-structural-fixture-embedding");
   await panel.getByLabel("Embedding dimensions").fill("1536");
   await panel.getByRole("button", { name: "Save and test connection" }).click();
@@ -93,8 +96,11 @@ test("valid models are checked and saved; a memory-engine start failure is expla
   await panel.getByRole("button", { name: "Use a different API URL" }).click();
   await panel.getByLabel("API URL").fill(fixtureUrl);
   await panel.getByLabel("API key", { exact: true }).fill(fixtureKey);
+  // The fixture's model names are not in the recommendation list: use the advanced (other model) fields.
+  await panel.getByLabel("Other model (advanced)").first().check();
   await panel.getByLabel("Chat model").fill("knowledge-structural-fixture-chat");
   await panel.getByLabel("Reasoning effort").selectOption("low");
+  await panel.getByLabel("Other model (advanced)").nth(1).check();
   await panel.getByLabel("Embedding model").fill("knowledge-structural-fixture-embedding");
   await panel.getByLabel("Embedding dimensions").fill("1536");
   await panel.getByRole("button", { name: "Save and test connection" }).click();

@@ -25,7 +25,7 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@tealbrick/contract": "0.1.0-alpha.5",
+    "@tealbrick/contract": "0.1.0-alpha.6",
     "@tealbrick/ui": "0.2.2",
     "fastify": "5.12.3",
     "zod": "4.5.4"

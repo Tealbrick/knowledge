@@ -127,7 +127,7 @@ Customer copy (proposal, owner to sign off):
 |---|---|
 | Isolation | `acl`: one Postgres store per deployment, one source per area, one OAuth client per area (and per area+principal for native memory), each bound to one source. |
 | Multi-area read (0.5.0) | `fanout`: one call per area through that area's client, then merge (§4.4). Same code path as Hindsight. |
-| Multi-area read (later) | `native`: upstream federated-read client grants (a write source plus a read set) and `source_id: "__all__"` search only granted sources, ranked in one query. Preconditions: verify the admin register API accepts a federated-read set (UNVERIFIED); relax the privacy filter that drops rows from other sources so it allows granted sources only; leak tests pass. |
+| Multi-area read (later) | `native`: the read set belongs to the GBrain OAuth client, not the request (verified on a live `serve --http`, including live rescope). `source_id: "__all__"` searches the whole client set in one ranked query; a per-call `source_id` may name one source inside the set; arrays are rejected and `source_ids` is ignored. Knowledge therefore keeps one GBrain client per distinct read set and picks the token per request. Preconditions: move to the service topology on current upstream (the embedded v0.48.2 worker cannot write on current upstream); relax the privacy filter that drops rows from other sources so it allows granted sources only; leak tests pass. |
 | Reflect / synthesis | `synthesize`, `think` per area in 0.5.0 (`single-area`). With native federated read: `read-set`. |
 | Graph | Typed graph per area. Links never cross areas in 0.5.0. Note: the HTTP service does not extract links on write; graph quality depends on explicit links or operator extraction (UNVERIFIED on our topology). |
 | Delete | `soft`, 72 h recovery; upstream purge later (purge on the HTTP service UNVERIFIED). Facts of the document are withdrawn first. |
@@ -192,8 +192,8 @@ Recommendation: not now. Ship §4 fan-out first; it is the same merge code. Revi
 
 | Item | Owner | Status |
 |---|---|---|
-| GBrain federated read via admin register API | Knowledge | assessing (GBrain upgrade assessment) |
-| GBrain upgrade to latest upstream | Knowledge | after assessment |
+| GBrain federated read | Knowledge | verified: per-client read set; one client per distinct read set |
+| GBrain upgrade to latest upstream | Knowledge | service topology pinned by SHA to latest-stable, no carried patches; embedded worker frozen |
 | Hindsight readiness vs exposed entity ops mismatch | Knowledge | to fix in 0.5.x |
 | Area delete leaves engine data (`areaPurge`) | Knowledge + Portal | decide: owner-only purge op or documented residue |
 | Extract-facts text residue in Hindsight | Knowledge | document; link to source doc if possible |

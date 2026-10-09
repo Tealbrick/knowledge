@@ -152,7 +152,7 @@ const server = createServer(async (req, res) => {
       // Per-edge memory partition from Portal (absent = the workspace default partition), and the contract 2 read
       // set (absent = reads stay in that partition). Every introspection for this request must report the same ones.
       const claim = grant ? edgeReadPartitionsClaim(grant) : null;
-      const edgePartition: string | null = claim?.ok ? claim.partitionKey : null;
+      const edgePartition: string | null = claim?.ok ? claim.partitionKey ?? null : null;
       const edgeReads: readonly (string | null)[] | undefined = claim?.ok ? claim.readPartitionKeys : undefined;
       const partition = grant ? effectiveKnowledgePartition(attachment.companyId, edgePartition) : null;
       if (grant && (!claim?.ok || (edgePartition !== null && !partition))) throw new Error('invalid partition claim');

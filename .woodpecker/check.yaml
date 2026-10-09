@@ -39,6 +39,7 @@ steps:
     commands:
       - cd program
       - corepack enable && corepack prepare pnpm@9.15.4 --activate
+      # Program, web and deploy/container/*.ts (strict, deploy/container/tsconfig.json).
       - pnpm run typecheck
 
   - name: build

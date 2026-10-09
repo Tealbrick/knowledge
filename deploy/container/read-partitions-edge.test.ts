@@ -47,7 +47,7 @@ test('contract 2 read sets on the instance edge: attachments, app grants and run
     KNOWLEDGE_MEMORY_ENGINE: 'hindsight', KNOWLEDGE_HINDSIGHT_URL: hindsight.baseUrl, KNOWLEDGE_HINDSIGHT_API_KEY: hindsightKey,
   } });
   t.after(async () => { await edge.stop(); await portal.close(); await hindsight.close(); });
-  const health = await (await fetch(`${edge.base}/healthz`)).json();
+  const health = await (await fetch(`${edge.base}/healthz`)).json() as { partitionContract: number; capabilities: Record<string, boolean> };
   assert.equal(health.partitionContract, 2);
   assert.deepEqual(health.capabilities, { edgePartitions: true, readPartitions: true });
 
@@ -75,10 +75,10 @@ test('contract 2 read sets on the instance edge: attachments, app grants and run
   for (const name of ['A', 'B', 'C'] as const) {
     const collection = await call('POST', `/api/companies/${company}/knowledge/collections`, { ...PATHS.appGrant(name), ...idem() }, { name: `${name} collection` });
     assert.equal(collection.status, 201, name);
-    const c: Stored = await collection.json();
+    const c = await collection.json() as Stored;
     const document = await call('POST', `/api/knowledge/collections/${c.id}/documents`, { ...PATHS.appGrant(name), ...idem() }, { title: `${name} note`, body: `${name.toLowerCase()}-marker secret` });
     assert.equal(document.status, 201, name);
-    seeded[name] = { collection: c, document: await document.json() };
+    seeded[name] = { collection: c, document: await document.json() as Stored };
   }
   assert.deepEqual(['A', 'B', 'C'].map(name => seeded[name].document.companyId), [pa, pb, pc]);
   assert.match(seeded.A.collection.id, /^kcol_[a-z2-7]{20}$/u, 'new ids are random');
@@ -89,7 +89,7 @@ test('contract 2 read sets on the instance edge: attachments, app grants and run
     const ids = async (name: Agent, url: string) => { const r = await call('GET', url, as(name)); assert.equal(r.status, 200, label(`${name} ${url}`)); return ((await r.json()) as Stored[]).map(item => item.id).sort(); };
     // Collections and search over the read set.
     const list = `/api/companies/${company}/knowledge/collections`;
-    const aList: Stored[] = await (await call('GET', list, as('A'))).json();
+    const aList = await (await call('GET', list, as('A'))).json() as Stored[];
     assert.ok([seeded.A.collection.id, seeded.B.collection.id].every(id => aList.some(c => c.id === id)), label('A lists alpha + beta'));
     assert.ok(aList.every(c => c.companyId === pa || c.companyId === pb), label('A lists only alpha and beta'));
     assert.deepEqual(await ids('B', list), [seeded.B.collection.id], label('B lists beta'));
@@ -134,14 +134,14 @@ test('contract 2 read sets on the instance edge: attachments, app grants and run
     }
     const mine = await call('POST', `/api/companies/${company}/knowledge/collections`, { ...as('A'), ...idem() }, { name: `A via ${path}` });
     assert.equal(mine.status, 201, label('A creates'));
-    assert.equal((await mine.json()).companyId, pa, label('A creates in alpha'));
+    assert.equal((await mine.json() as Stored).companyId, pa, label('A creates in alpha'));
 
     // Brain recall: one engine call per read partition, merged; never gamma.
     let from = hindsight.calls.length;
     const recall = await call('POST', '/api/brain/recall', as('A'), { query: 'q', scopeRef: company });
     assert.equal(recall.status, 200, label('A recall'));
     assert.deepEqual(bankCalls(from), ['alpha', 'beta'], label('A recall banks'));
-    const recalled: { memories: { results: { id: string }[] } } = await recall.json();
+    const recalled = await recall.json() as { memories: { results: { id: string }[] } };
     assert.deepEqual(recalled.memories.results.map(m => m.id), ['alpha-1', 'beta-1', 'alpha-2', 'beta-2'], label('merged recall'));
     assert.doesNotMatch(JSON.stringify(recalled), /gamma/u);
     from = hindsight.calls.length;
@@ -185,5 +185,5 @@ test('contract 2 read sets on the instance edge: attachments, app grants and run
   // Research: discovery works with the read-set bearer (no notebook is bound in this fixture).
   const notebooks = await call('GET', '/api/research/engine/notebooks', PATHS.attachment('A'));
   assert.equal(notebooks.status, 200);
-  assert.deepEqual((await notebooks.json()).notebooks, []);
+  assert.deepEqual((await notebooks.json() as { notebooks: unknown[] }).notebooks, []);
 });

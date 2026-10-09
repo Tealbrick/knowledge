@@ -78,7 +78,7 @@ steps:
     environment: *env
     commands:
       # Runs once the app manifest exists on main; skipped until then. The manifest declares partitions contract 2
-      # (read sets), which needs the 0.1.0-alpha.5 validator; the Program keeps its own kit pin (program/package.json).
+      # (read sets), which needs the 0.1.0-alpha.5 validator, the same kit the Program pins (program/package.json).
       - |
         if [ -f tealbrick.app.json ]; then
           npx --yes @tealbrick/contract@0.1.0-alpha.5 validate tealbrick.app.json

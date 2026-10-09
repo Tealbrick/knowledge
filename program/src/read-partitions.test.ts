@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import { MAX_READ_PARTITIONS as KIT_MAX_READ_PARTITIONS } from "@tealbrick/contract";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildKnowledgeApp } from "./app.js";
@@ -7,7 +8,7 @@ import { mergeEngineResults, mergeNativeResults, mergeRankedLists } from "./brai
 import { GBrainRuntime } from "./gbrain.js";
 import { hindsightBankForPartition } from "./hindsight-client.js";
 import { registerOpenNotebookRoutes, type OpenNotebookRouteAdapter } from "./open-notebook-routes.js";
-import { edgeScopeFor, parseEdgeReadPartitionsClaim, parseReadPartitionKeys } from "./partition-authority.js";
+import { MAX_READ_PARTITIONS, edgeScopeFor, parseEdgeReadPartitionsClaim, parseReadPartitionKeys } from "./partition-authority.js";
 import { portalPrincipalFromResponse, type PortalPrincipalResolver } from "./portal-principal.js";
 import { createId, KnowledgeStore } from "./store.js";
 import { startFakeHindsight } from "../scripts/fixtures/fake-engines.mjs";
@@ -73,6 +74,8 @@ async function snapshot(app: FastifyInstance, request: { method: string; url: st
 
 describe("read set parsing and principals", () => {
   it("accepts 1..64 unique keys or null that contain the write key; anything else fails closed", () => {
+    // The edge grammar keeps the kit's read set bound (attachments and tbkg_ parse it here, not in the kit).
+    expect(MAX_READ_PARTITIONS).toBe(KIT_MAX_READ_PARTITIONS);
     expect(parseReadPartitionKeys(["alpha", "beta"], "alpha")).toEqual(["alpha", "beta"]);
     expect(parseReadPartitionKeys([null, "beta"], null)).toEqual([null, "beta"]);
     expect(parseReadPartitionKeys(Array.from({ length: 64 }, (_, i) => i ? `k${i}` : "alpha"), "alpha")).toHaveLength(64);

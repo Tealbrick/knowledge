@@ -2,7 +2,7 @@
 
 Knowledge ships one release manifest, [`tealbrick.app.json`](../tealbrick.app.json)
 (schema `tealbrick.miniapp/v1`), and serves the standard control endpoints of
-`@tealbrick/contract` **0.1.0-alpha.4** (pinned exactly in `program/package.json`).
+`@tealbrick/contract` **0.1.0-alpha.5** (pinned exactly in `program/package.json`).
 Portal, the connector and the desktop app read the manifest instead of knowing
 Knowledge by name. The older internal descriptor, [`manifest.json`](../manifest.json), is
 marked `legacy-descriptor` and is kept only for tools that still read it.
@@ -20,10 +20,9 @@ grants** (`tbag_`), and the control endpoints.
   contract validator therefore has no sidecar image to match the pin against, and says nothing.
 - `runtime.partitions: { "contract": 2 }` is declared (alpha.5, read-many / write-one): Knowledge binds app-grant writes to
   `<tenant>/<partitionKey>`, reads to the partitions in `readPartitionKeys`, and refuses grants without `partitionKey`. Portal
-  Core sends the partition fields only to apps that declare them. The pinned 0.1.0-alpha.4 kit only knows contract 1, so a
-  build on that pin serves the manifest with contract 1 (what its kit can verify); read sets still work on every path (see
-  [memory-partitions.md](memory-partitions.md#contract-2-read-sets-read-many--write-one)). The pin bump to 0.1.0-alpha.5 makes
-  the served manifest contract 2 as well.
+  Core sends the partition fields only to apps that declare them. The pinned 0.1.0-alpha.5 kit validates the declaration and
+  parses `readPartitionKeys` (`GrantResult.readPartitionKeys`, `effectiveReadPartitions`); see
+  [memory-partitions.md](memory-partitions.md#contract-2-read-sets-read-many--write-one).
 - `runtime.sidecars` is **not** declared. Open Notebook and SurrealDB must share one generated
   password, and alpha.3 cannot express a secret shared between two sidecars. The Railway
   template keeps its three-service topology (see `deploy/container/RAILWAY.md`). This is
@@ -146,7 +145,7 @@ rewrite and per-request Research/engine bearer.
   never reaches a child, a child never reaches the default or a sibling. An explicit `partitionKey: null` is the default
   company scope. An **absent** `partitionKey` is refused with 403 `partition_binding_required` and never falls back to the
   default or unpartitioned scope; a present but malformed claim is refused with 403 `partition_claim_invalid`. The same
-  check runs again at dispatch. The kit's app-grant parser (alpha.4) carries the claim as
+  check runs again at dispatch. The kit's app-grant parser (alpha.5) carries the claim as
   `GrantResult.partitionKey` (`string | null`, absent stays `undefined`); `program/src/contract/app-grants.ts` reads it
   from there. The attachment path is unchanged.
 - **Errors** (kit codes): 401 `grant_required|grant_invalid|grant_expired|grant_denied|grant_revoked`; 403

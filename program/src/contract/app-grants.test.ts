@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createAppGrantAuthority } from "./app-grants.js";
 import { createContractAudit } from "./audit.js";
 import { loadKnowledgeManifest } from "./manifest.js";
-import { KIT_READ_PARTITIONS } from "./read-partitions.js";
 import { PORTAL, fakePortalFetch, grantToken, type FakeGrant } from "./test-support.js";
 
 const manifest = loadKnowledgeManifest();
@@ -169,7 +168,7 @@ describe("Portal app grants (tbag_) on Knowledge", () => {
     expect(JSON.stringify(rows)).not.toContain("tbag_");
   });
 
-  it(`contract 2: binds the read set (kit ${KIT_READ_PARTITIONS ? "0.1.0-alpha.5+" : "0.1.0-alpha.4 with the local mirror"}); [write] alone is contract 1`, async () => {
+  it("contract 2: binds the read set (kit effectiveReadPartitions); [write] alone is contract 1", async () => {
     const { authority } = setup({
       [grantToken("r")]: { actions: ALL, agentId: "agent-r", extra: { partitionKey: "alpha", readPartitionKeys: ["alpha", "beta", null] } },
       [grantToken("w")]: { actions: ALL, agentId: "agent-w", extra: { partitionKey: "beta", readPartitionKeys: ["beta"] } },

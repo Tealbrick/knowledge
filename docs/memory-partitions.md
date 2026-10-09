@@ -231,8 +231,7 @@ path (the 0.1.0-alpha.4 kit refuses unknown fields), but an older attachment
 edge ignores the field and serves only the write partition. Portal therefore
 gates read sets on `partitionContract >= 2`.
 
-The served manifest (`/.well-known/tealbrick/manifest`) declares what the
-installed contract kit can verify: contract 2 with `@tealbrick/contract`
-0.1.0-alpha.5 or later, else contract 1. With the 0.1.0-alpha.4 pin, read sets
-still work on every path (the app-grant path validates the field like alpha.5,
-`program/src/contract/read-partitions.ts`).
+The served manifest (`/.well-known/tealbrick/manifest`) declares
+`runtime.partitions: {contract: 2}`. The Program pins `@tealbrick/contract`
+0.1.0-alpha.5, which validates that declaration and parses `readPartitionKeys`
+on the app-grant path.

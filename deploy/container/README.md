@@ -53,6 +53,8 @@ the Railway template does not set it). `TEALBRICK_INSTANCE_TOKEN`, `TEALBRICK_TE
 `KNOWLEDGE_PORTAL_ORG_ID`. Operations, error codes, partition binding, settings, conformance result and the
 Open Notebook/SurrealDB sidecar plan are in [../../docs/miniapp-contract.md](../../docs/miniapp-contract.md).
 `node --test deploy/container/contract-edge.test.mjs deploy/container/app-grant-edge.test.mjs` runs the real edge against a fake Portal.
+`node --test deploy/container/read-partitions-edge.test.ts` (TypeScript, run by Node 24 type stripping) covers partitions
+contract 2 read sets on the attachment, `tbag_` and `tbkg_` paths. CI runs `deploy/container/*.test.mjs` and `*.test.ts`.
 
 ## Build and distribute
 

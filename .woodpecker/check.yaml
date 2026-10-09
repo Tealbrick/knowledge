@@ -69,7 +69,8 @@ steps:
     image: *node_image
     environment: *env
     commands:
-      - node --test deploy/container/*.test.mjs
+      # .test.ts files run through Node 24 type stripping (new tests are TypeScript; older ones stay .mjs).
+      - node --test deploy/container/*.test.mjs deploy/container/*.test.ts
       # Public-deployment and Portal recipe generator output must match the checked-in files.
       - node deploy/container/generate-public-deployment.mjs --check
 

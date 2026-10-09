@@ -1,9 +1,17 @@
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { startFakeHindsight } from '../../program/scripts/fixtures/fake-engines.mjs';
+import { startFakeHindsight, type FakeHindsightCall } from '../../program/scripts/fixtures/fake-engines.mjs';
+// edge-fixture.mjs ships no declarations; its exports are used as plain values here.
 import { company, deployment, org, startEdge, startFakePortal } from './edge-fixture.mjs';
+
+type Action = 'create' | 'read' | 'update' | 'delete';
+interface ManifestOperation { readonly id: string; readonly audience?: string; readonly crud: readonly Action[] }
+interface Claim { readonly partitionKey: string; readonly readPartitionKeys?: readonly string[] }
+interface Stored { readonly id: string; readonly companyId: string }
+type RequestHeaders = Record<string, string>;
+type Agent = keyof typeof CLAIMS;
 
 /**
  * Partitions contract 2 (read-many / write-one) on the real instance edge, for every agent path: Portal attachments
@@ -12,15 +20,15 @@ import { company, deployment, org, startEdge, startFakePortal } from './edge-fix
  * C = {write gamma, read [gamma]}. A sees alpha + beta and never gamma, never writes into beta; B never sees alpha;
  * an id outside the read set answers exactly like a missing id; a contract 1 grant answers byte for byte as before.
  */
-const manifest = JSON.parse(readFileSync(new URL('../../tealbrick.app.json', import.meta.url), 'utf8'));
+const manifest: { operations: ManifestOperation[] } = JSON.parse(readFileSync(new URL('../../tealbrick.app.json', import.meta.url), 'utf8'));
 const agentOperations = manifest.operations.filter(op => (op.audience ?? 'agent') === 'agent');
-const operationsFor = actions => agentOperations.filter(op => op.crud.every(action => actions.includes(action))).map(op => op.id);
+const operationsFor = (actions: readonly Action[]) => agentOperations.filter(op => op.crud.every(action => actions.includes(action))).map(op => op.id);
 const instanceToken = randomBytes(32).toString('hex');
-const ALL = ['create', 'read', 'update', 'delete'];
+const ALL: Action[] = ['create', 'read', 'update', 'delete'];
 const pa = `${company}/alpha`, pb = `${company}/beta`, pc = `${company}/gamma`;
-const bank = partition => `tb-${createHash('sha256').update(`knowledge-partition:${partition}`).digest('hex').slice(0, 32)}`;
-const BANKS = { [bank(pa)]: 'alpha', [bank(pb)]: 'beta', [bank(pc)]: 'gamma' };
-const CLAIMS = {
+const bank = (partition: string) => `tb-${createHash('sha256').update(`knowledge-partition:${partition}`).digest('hex').slice(0, 32)}`;
+const BANKS: Record<string, string> = { [bank(pa)]: 'alpha', [bank(pb)]: 'beta', [bank(pc)]: 'gamma' };
+const CLAIMS: Record<'A' | 'B' | 'C' | 'B1' | 'BAD', Claim> = {
   A: { partitionKey: 'alpha', readPartitionKeys: ['alpha', 'beta'] },
   B: { partitionKey: 'beta', readPartitionKeys: ['beta'] },
   C: { partitionKey: 'gamma', readPartitionKeys: ['gamma'] },
@@ -28,10 +36,10 @@ const CLAIMS = {
   BAD: { partitionKey: 'alpha', readPartitionKeys: ['beta'] },
 };
 
-test('contract 2 read sets on the instance edge: attachments, app grants and runtime principals', async t => {
+test('contract 2 read sets on the instance edge: attachments, app grants and runtime principals', async (t: TestContext) => {
   const hindsightKey = randomBytes(16).toString('hex');
-  const hindsight = await startFakeHindsight({ apiKey: hindsightKey, answer: call => call.bank && call.path.endsWith('/memories/recall')
-    ? { results: [1, 2].map(rank => ({ id: `${BANKS[call.bank]}-${rank}`, text: `${BANKS[call.bank]} memory ${rank}` })) } : undefined });
+  const hindsight = await startFakeHindsight({ apiKey: hindsightKey, answer: (call: FakeHindsightCall) => call.bank && call.path.endsWith('/memories/recall')
+    ? { results: [1, 2].map(rank => ({ id: `${BANKS[call.bank!]}-${rank}`, text: `${BANKS[call.bank!]} memory ${rank}` })) } : undefined });
   const portal = await startFakePortal({ instanceToken, operationsFor });
   const edge = await startEdge({ env: {
     NODE_ENV: 'test', KNOWLEDGE_INSTANCE_TOKEN: instanceToken, KNOWLEDGE_COMPANY_ID: company, KNOWLEDGE_PORTAL_ORG_ID: org,
@@ -44,29 +52,30 @@ test('contract 2 read sets on the instance edge: attachments, app grants and run
   assert.deepEqual(health.capabilities, { edgePartitions: true, readPartitions: true });
 
   // One credential per path and grant.
-  const tbag = name => `tbag_${name.toLowerCase().padEnd(43, 'g')}`;
-  const tbkg = name => `tbkg_${name.toLowerCase().padEnd(43, 'k')}`;
+  const tbag = (name: string) => `tbag_${name.toLowerCase().padEnd(43, 'g')}`;
+  const tbkg = (name: string) => `tbkg_${name.toLowerCase().padEnd(43, 'k')}`;
+  const state = portal.state as Record<'grants' | 'attachments' | 'runtime', Record<string, unknown>>;
   for (const [name, claim] of Object.entries(CLAIMS)) {
     const { partitionKey, ...rest } = claim;
-    portal.state.grants[tbag(name)] = { agentId: `agent-${name}`, actions: ALL, partitionKey, overrides: rest };
-    portal.state.attachments[`attachment-${name}`] = claim;
-    portal.state.runtime[tbkg(name)] = claim;
+    state.grants[tbag(name)] = { agentId: `agent-${name}`, actions: ALL, partitionKey, overrides: rest };
+    state.attachments[`attachment-${name}`] = claim;
+    state.runtime[tbkg(name)] = claim;
   }
-  const PATHS = {
+  const PATHS: Record<'attachment' | 'appGrant' | 'runtime', (name: string) => RequestHeaders> = {
     attachment: name => ({ authorization: `Bearer attachment-${name}`, 'x-tealbrick-agent-token': 'fixture-agent-token', 'content-type': 'application/json' }),
     appGrant: name => ({ authorization: `Bearer ${tbag(name)}`, 'content-type': 'application/json' }),
     runtime: name => ({ authorization: `Bearer ${tbkg(name)}`, 'content-type': 'application/json' }),
   };
-  const call = (method, path, headers, body) => fetch(`${edge.base}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const call = (method: string, path: string, headers: RequestHeaders, body?: unknown) => fetch(`${edge.base}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const idem = () => ({ 'idempotency-key': `key-${randomBytes(8).toString('hex')}` });
-  const bankCalls = from => [...new Set(hindsight.calls.slice(from).filter(c => c.bank).map(c => BANKS[c.bank] ?? c.bank))].sort();
+  const bankCalls = (from: number) => [...new Set(hindsight.calls.slice(from).flatMap(c => c.bank ? [BANKS[c.bank] ?? c.bank] : []))].sort();
 
   // Each partition's own grant writes into it (app grant path); the write lands in its write partition.
-  const seeded = {};
-  for (const name of ['A', 'B', 'C']) {
+  const seeded: Record<string, { collection: Stored; document: Stored }> = {};
+  for (const name of ['A', 'B', 'C'] as const) {
     const collection = await call('POST', `/api/companies/${company}/knowledge/collections`, { ...PATHS.appGrant(name), ...idem() }, { name: `${name} collection` });
     assert.equal(collection.status, 201, name);
-    const c = await collection.json();
+    const c: Stored = await collection.json();
     const document = await call('POST', `/api/knowledge/collections/${c.id}/documents`, { ...PATHS.appGrant(name), ...idem() }, { title: `${name} note`, body: `${name.toLowerCase()}-marker secret` });
     assert.equal(document.status, 201, name);
     seeded[name] = { collection: c, document: await document.json() };
@@ -76,16 +85,16 @@ test('contract 2 read sets on the instance edge: attachments, app grants and run
   assert.match(seeded.A.document.id, /^kdoc_[a-z2-7]{20}$/u);
 
   for (const [path, as] of Object.entries(PATHS)) {
-    const label = what => `${path}: ${what}`;
-    const ids = async (name, url) => { const r = await call('GET', url, as(name)); assert.equal(r.status, 200, label(`${name} ${url}`)); return (await r.json()).map(item => item.id).sort(); };
+    const label = (what: string) => `${path}: ${what}`;
+    const ids = async (name: Agent, url: string) => { const r = await call('GET', url, as(name)); assert.equal(r.status, 200, label(`${name} ${url}`)); return ((await r.json()) as Stored[]).map(item => item.id).sort(); };
     // Collections and search over the read set.
     const list = `/api/companies/${company}/knowledge/collections`;
-    const aList = await (await call('GET', list, as('A'))).json();
+    const aList: Stored[] = await (await call('GET', list, as('A'))).json();
     assert.ok([seeded.A.collection.id, seeded.B.collection.id].every(id => aList.some(c => c.id === id)), label('A lists alpha + beta'));
     assert.ok(aList.every(c => c.companyId === pa || c.companyId === pb), label('A lists only alpha and beta'));
     assert.deepEqual(await ids('B', list), [seeded.B.collection.id], label('B lists beta'));
     assert.deepEqual(await ids('C', list), [seeded.C.collection.id], label('C lists gamma'));
-    const search = async name => (await call('GET', `/api/companies/${company}/knowledge/search?q=marker`, as(name))).text();
+    const search = async (name: Agent) => (await call('GET', `/api/companies/${company}/knowledge/search?q=marker`, as(name))).text();
     const aSearch = await search('A');
     assert.match(aSearch, /a-marker/u, label('A search alpha')); assert.match(aSearch, /b-marker/u, label('A search beta')); assert.doesNotMatch(aSearch, /c-marker/u, label('A search gamma'));
     assert.doesNotMatch(await search('B'), /a-marker|c-marker/u, label('B search'));
@@ -98,14 +107,15 @@ test('contract 2 read sets on the instance edge: attachments, app grants and run
     for (const url of [`/api/knowledge/documents/${seeded.B.document.id}`, `/api/knowledge/collections/${seeded.B.collection.id}`]) {
       assert.equal((await call('GET', url, as('A'))).status, 200, label(`A reads ${url}`));
     }
-    for (const [name, url, missing] of [
+    const outsideReadSet: [Agent, string, string][] = [
       ['A', `/api/knowledge/documents/${seeded.C.document.id}`, '/api/knowledge/documents/kdoc_aaaaaaaaaaaaaaaaaaaa'],
       ['A', `/api/knowledge/collections/${seeded.C.collection.id}`, '/api/knowledge/collections/kcol_aaaaaaaaaaaaaaaaaaaa'],
       ['B', `/api/knowledge/documents/${seeded.A.document.id}`, '/api/knowledge/documents/kdoc_0001'],
       ['C', `/api/knowledge/documents/${seeded.B.document.id}`, '/api/knowledge/documents/kdoc_bbbbbbbbbbbbbbbbbbbb'],
-    ]) {
+    ];
+    for (const [name, url, missing] of outsideReadSet) {
       const foreign = await call('GET', url, as(name)), absent = await call('GET', missing, as(name));
-      const [f, m] = [[foreign.status, await foreign.text()], [absent.status, await absent.text()]];
+      const [f, m]: [number, string][] = [[foreign.status, await foreign.text()], [absent.status, await absent.text()]];
       assert.deepEqual(f, m, label(`${name} ${url} answers like a missing id`));
       assert.deepEqual([f[0], JSON.parse(f[1])], [404, { error: 'not_found' }], label(`${name} ${url}`));
     }
@@ -128,7 +138,7 @@ test('contract 2 read sets on the instance edge: attachments, app grants and run
     const recall = await call('POST', '/api/brain/recall', as('A'), { query: 'q', scopeRef: company });
     assert.equal(recall.status, 200, label('A recall'));
     assert.deepEqual(bankCalls(from), ['alpha', 'beta'], label('A recall banks'));
-    const recalled = await recall.json();
+    const recalled: { memories: { results: { id: string }[] } } = await recall.json();
     assert.deepEqual(recalled.memories.results.map(m => m.id), ['alpha-1', 'beta-1', 'alpha-2', 'beta-2'], label('merged recall'));
     assert.doesNotMatch(JSON.stringify(recalled), /gamma/u);
     from = hindsight.calls.length;

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
-const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+/** Largest GBrain MCP response Knowledge accepts (also the bound of a merged contract 2 answer). */
+export const GBRAIN_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+const MAX_RESPONSE_BYTES = GBRAIN_MAX_RESPONSE_BYTES;
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);

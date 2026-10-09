@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { KnowledgeServicePrincipal } from "./knowledge-principal.js";
-import { boundPartitionFor, effectiveKnowledgePartition, normalizeKnowledgePartitionKey, parseEdgePartitionClaim } from "./partition-authority.js";
+import { edgePartitionGrants, edgeScopeFor, normalizeKnowledgePartitionKey, parseEdgePartitionClaim, parseEdgeReadPartitionsClaim } from "./partition-authority.js";
 
 /**
  * Portal-validated runtime principals (Tealbrick runtime-principal-v1).
@@ -64,6 +64,8 @@ const RESPONSE_KEYS = new Set([
   "actions", "capabilities", "partitionGrants", "capabilityRevision", "expiresAt",
   // Portal sends it only for a non-default per-edge memory partition.
   "partitionKey",
+  // Contract 2: the edge's read set (includes the write key; null = the workspace default scope).
+  "readPartitionKeys",
 ]);
 
 const digest = (token: string) => createHash("sha256").update(token).digest("hex");
@@ -109,16 +111,18 @@ export function portalPrincipalFromResponse(
   // narrows it to the exact `company/key` child. A malformed claim denies.
   const claim = parseEdgePartitionClaim(value);
   if (!claim.ok) return null;
-  const effective = effectiveKnowledgePartition(expected.companyId, claim.partitionKey);
-  const bound = boundPartitionFor(expected.companyId, claim.partitionKey);
-  if (!effective || (claim.partitionKey !== null && !bound)) return null;
+  // Contract 2: writes stay in that partition; reads may also use the read set (read-only grants).
+  const reads = parseEdgeReadPartitionsClaim(value, claim.partitionKey);
+  if (!reads.ok) return null;
+  const scope = edgeScopeFor(expected.companyId, claim.partitionKey, reads.readPartitionKeys);
+  if (!scope.ok) return null;
   const principal: KnowledgeServicePrincipal = Object.freeze({
     kind: "service",
     principalId: value.principalId,
-    companyId: effective,
+    companyId: scope.write,
     capabilities,
-    partitionGrants: Object.freeze([Object.freeze({ partitionKey: effective, breadth: "exact" as const, maxDepth: 0, capabilities: grantCapabilities })]),
-    ...(bound ? { boundPartition: bound } : {}),
+    partitionGrants: edgePartitionGrants(scope, grantCapabilities),
+    ...(scope.bound ? { boundPartition: scope.bound } : {}),
   });
   return { principal, expiresAt: value.expiresAt };
 }

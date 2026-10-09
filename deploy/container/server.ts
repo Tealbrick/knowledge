@@ -9,7 +9,7 @@ import { KnowledgeInstanceClaim } from "../../program/src/instance-claim.js";
 import { createPortalPrincipalResolver, portalPrincipalConfig } from "../../program/src/portal-principal.js";
 import { createAttachmentResearchAuthority } from "../../program/src/attachment-research-principal.js";
 import { IDEMPOTENCY_KEY, applyEnvAliases, launchRouteAllowed, wireKnowledgeContract } from "../../program/src/contract/index.js";
-import { attachmentConfig, attachmentRoute, edgePartitionClaim, introspectAttachment } from "./attachment-auth.mjs";
+import { attachmentConfig, attachmentRoute, edgeReadPartitionsClaim, effectiveReadPartitions, introspectAttachment, sameEdgeScope, ENGINE_READ } from "./attachment-auth.mjs";
 import { appGrantAuthority, programUrl, EDGE_IDEMPOTENT_OPERATIONS } from "./app-grant-edge.mjs";
 import { browserConfig, browserAccess, sendSessionEnded, wantsSessionPage } from "./browser-auth.mjs";
 
@@ -113,7 +113,8 @@ const server = createServer(async (req, res) => {
     (portalPrincipals && customerRuntimeRoute(req.method ?? "", req.url ?? "") ? await portalPrincipals.resolve(suppliedBearer) : null);
   const runtimeAuthorized = !!runtimePrincipal && customerRuntimeRoute(req.method ?? "", req.url ?? "");
   let attachmentAuthorized = false;
-  let dispatchGrant: {capability:string;agentId:string;orgId:string;requires:string[];optional:string[];expiresAt:number;native:boolean;partitionKey:string|null} | undefined;
+  let dispatchGrant: {capability:string;agentId:string;orgId:string;requires:string[];optional:string[];expiresAt:number;native:boolean;partitionKey:string|null;
+    readPartitionKeys:readonly (string|null)[]|undefined;readView:boolean;scope:unknown} | undefined;
   let researchBearer: string | null = null;
   let replacementBody: string | Buffer | undefined;
   let replacementUrl: string | undefined;
@@ -148,17 +149,26 @@ const server = createServer(async (req, res) => {
     try {
       const route = agentAuth.route(req.method ?? "GET", req.url ?? "/");
       const grant=route ? await agentAuth.check(route.capability) : null;
-      // Per-edge memory partition from Portal (absent = the workspace default partition).
-      // Every introspection for this request must report the same one.
-      const claim = grant ? edgePartitionClaim(grant) : null;
-      const edgePartition: string | null = claim?.ok ? claim.partitionKey : null;
+      // Per-edge memory partition from Portal (absent = the workspace default partition), and the contract 2 read
+      // set (absent = reads stay in that partition). Every introspection for this request must report the same ones.
+      const claim = grant ? edgeReadPartitionsClaim(grant) : null;
+      const edgePartition: string | null = claim?.ok ? claim.partitionKey ?? null : null;
+      const edgeReads: readonly (string | null)[] | undefined = claim?.ok ? claim.readPartitionKeys : undefined;
       const partition = grant ? effectiveKnowledgePartition(attachment.companyId, edgePartition) : null;
       if (grant && (!claim?.ok || (edgePartition !== null && !partition))) throw new Error('invalid partition claim');
-      const samePartition = (other: unknown) => { const c = edgePartitionClaim(other); return c.ok && c.partitionKey === edgePartition; };
+      const samePartition = (other: unknown) => sameEdgeScope(grant, other);
       // A partitioned edge may name its workspace; that selects its own partition, never the default.
       const workspacePartition = normalizeKnowledgePartitionKey(attachment.companyId);
       const selectsPartition = (value: unknown) => { const key = normalizeKnowledgePartitionKey(value);
         return key === partition || (edgePartition !== null && key === workspacePartition); };
+      // Contract 2 reads (documents, collections, search, Brain and native reads): the Program applies the read set
+      // with an edge-minted principal; the edge only checks that every selector names the workspace or a read partition.
+      // Writes of such an edge keep the contract 1 path below, bound to the write partition.
+      const readable: readonly string[] = edgeReads ? effectiveReadPartitions(attachment.companyId, edgeReads) : [];
+      const readView = edgeReads !== undefined && !!route && !route.research &&
+        (route.capability === 'knowledge:documents:read' || route.capability === 'knowledge:brain:read' || route.capability === ENGINE_READ);
+      const selectsReadable = (value: unknown) => { const key = normalizeKnowledgePartitionKey(value);
+        return key !== null && (key === workspacePartition || readable.includes(key)); };
       // Research routes may need more than one capability (chat send needs read and write).
       let researchAdmitted = !route?.research;
       let expiresAt = grant ? (typeof grant.expiresAt === 'number' ? grant.expiresAt : Date.parse(grant.expiresAt)) : 0;
@@ -172,31 +182,39 @@ const server = createServer(async (req, res) => {
       }
       if(route && grant && researchAdmitted) {
         attachmentAuthorized = true;
-        dispatchGrant={capability:route.capability,agentId:grant.agentId,orgId:grant.orgId,requires:route.requires ?? [route.capability],optional:route.optional ?? [],expiresAt,native:route.native===true,partitionKey:edgePartition};
+        dispatchGrant={capability:route.capability,agentId:grant.agentId,orgId:grant.orgId,requires:route.requires ?? [route.capability],optional:route.optional ?? [],expiresAt,native:route.native===true,partitionKey:edgePartition,
+          readPartitionKeys:edgeReads,readView,scope:grant};
         // Admission and dispatch must use the same parsed path, including
         // encoded company IDs and normalized segments.
         const url = new URL(effectiveUrl, 'http://knowledge.invalid');
         replacementUrl = `${url.pathname}${url.search}`;
         // Storage scope: the workspace, or exactly its `workspace/key` partition (stored under that companyId).
         const scopeCompany = edgePartition === null ? attachment.companyId : partition!;
-        if (route.companyResource) {
+        if (readView) {
+          // The workspace (the whole read view) or one read partition; the Program narrows and enforces the rest.
+          if (route.companyRef !== undefined && !selectsReadable(route.companyRef)) throw new Error('partition mismatch');
+          const selectors = url.searchParams.getAll('partitionKey');
+          if (selectors.length > 1 || selectors.some(value => !selectsReadable(value))) throw new Error('partition mismatch');
+          if (route.capability === 'knowledge:brain:read' || route.native) url.searchParams.set('partitionKey', selectors[0] ?? attachment.companyId);
+          replacementUrl = `${url.pathname}${url.search}`;
+        } else if (route.companyResource) {
           // A `workspace/key` path is only this edge's own partition; a default edge never reaches a child.
           if (route.companyRef !== undefined && (edgePartition === null || normalizeKnowledgePartitionKey(route.companyRef) !== partition)) throw new Error('partition mismatch');
           if (edgePartition !== null) replacementUrl = `/api/companies/${encodeURIComponent(partition!)}/knowledge/${route.companyResource}${url.search}`;
         }
-        if (route.capability === 'knowledge:brain:read' || route.native) {
+        if (!readView && (route.capability === 'knowledge:brain:read' || route.native)) {
           if (!partition) throw new Error('invalid bound partition');
           const selectors = url.searchParams.getAll('partitionKey');
           if (selectors.length > 1 || selectors.some(value => !selectsPartition(value))) throw new Error('partition mismatch');
           url.searchParams.set('partitionKey', partition);
           replacementUrl = `${url.pathname}${url.search}`;
         }
-        if(route.collectionId) {
+        if(route.collectionId && !readView) {
           const result=await app.inject({method:'GET',url:`/api/companies/${encodeURIComponent(scopeCompany)}/knowledge/collections`});
           attachmentAuthorized=result.statusCode===200 && result.json().some((item: {id:string})=>item.id===route.collectionId);
           if(!attachmentAuthorized) resourceMissing=true;
         }
-        if(route.documentId) {
+        if(route.documentId && !readView) {
           const result=await app.inject({method:'GET',url:`/api/knowledge/documents/${encodeURIComponent(route.documentId)}`});
           const owner=result.statusCode===200 ? result.json().companyId : null;
           // No cross-partition ID access: the document must live in exactly this edge's partition.
@@ -215,11 +233,17 @@ const server = createServer(async (req, res) => {
           const parsed=JSON.parse(Buffer.concat(chunks,bytes).toString('utf8'));
           if(!parsed || typeof parsed!=='object' || Array.isArray(parsed)) throw new Error('object required');
           const fields = route.bodyKind==='collection' ? ['name','description'] : (route.bodyKind==='document' || route.bodyKind==='document-update')
-            ? ['title','body','bodyFormat','status','summary'] : route.bodyKind==='native' ? ['partitionKey','arguments'] : ['query','scopeRef','purpose','sourceIds'];
+            ? ['title','body','bodyFormat','status','summary'] : route.bodyKind==='native' ? ['partitionKey','arguments']
+            : readView ? ['query','scopeRef','purpose','sourceIds','partitionKey'] : ['query','scopeRef','purpose','sourceIds'];
           if(Object.keys(parsed).some(key=>!fields.includes(key))) throw new Error('unsupported fields');
           // Native memory is always the bound partition; a foreign selector is refused, never rewritten.
-          if(route.bodyKind==='native' && parsed.partitionKey!==undefined && !selectsPartition(parsed.partitionKey)) throw new Error('partition mismatch');
-          replacementBody=JSON.stringify(route.bodyKind==='brain' ? {...parsed,scopeRef:scopeCompany,partitionKey:partition}
+          if(route.bodyKind==='native' && parsed.partitionKey!==undefined && !(readView ? selectsReadable(parsed.partitionKey) : selectsPartition(parsed.partitionKey))) throw new Error('partition mismatch');
+          // Contract 2 reads: the selector (default: the workspace, i.e. the whole read view) goes to the Program as named.
+          if(readView && route.bodyKind==='brain' && parsed.partitionKey!==undefined && !selectsReadable(parsed.partitionKey)) throw new Error('partition mismatch');
+          const selected = readView ? (parsed.partitionKey ?? attachment.companyId) : partition;
+          replacementBody=JSON.stringify(readView && route.bodyKind==='brain' ? {...parsed,scopeRef:selected,partitionKey:selected}
+            : readView && route.bodyKind==='native' ? {partitionKey:selected,arguments:parsed.arguments}
+            : route.bodyKind==='brain' ? {...parsed,scopeRef:scopeCompany,partitionKey:partition}
             : route.bodyKind==='native' ? {partitionKey:partition,arguments:parsed.arguments}
             : (route.bodyKind==='document' || route.bodyKind==='document-update') ? {...parsed,actor:{kind:'agent',id:grant.agentId}} : parsed);
         }
@@ -231,24 +255,26 @@ const server = createServer(async (req, res) => {
   if(attachmentAuthorized && attachment && dispatchGrant) {
     for(const capability of dispatchGrant.requires) {
       const current=await agentAuth!.check(capability,'dispatch');
-      const currentClaim=current ? edgePartitionClaim(current) : null;
-      // A partition edited mid-request (Portal also fails deployment_grant_changed) never re-scopes it.
+      // A partition or read set edited mid-request (Portal also fails deployment_grant_changed) never re-scopes it.
       attachmentAuthorized=!!current && current.agentId===dispatchGrant.agentId && current.orgId===dispatchGrant.orgId &&
-        !!currentClaim?.ok && currentClaim.partitionKey===dispatchGrant.partitionKey;
+        sameEdgeScope(dispatchGrant.scope, current);
       if(!attachmentAuthorized) break;
     }
-    if(attachmentAuthorized && attachmentResearch && (dispatchGrant.native || dispatchGrant.requires.some(capability => capability.startsWith('knowledge:research:')))) {
+    if(attachmentAuthorized && attachmentResearch && (dispatchGrant.native || dispatchGrant.readView || dispatchGrant.requires.some(capability => capability.startsWith('knowledge:research:')))) {
       // Optional grants (native discovery: knowledge:engine:write) widen only what the catalog lists.
       const granted=[...dispatchGrant.requires];
       for(const capability of dispatchGrant.optional) {
         const extra=await agentAuth!.check(capability,'dispatch');
-        const extraClaim=extra ? edgePartitionClaim(extra) : null;
-        if(extra && extra.agentId===dispatchGrant.agentId && extra.orgId===dispatchGrant.orgId && extraClaim?.ok && extraClaim.partitionKey===dispatchGrant.partitionKey) granted.push(capability);
+        if(extra && extra.agentId===dispatchGrant.agentId && extra.orgId===dispatchGrant.orgId && sameEdgeScope(dispatchGrant.scope, extra)) granted.push(capability);
       }
       researchBearer=attachmentResearch.issue({agentId:dispatchGrant.agentId,orgId:dispatchGrant.orgId,capabilities:granted,expiresAt:dispatchGrant.expiresAt,
-        ...(dispatchGrant.partitionKey!==null ? {partitionKey:dispatchGrant.partitionKey} : {})}, dispatchGrant.native ? 'brain' : 'research');
+        ...(dispatchGrant.partitionKey!==null ? {partitionKey:dispatchGrant.partitionKey} : {}),
+        ...(dispatchGrant.readPartitionKeys ? {readPartitionKeys:dispatchGrant.readPartitionKeys} : {})},
+        dispatchGrant.native ? 'brain' : dispatchGrant.readView ? 'knowledge' : 'research');
       attachmentAuthorized=researchBearer!==null;
     }
+    // A contract 2 read is never forwarded without the bearer that carries its read set.
+    if(dispatchGrant.readView && researchBearer===null) attachmentAuthorized=false;
   }
   if (emergencyOwner && !['GET', 'HEAD', 'OPTIONS'].includes(req.method ?? '')) {
     // The break-glass cookie is SameSite=Strict; a browser write must still come from this app's own origin.
@@ -276,11 +302,13 @@ const server = createServer(async (req, res) => {
   }
   if (!publicHealth && !instanceAuthorized && !runtimeAuthorized && !attachmentAuthorized && !ownerAuthorized) {
     // A verified Portal app grant whose request the admission refused (another partition, a missing resource): the
-    // credential is fine, the action is not.
-    if (admittedGrant) {
+    // credential is fine, the action is not. A verified attachment asking for an ID outside its partition gets the
+    // same answer as for an ID that does not exist.
+    if (admittedGrant || resourceMissing) {
       const why = (agentAuth as { refusal?: { status: number; error: string } } | null)?.refusal ?? (resourceMissing ? { status: 404, error: "not_found" } : { status: 403, error: "request_denied" });
       res.writeHead(why.status, { "content-type": "application/json", "cache-control": "no-store" });
-      res.end(JSON.stringify({ error: why.error }));
+      // The uniform not-found body is the Program's: {ok:false, error:"not_found"}, byte for byte.
+      res.end(JSON.stringify(why.status === 404 ? { ok: false, error: why.error } : { error: why.error }));
       return;
     }
     // A person opening the app without (or after) a Portal session gets a

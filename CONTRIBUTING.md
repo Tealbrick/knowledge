@@ -14,10 +14,10 @@ manager is pnpm 9.15.4. From the repository root:
 
 ```sh
 corepack pnpm@9.15.4 --dir program install --frozen-lockfile
-corepack pnpm@9.15.4 --dir program typecheck
+corepack pnpm@9.15.4 --dir program typecheck   # program, web and deploy/container/*.ts
 corepack pnpm@9.15.4 --dir program test
 corepack pnpm@9.15.4 --dir program build:web
-node --test deploy/container/*.test.mjs
+node --test deploy/container/*.test.mjs deploy/container/*.test.ts
 ```
 
 For agent adapter changes, from `adapters/agent`, run `npm ci` and `npm test`.

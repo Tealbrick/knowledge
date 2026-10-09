@@ -17,8 +17,11 @@ function listen(server) {
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`)));
 }
 
-/** Fake `hindsight-api` (tenant key auth, bank-scoped routes). */
-export async function startFakeHindsight({ apiKey, version = '0.10.2' }) {
+/**
+ * Fake `hindsight-api` (tenant key auth, bank-scoped routes). `answer(call)` may return a JSON value for a bank-scoped
+ * call (for example per-bank recall results); returning undefined keeps the neutral default answer.
+ */
+export async function startFakeHindsight({ apiKey, version = '0.10.2', answer }) {
   const calls = [];
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://hindsight.invalid');
@@ -37,6 +40,8 @@ export async function startFakeHindsight({ apiKey, version = '0.10.2' }) {
     if (/\/attachments\/[^/]+$/u.test(url.pathname) || url.pathname.startsWith('/v1/default/files/download/')) {
       res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(Buffer.from([0x50, 0x4b, 0x03, 0x04])); return;
     }
+    const custom = answer ? answer(calls.at(-1)) : undefined;
+    if (custom !== undefined) return json(200, custom);
     if (url.pathname.endsWith('/documents') && req.method === 'GET') return json(200, { items: [{ id: 'knowledge-doc:doc-1', updated_at: '2026-10-06T00:00:00Z' }], total: 1, limit: 100, offset: 0 });
     return json(200, { ok: true, fixture: true });
   });

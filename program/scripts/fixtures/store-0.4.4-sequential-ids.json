@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "counters": {
+    "bindingCounter": 0,
+    "collectionCounter": 2,
+    "documentCounter": 2,
+    "revisionCounter": 2,
+    "commentCounter": 0,
+    "grantCounter": 0,
+    "attachmentCounter": 0,
+    "linkCounter": 0,
+    "ownerBindingCounter": 0,
+    "notebookCounter": 0,
+    "sourceCounter": 0,
+    "entryCounter": 0,
+    "outputCounter": 0
+  },
+  "bindings": [],
+  "collections": [
+    {
+      "id": "kcol_0002",
+      "companyId": "fixture-a/beta",
+      "name": "Beta notes",
+      "description": null,
+      "sourceConfig": {
+        "provider": "native"
+      },
+      "createdAt": "2026-10-09T13:40:53.341Z",
+      "updatedAt": "2026-10-09T13:40:53.341Z"
+    },
+    {
+      "id": "kcol_0001",
+      "companyId": "fixture-a",
+      "name": "Workspace notes",
+      "description": null,
+      "sourceConfig": {
+        "provider": "native"
+      },
+      "createdAt": "2026-10-09T13:40:53.340Z",
+      "updatedAt": "2026-10-09T13:40:53.341Z"
+    }
+  ],
+  "documents": [
+    {
+      "id": "kdoc_0002",
+      "companyId": "fixture-a/beta",
+      "collectionId": "kcol_0002",
+      "parentDocumentId": null,
+      "title": "Beta note",
+      "slug": "beta-note",
+      "summary": null,
+      "body": "beta-marker legacy",
+      "bodyFormat": "markdown",
+      "status": "draft",
+      "source": null,
+      "createdByAgentId": null,
+      "createdByUserId": "operator",
+      "createdAt": "2026-10-09T13:40:53.341Z",
+      "updatedAt": "2026-10-09T13:40:53.341Z"
+    },
+    {
+      "id": "kdoc_0001",
+      "companyId": "fixture-a",
+      "collectionId": "kcol_0001",
+      "parentDocumentId": null,
+      "title": "Workspace note",
+      "slug": "workspace-note",
+      "summary": null,
+      "body": "workspace-marker legacy",
+      "bodyFormat": "markdown",
+      "status": "draft",
+      "source": null,
+      "createdByAgentId": null,
+      "createdByUserId": "operator",
+      "createdAt": "2026-10-09T13:40:53.341Z",
+      "updatedAt": "2026-10-09T13:40:53.341Z"
+    }
+  ],
+  "revisions": [
+    {
+      "id": "krev_0002",
+      "companyId": "fixture-a/beta",
+      "documentId": "kdoc_0002",
+      "version": 1,
+      "title": "Beta note",
+      "summary": null,
+      "body": "beta-marker legacy",
+      "bodyFormat": "markdown",
+      "createdByAgentId": null,
+      "createdByUserId": "operator",
+      "createdAt": "2026-10-09T13:40:53.341Z"
+    },
+    {
+      "id": "krev_0001",
+      "companyId": "fixture-a",
+      "documentId": "kdoc_0001",
+      "version": 1,
+      "title": "Workspace note",
+      "summary": null,
+      "body": "workspace-marker legacy",
+      "bodyFormat": "markdown",
+      "createdByAgentId": null,
+      "createdByUserId": "operator",
+      "createdAt": "2026-10-09T13:40:53.341Z"
+    }
+  ],
+  "comments": [],
+  "accessPolicies": [
+    {
+      "documentId": "kdoc_0002",
+      "companyId": "fixture-a/beta",
+      "accessMode": "company",
+      "inheritFromParent": true,
+      "grants": []
+    },
+    {
+      "documentId": "kdoc_0001",
+      "companyId": "fixture-a",
+      "accessMode": "company",
+      "inheritFromParent": true,
+      "grants": []
+    }
+  ],
+  "attachments": [],
+  "links": [],
+  "ownerBindings": [],
+  "notebooks": [],
+  "sources": [],
+  "entries": [],
+  "outputs": []
+}

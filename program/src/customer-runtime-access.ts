@@ -11,7 +11,7 @@ export function customerRuntimeRoute(method: string, rawUrl: string): boolean {
   if (pathname === "/api/knowledge/partitions") return verb === "GET";
   if (new RegExp(`^/api/companies/${segment}/knowledge/collections$`, "u").test(pathname)) return ["GET", "POST"].includes(verb);
   if (new RegExp(`^/api/companies/${segment}/knowledge/search$`, "u").test(pathname)) return verb === "GET";
-  if (new RegExp(`^/api/knowledge/collections/${segment}$`, "u").test(pathname)) return verb === "DELETE";
+  if (new RegExp(`^/api/knowledge/collections/${segment}$`, "u").test(pathname)) return ["GET", "DELETE"].includes(verb);
   if (new RegExp(`^/api/knowledge/collections/${segment}/tree$`, "u").test(pathname)) return verb === "GET";
   if (new RegExp(`^/api/knowledge/collections/${segment}/documents$`, "u").test(pathname)) return verb === "POST";
   if (new RegExp(`^/api/knowledge/documents/${segment}$`, "u").test(pathname)) return ["GET", "PATCH", "DELETE"].includes(verb);

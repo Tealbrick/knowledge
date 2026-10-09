@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 
 import { normalizeKnowledgePartitionKey } from "./partition-authority.js";
 
+/** Largest Hindsight response Knowledge accepts by default (also the bound of a merged contract 2 answer). */
+export const HINDSIGHT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+
 /**
  * Bank-isolated client for a private Hindsight API (vectorize-io/hindsight,
  * MIT) used as a Knowledge memory engine.
@@ -62,7 +65,7 @@ export class HindsightClient {
     this.base = new URL(base.origin);
     this.fetcher = options.fetch ?? fetch;
     this.timeoutMs = options.timeoutMs ?? 120_000;
-    this.maxResponseBytes = options.maxResponseBytes ?? 8 * 1024 * 1024;
+    this.maxResponseBytes = options.maxResponseBytes ?? HINDSIGHT_MAX_RESPONSE_BYTES;
   }
 
   private bankPath(partitionKey: string, suffix: string): URL {

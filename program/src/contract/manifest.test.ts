@@ -14,6 +14,11 @@ describe("tealbrick.app.json (tealbrick.miniapp/v1)", () => {
     expect(result).toMatchObject({ ok: true, errors: [], warnings: [] });
   });
 
+  it("declares partitions contract 2 (read sets) to Portal, as the kit parses it", () => {
+    expect(read("../../../tealbrick.app.json").runtime.partitions).toEqual({ contract: 2 });
+    expect(manifest.runtime.partitions).toEqual({ contract: 2 });
+  });
+
   it("is one release with the program package and the legacy descriptor", () => {
     expect(manifest.app.version).toBe(read("../../package.json").version);
     expect(manifest.app.version).toBe(read("../../../manifest.json").version);
@@ -43,7 +48,7 @@ describe("tealbrick.app.json (tealbrick.miniapp/v1)", () => {
   it("classifies every operation, owner operations stay owner-only and none is external", () => {
     const agents = manifest.operations.filter((op) => (op.audience ?? "agent") === "agent");
     const owners = manifest.operations.filter((op) => op.audience === "owner");
-    expect({ total: manifest.operations.length, agents: agents.length, owners: owners.length }).toEqual({ total: 31, agents: 26, owners: 5 });
+    expect({ total: manifest.operations.length, agents: agents.length, owners: owners.length }).toEqual({ total: 32, agents: 27, owners: 5 });
     expect(owners.map((op) => op.id).sort()).toEqual([
       "knowledge.collections.delete", "knowledge.documents.access-update",
       "knowledge.models.update", "knowledge.research-notebooks.delete", "knowledge.research-sources.delete",

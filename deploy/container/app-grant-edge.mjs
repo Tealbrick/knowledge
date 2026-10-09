@@ -26,6 +26,7 @@ const RESEARCH_WRITE = 'knowledge:research:write';
 export const OPERATION_CAPABILITY = Object.freeze({
   'knowledge.collections.list': DOCUMENTS_READ,
   'knowledge.collections.create': DOCUMENTS_WRITE,
+  'knowledge.collections.get': DOCUMENTS_READ,
   'knowledge.documents.search': DOCUMENTS_READ,
   'knowledge.documents.create': DOCUMENTS_WRITE,
   'knowledge.documents.get': DOCUMENTS_READ,
@@ -88,6 +89,8 @@ export function appGrantAuthority({ authority, admitted, request, companyId, nat
   const data = grant => ({
     agentId: grant.agentId, orgId: grant.orgId, expiresAt: grant.expiresAt,
     ...(grant.partitionKey !== null ? { partitionKey: grant.partitionKey } : {}),
+    // Contract 2: the read set wider than the write partition (validated by the admission); absent = contract 1.
+    ...(grant.readPartitionKeys ? { readPartitionKeys: grant.readPartitionKeys } : {}),
   });
   return {
     operation: admitted.operation,

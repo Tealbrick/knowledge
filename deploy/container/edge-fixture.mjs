@@ -26,11 +26,12 @@ const body = async req => { let raw = ''; for await (const chunk of req) raw += 
  * A fake Portal Core. State the test edits live:
  * - `grants[token]` = { agentId, actions, operations?, partitionKey? (default null = company scope), omitPartitionKey?, overrides? }   (POST /api/runtime/app-grant/introspect)
  * - `attachments[attachment]` = extra introspection fields                            (POST /api/deployment-access/introspect)
+ * - `runtime[tbkg token]` = extra runtime-principal answer fields                      (POST /api/runtime/knowledge-principal/introspect)
  * - `tickets[ticket]` = { route?, purpose? }                                          (POST /api/deployment-browser/redeem)
  * - `sessions[session]`                                                               (POST /api/deployment-browser/introspect)
  */
 export async function startFakePortal({ instanceToken, operationsFor, proof = instanceToken }) {
-  const state = { grants: {}, attachments: {}, tickets: {}, sessions: {}, calls: [], redeemHeaders: [] };
+  const state = { grants: {}, attachments: {}, runtime: {}, tickets: {}, sessions: {}, calls: [], redeemHeaders: [] };
   const server = createServer(async (req, res) => {
     const input = await body(req);
     state.calls.push({ url: req.url, headers: req.headers, body: input });
@@ -45,6 +46,14 @@ export async function startFakePortal({ instanceToken, operationsFor, proof = in
         operations: grant.operations ?? operationsFor(grant.actions), capabilityRevision: 1, expiresAt: Date.now() + 60_000,
         ...(grant.omitPartitionKey ? {} : { partitionKey: grant.partitionKey === undefined ? null : grant.partitionKey }), ...grant.overrides,
       });
+    }
+    if (req.url === '/api/runtime/knowledge-principal/introspect') {
+      const extra = state.runtime[input.token];
+      if (!extra) return json(403, { error: 'knowledge_principal_denied' });
+      const capabilities = ['knowledge:create', 'knowledge:read', 'brain:read', 'knowledge:update', 'knowledge:delete'];
+      return json(200, { authorized: true, principalId: 'tealbrick-agent:runtime-agent', agentId: 'runtime-agent', orgId: org, workspaceId: company, instanceId: input.instanceId,
+        companyId: company, actions: ['create', 'read', 'update', 'delete'], capabilities, partitionGrants: [{ partitionKey: company, breadth: 'exact', maxDepth: 0, capabilities }],
+        capabilityRevision: 1, expiresAt: Date.now() + 60_000, ...extra });
     }
     if (req.url === '/api/deployment-access/introspect') {
       const extra = state.attachments[input.attachment];

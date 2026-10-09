@@ -14,8 +14,9 @@
     "dev:web": "vite --config web/vite.config.ts",
     "build": "pnpm run build:web",
     "build:web": "vite build --config web/vite.config.ts",
-    "typecheck": "pnpm run typecheck:program && pnpm run typecheck:web",
+    "typecheck": "pnpm run typecheck:program && pnpm run typecheck:web && pnpm run typecheck:container",
     "typecheck:program": "tsc -p tsconfig.json --noEmit",
+    "typecheck:container": "tsc -p ../deploy/container/tsconfig.json --noEmit",
     "typecheck:web": "tsc -p web/tsconfig.json --noEmit",
     "test": "pnpm run test:program && pnpm run test:web",
     "test:program": "vitest run --exclude 'web/**'",
@@ -24,7 +25,7 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@tealbrick/contract": "0.1.0-alpha.4",
+    "@tealbrick/contract": "0.1.0-alpha.5",
     "@tealbrick/ui": "0.2.2",
     "fastify": "5.12.3",
     "zod": "4.5.4"

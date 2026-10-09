@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@tealbrick/contract':
-        specifier: 0.1.0-alpha.4
-        version: 0.1.0-alpha.4
+        specifier: 0.1.0-alpha.5
+        version: 0.1.0-alpha.5
       '@tealbrick/ui':
         specifier: 0.2.2
         version: 0.2.2(react@19.2.8)
@@ -594,8 +594,8 @@ packages:
     peerDependencies:
       react: ^18 || ^19
 
-  '@tealbrick/contract@0.1.0-alpha.4':
-    resolution: {integrity: sha512-gMue49aVyUHNPV3kAvcl6ts3THylhH4gLIhsbdbIvx9oaloJN2lUVNtHkR5FD56x2wHy9T5xwQ+8xCp4UqNezQ==}
+  '@tealbrick/contract@0.1.0-alpha.5':
+    resolution: {integrity: sha512-jWqCi1QeCmTAe07ugn2sCJW/kMseDPCZ4I6St4VG30qROlkeUxFkR8DL6yaMF1qeydS2FkwwlTLgFZKDkfgHpg==}
     engines: {node: '>=24'}
     hasBin: true
 
@@ -1669,7 +1669,7 @@ snapshots:
       '@tanstack/query-core': 5.102.8
       react: 19.2.8
 
-  '@tealbrick/contract@0.1.0-alpha.4':
+  '@tealbrick/contract@0.1.0-alpha.5':
     dependencies:
       zod: 4.5.4
 

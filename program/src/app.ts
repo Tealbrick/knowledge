@@ -8,6 +8,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
 
 import { createMemoryEngine, type MemoryEngine } from "./memory-engine.js";
+import type { ToolCallResult } from "./gbrain.js";
 import { nativeOperationAuthorized } from "./brain-native-policy.js";
 import { BrainProjections } from "./brain-projections.js";
 import { BrainExtractions } from "./brain-extractions.js";
@@ -29,7 +30,13 @@ import {
   narrowPartitionSelector,
   normalizeKnowledgePartitionKey,
   partitionGrantSummaries,
+  partitionHiddenFrom,
+  principalHoldsCapability,
+  READ_CAPABILITIES,
+  readViewFor,
 } from "./partition-authority.js";
+import { ATTACHMENT_TOKEN_PATTERN } from "./attachment-research-principal.js";
+import { EngineCallLimiter, engineResponseCap, fanOut, mergeEngineResults, withoutScopes, type FanOutReport } from "./brain-read-view.js";
 import { OpenNotebookAdapter } from "./open-notebook.js";
 import { registerOpenNotebookRoutes } from "./open-notebook-routes.js";
 import { ResearchWriteLedger } from "./research-write-ledger.js";
@@ -216,6 +223,11 @@ const BrainRecallInputSchema = BrainContextInputSchema.extend({
   includePending: z.boolean().optional(),
 });
 
+/** Engines answer at most this many page rows per call (GBrain's remote cap; Hindsight is clamped to it). */
+const ENGINE_PAGE_ROWS = 100;
+/** Contract 2 entity listing over a read set: `offset + limit` may be at most this (exact merged pages up to it). */
+export const MAX_ENTITY_VIEW_WINDOW = 500;
+
 const BrainEntitiesQuerySchema = z.object({
   slug: z.string().trim().min(1).optional(),
   kind: z.enum(["entities", "pages", "all"]).default("entities"),
@@ -347,7 +359,21 @@ function canonicalizeOwnerScope(request: FastifyRequest) {
   }
 }
 
-function storePartitionForRequest(request: PartitionRequestShape, store: KnowledgeStore, policyPathname = requestPath(request.url)): string | null {
+/**
+ * The partition a principal request addresses.
+ * - `partition`: one partition. `direct` is the partition its explicit selectors name (path/query/body companyId,
+ *   partitionKey, Brain scopeRef), `target` the one its object IDs live in (null when it names none).
+ * - `invalid`: malformed or conflicting selectors, or none at all (400 partition_key_required).
+ * - `missing`: an object ID that does not exist (answered exactly like an ID the caller may not see).
+ * - `conflict`: a direct selector and object IDs (or several object IDs) in different partitions.
+ */
+type PartitionResolution =
+  | { readonly kind: "partition"; readonly partition: string; readonly direct: string | null; readonly target: string | null }
+  | { readonly kind: "invalid" }
+  | { readonly kind: "missing" }
+  | { readonly kind: "conflict"; readonly direct: string | null; readonly targets: readonly string[] };
+
+function resolveRequestPartition(request: PartitionRequestShape, store: KnowledgeStore, policyPathname = requestPath(request.url)): PartitionResolution {
   const params = request.params && typeof request.params === "object" ? request.params as Record<string, unknown> : {};
   const query = request.query && typeof request.query === "object" ? request.query as Record<string, unknown> : {};
   const body = request.body && typeof request.body === "object" && !Buffer.isBuffer(request.body)
@@ -359,11 +385,11 @@ function storePartitionForRequest(request: PartitionRequestShape, store: Knowled
   for (const value of directValues) {
     if (typeof value !== "string" || !value.trim()) continue;
     const partition = normalizeKnowledgePartitionKey(value);
-    if (!partition) return null;
+    if (!partition) return { kind: "invalid" };
     directPartitions.push(partition);
   }
   const uniqueDirectPartitions = [...new Set(directPartitions)];
-  if (uniqueDirectPartitions.length > 1) return null;
+  if (uniqueDirectPartitions.length > 1) return { kind: "invalid" };
   const directPartition = uniqueDirectPartitions[0] ?? null;
 
   const scope = body.scope && typeof body.scope === "object" && !Array.isArray(body.scope)
@@ -384,7 +410,7 @@ function storePartitionForRequest(request: PartitionRequestShape, store: Knowled
     selectedId(params.outputId, query.outputId, body.outputId),
     selectedId(params.bindingId, query.bindingId, body.bindingId),
   ];
-  if (selectors.some(({ conflict }) => conflict)) return null;
+  if (selectors.some(({ conflict }) => conflict)) return { kind: "invalid" };
   const [documentId, collectionId, attachmentId, linkId, notebookId, sourceId, entryId, outputId, bindingId] = selectors.map(({ value }) => value);
 
   const companyForDocument = (documentId: unknown): string | null => {
@@ -417,14 +443,17 @@ function storePartitionForRequest(request: PartitionRequestShape, store: Knowled
   addTargetCompany(bindingId, (id) => store.getBinding(id)?.partitionKey ?? null);
   const targetPartitions: string[] = [];
   for (const companyId of targetCompanyIds) {
+    // An ID that names nothing; the same lookup work as an ID in another partition.
     const partition = companyId ? normalizeKnowledgePartitionKey(companyId) : null;
-    if (!partition) return null;
+    if (!partition) return { kind: "missing" };
     targetPartitions.push(partition);
   }
   const uniquePartitions = [...new Set(targetPartitions)];
-  if (directPartition && uniquePartitions.some((partition) => partition !== directPartition)) return null;
-  if (uniquePartitions.length > 1) return null;
-  return directPartition ?? uniquePartitions[0] ?? null;
+  if ((directPartition && uniquePartitions.some((partition) => partition !== directPartition)) || uniquePartitions.length > 1) {
+    return { kind: "conflict", direct: directPartition, targets: uniquePartitions };
+  }
+  const partition = directPartition ?? uniquePartitions[0] ?? null;
+  return partition ? { kind: "partition", partition, direct: directPartition, target: uniquePartitions[0] ?? null } : { kind: "invalid" };
 }
 
 function optionalString(value: unknown): string | null {
@@ -1737,7 +1766,10 @@ export async function buildKnowledgeApp(
     const requestPrincipal = request.knowledgePrincipal ?? researchPrincipals.resolve(suppliedBearer) ??
       (portalPrincipals ? await portalPrincipals.resolve(suppliedBearer) : null) ??
       // Edge-minted, per-request bearers for Portal attachments with knowledge:brain:* grants.
-      (nativeRoute && options.brainPrincipalProvider ? await options.brainPrincipalProvider(request, "brain:native") : null);
+      (nativeRoute && options.brainPrincipalProvider ? await options.brainPrincipalProvider(request, "brain:native") : null) ??
+      // Contract 2 reads of a Portal attachment or app grant with a read set: an edge-minted bearer carrying the read set.
+      (!nativeRoute && !isResearchSameOriginPath(policyPathname) && options.brainPrincipalProvider && suppliedBearer && ATTACHMENT_TOKEN_PATTERN.test(suppliedBearer)
+        ? await options.brainPrincipalProvider(request, "knowledge") : null);
     if (requestPrincipal) request.knowledgePrincipal = requestPrincipal;
     if (requestPrincipal?.boundPartition) narrowRequestToBoundPartition(request, requestPrincipal.boundPartition, policyPathname);
     if (!requestPrincipal) canonicalizeOwnerScope(request);
@@ -1753,18 +1785,44 @@ export async function buildKnowledgeApp(
         return;
       }
       if (policyPathname !== "/api/knowledge/partitions" && policyPathname !== "/api/research/engine/notebooks") {
-        const partitionKey = storePartitionForRequest(request, store, policyPathname);
-        if (!partitionKey) {
-          recordAuthorization(request, "denied", null, null);
-          reply.code(400).send({ ok: false, error: "partition_key_required" });
-          return;
-        }
         // Native operations authorize against the selected engine's per-operation policy.
         const nativePolicy = policyPathname === "/api/brain/native/:operation"
           ? brain.nativeOperationPolicy(String((request.params as Record<string, unknown> | undefined)?.operation ?? ""))
           // Discovery is a native read: brain:read or an attachment's brain:native:read.
           : policyPathname === "/api/brain/native/tools" ? { scope: "read" as const, capabilities: ["brain:read"] } : null;
         const capability = nativePolicy ? nativePolicy.capabilities[0]! : partitionCapabilityForRequest(request.method, policyPathname);
+        // Uniform not-found: an object ID that does not exist, or lives in a partition this principal may not use for
+        // this operation (outside its read set for reads, its write partition for writes), gets one answer.
+        const notFound = () => {
+          recordAuthorization(request, "denied", capability, null);
+          reply.code(404).send({ ok: false, error: "not_found" });
+        };
+        const hidden = (partition: string) => partitionHiddenFrom(requestPrincipal, partition, capability);
+        // A capability the principal lacks everywhere is refused before any object lookup, so the answer is the same
+        // for an existing, a foreign and a missing ID.
+        if (!nativePolicy && !principalHoldsCapability(requestPrincipal, capability)) {
+          recordAuthorization(request, "denied", capability, null);
+          reply.code(403).send({ ok: false, error: "partition_scope_denied" });
+          return;
+        }
+        let resolved = resolveRequestPartition(request, store, policyPathname);
+        // Contract 2: a read that names the principal's own partition (its workspace) and an object of another read
+        // partition (search within a collection, for example) reads that object's partition.
+        const bound = requestPrincipal.boundPartition;
+        let narrowedTo: string | null = null;
+        if (resolved.kind === "conflict" && bound?.readPartitions && resolved.direct === bound.partitionKey && resolved.targets.length === 1 &&
+          READ_CAPABILITIES.has(capability) && bound.readPartitions.includes(resolved.targets[0]!)) {
+          narrowedTo = resolved.targets[0]!;
+          resolved = { kind: "partition", partition: narrowedTo, direct: null, target: narrowedTo };
+        }
+        if (resolved.kind === "missing") { notFound(); return; }
+        if (resolved.kind === "conflict" && resolved.targets.some(hidden)) { notFound(); return; }
+        if (resolved.kind !== "partition") {
+          recordAuthorization(request, "denied", null, null);
+          reply.code(400).send({ ok: false, error: "partition_key_required" });
+          return;
+        }
+        const partitionKey = resolved.partition;
         const authorization = authorizeKnowledgePartition(requestPrincipal, partitionKey, capability);
         const body = request.body && typeof request.body === "object" ? request.body as Record<string, unknown> : {};
         const additionalCapabilities = policyPathname.startsWith("/api/brain/native/") ? [] : policyPathname.includes("/ingest-") ? ["knowledge:update"]
@@ -1780,11 +1838,23 @@ export async function buildKnowledgeApp(
         const admitted = nativePolicy ? nativeOperationAuthorized(requestPrincipal, partitionKey, nativePolicy)
           : authorization.allowed && !additionalCapabilities.some(required => !authorizeKnowledgePartition(requestPrincipal, partitionKey, required).allowed);
         if (!admitted) {
+          // An object addressed only by its ID: outside the grant answers like a missing ID (no existence oracle).
+          if (resolved.direct === null && resolved.target !== null && (hidden(partitionKey) ||
+            additionalCapabilities.some(required => partitionHiddenFrom(requestPrincipal, partitionKey, required)))) {
+            notFound();
+            return;
+          }
           recordAuthorization(request, "denied", capability, partitionKey);
           reply.code(403).send({ ok: false, error: "partition_scope_denied" });
           return;
         }
         request.knowledgePartitionKey = authorization.partitionKey;
+        // Contract 2: a read of its own partition reads the principal's whole read set (lists, search, Brain).
+        const view = narrowedTo !== null ? Object.freeze([narrowedTo]) : resolved.target === null
+          ? readViewFor(requestPrincipal, authorization.partitionKey, capability,
+            nativePolicy ? (partition) => nativeOperationAuthorized(requestPrincipal, partition, nativePolicy) : undefined)
+          : null;
+        if (view) request.knowledgeReadPartitions = view;
         if (request.method === "POST" && /^\/api\/companies\/[^/]+\/knowledge\/collections$/u.test(policyPathname)) {
           const source = body.sourceConfig as Record<string, unknown> | null | undefined;
           if (source && source.provider !== "native") {
@@ -2136,7 +2206,7 @@ export async function buildKnowledgeApp(
     "/api/companies/:companyId/knowledge/collections",
     async (request) => {
       const { companyId } = request.params as { companyId: string };
-      return store.listKnowledgeCollections(companyId, !request.knowledgePrincipal);
+      return store.listKnowledgeCollections(request.knowledgeReadPartitions ?? companyId, !request.knowledgePrincipal);
     },
   );
 
@@ -2327,7 +2397,7 @@ export async function buildKnowledgeApp(
       excludeDocumentId?: string;
       limit?: string;
     };
-    return store.searchKnowledgeDocuments(companyId, {
+    return store.searchKnowledgeDocuments(request.knowledgeReadPartitions ?? companyId, {
       q: query.q ?? "",
       collectionId: query.collectionId ?? null,
       excludeDocumentId: query.excludeDocumentId ?? null,
@@ -2384,7 +2454,17 @@ export async function buildKnowledgeApp(
 
   app.get("/api/knowledge/collections", async (request) => {
     const query = request.query as { partitionKey?: string; companyId?: string };
-    return store.listKnowledgeCollections(query.partitionKey ?? query.companyId ?? "default", !request.knowledgePrincipal);
+    return store.listKnowledgeCollections(request.knowledgeReadPartitions ?? query.partitionKey ?? query.companyId ?? "default", !request.knowledgePrincipal);
+  });
+
+  app.get("/api/knowledge/collections/:collectionId", async (request, reply) => {
+    const { collectionId } = request.params as { collectionId: string };
+    const collection = store.getKnowledgeCollection(collectionId);
+    if (!collection) {
+      reply.code(404).send({ ok: false, error: "knowledge_collection_not_found" });
+      return;
+    }
+    return store.listKnowledgeCollections(collection.companyId, false).find((item) => item.id === collection.id) ?? collection;
   });
 
   app.delete(
@@ -3014,7 +3094,7 @@ export async function buildKnowledgeApp(
 
   app.get("/api/companies/:companyId/research/notebooks", async (request) => {
     const { companyId } = request.params as { companyId: string };
-    return store.listResearchNotebooks(companyId);
+    return store.listResearchNotebooks(request.knowledgeReadPartitions ?? companyId);
   });
 
   app.post(
@@ -3162,7 +3242,7 @@ export async function buildKnowledgeApp(
       (request.query as { notebookId?: string }).notebookId,
     );
     return store
-      .listResearchSources(companyId, notebookId)
+      .listResearchSources(request.knowledgeReadPartitions ?? companyId, notebookId)
       .map((source) => mapResearchSource(store, source));
   });
 
@@ -3749,30 +3829,78 @@ export async function buildKnowledgeApp(
     });
   });
 
-  app.get("/api/brain/entities", async (request) => {
+  /** The first `count` page rows of one partition, read in engine pages of at most ENGINE_PAGE_ROWS rows. */
+  const listPagePrefix = async (partition: string, count: number): Promise<ToolCallResult> => {
+    const rows: unknown[] = [];
+    let first: ToolCallResult | null = null;
+    while (rows.length < count) {
+      const want = Math.min(ENGINE_PAGE_ROWS, count - rows.length);
+      const page = await brain.listPages({ limit: want, offset: rows.length, partitionKey: partition });
+      if (!page.ok || !Array.isArray(page.data)) return page;
+      first ??= page;
+      rows.push(...page.data);
+      if (page.data.length < want) break;
+    }
+    return { ...(first ?? { ok: true, status: "ready" as const, tool: "list_pages" }), data: rows };
+  };
+
+  // Contract 2 fan-out reads: at most FAN_OUT_CONCURRENCY engine calls per request, and every call takes one of the
+  // principal's engine-call slots (shared with native operations; brain-read-view.ts).
+  const engineCalls = new EngineCallLimiter();
+  const fanOutFor = (request: FastifyRequest) => ({ limiter: engineCalls, principalId: request.knowledgePrincipal?.principalId ?? "anonymous" });
+  // No silent drop: a fan-out answer names every read partition's outcome (absent for a single-partition read).
+  const fanOutReport = (result: object) => "partitions" in result && "partial" in result
+    ? { partitions: (result as FanOutReport).partitions, partial: (result as FanOutReport).partial, ...("truncated" in result && result.truncated ? { truncated: true } : {}) } : {};
+
+  app.get("/api/brain/entities", async (request, reply) => {
     const query = BrainEntitiesQuerySchema.parse(request.query);
-    const partitionKey = request.knowledgePartitionKey ?? query.partitionKey;
+    const view = request.knowledgeReadPartitions;
+    let partitionKey = request.knowledgePartitionKey ?? query.partitionKey;
     const slug = query.slug;
     if (!slug) {
-      const result = await brain.listPages({
+      if (view && query.offset + query.limit > MAX_ENTITY_VIEW_WINDOW) {
+        // Contract 2 pages are exact up to this depth (every read partition is read from its start); deeper ones are refused.
+        return reply.code(400).send({ ok: false, error: "offset_out_of_range", maxWindow: MAX_ENTITY_VIEW_WINDOW,
+          suggestion: `For a read set, offset + limit must be at most ${MAX_ENTITY_VIEW_WINDOW}. Name one read partition (partitionKey=<workspace>/<key>) to page deeper.` });
+      }
+      // Contract 2: the first `offset + limit + 1` rows of every read partition (engine pages of at most 100), merged,
+      // then exactly the requested window plus one sentinel row.
+      const result = view
+        ? await (async () => {
+          const window = query.offset + query.limit + 1;
+          const merged = withoutScopes(mergeEngineResults(await fanOut(view, (partition) => listPagePrefix(partition, window), fanOutFor(request)), { limit: window }));
+          return { ...merged, data: Array.isArray(merged.data) ? merged.data.slice(query.offset, query.offset + query.limit + 1) : merged.data };
+        })()
+        : await brain.listPages({
         // Fetch one sentinel row when possible. GBrain's remote 100-row cap
         // means a full 100-row window remains intentionally indeterminate.
         limit: Math.min(query.limit + 1, 100),
         offset: query.offset,
         partitionKey,
       });
-      return buildBrainPageEnumerationResponse({
-        result,
-        kind: query.kind,
-        limit: query.limit,
-        offset: query.offset,
-        readiness: brain.nativeCapabilityReadiness(),
-        factsVisibility: brain.status().factsVisibility,
-      });
+      return {
+        ...buildBrainPageEnumerationResponse({
+          result,
+          kind: query.kind,
+          limit: query.limit,
+          offset: query.offset,
+          readiness: brain.nativeCapabilityReadiness(),
+          factsVisibility: brain.status().factsVisibility,
+        }),
+        ...fanOutReport(result),
+      };
     }
 
     const direction = query.direction ?? null;
     const linkType = query.linkType ?? null;
+    if (view) {
+      // Contract 2: one entity lives in one partition. Read it from the first read partition that has the page
+      // (write partition first); without one, the answer is the write partition's.
+      partitionKey = view[0];
+      for (const partition of view) {
+        if ((await engineCalls.run(fanOutFor(request).principalId, () => brain.getPage({ slug, partitionKey: partition }))).ok) { partitionKey = partition; break; }
+      }
+    }
     const [profile, entityCard, links, graph, timeline, recall] = await Promise.all([
       brain.getPage({ slug, partitionKey }),
       brain.getEntityCard({ name: slug, partitionKey }),
@@ -3883,7 +4011,7 @@ export async function buildKnowledgeApp(
   });
 
   registerModelSettingsRoutes(app, { dataDir: config.dataDir, gbrainHome: config.gbrainHome, brain, authority: process.env.KNOWLEDGE_SETTINGS_TOKEN, research: researchSync });
-  registerNativeMemoryRoutes(app, {brain,dataDir:config.dataDir,persistent:Boolean(config.knowledgeDatabasePath)});
+  registerNativeMemoryRoutes(app, {brain,dataDir:config.dataDir,persistent:Boolean(config.knowledgeDatabasePath),engineCalls});
 
   app.get("/api/brain/indexing", async (request, reply) => {
     const query = request.query as { partitionKey?: string };
@@ -3895,7 +4023,11 @@ export async function buildKnowledgeApp(
   app.post("/api/brain/context", async (request) => {
     const input = BrainContextInputSchema.parse(request.body);
     const partitionKey = request.knowledgePartitionKey ?? input.partitionKey;
-    const result = await brain.query({ query: input.query, limit: input.limit, partitionKey, expand: input.expand, detail: input.detail });
+    const view = request.knowledgeReadPartitions;
+    // Contract 2: one query per read partition, merged by score (brain-read-view.ts).
+    const result = view
+      ? withoutScopes(mergeEngineResults(await fanOut(view, (partition) => brain.query({ query: input.query, limit: input.limit, partitionKey: partition, expand: input.expand, detail: input.detail }), fanOutFor(request)), { limit: input.limit, maxBytes: engineResponseCap(brain.engine) }))
+      : await brain.query({ query: input.query, limit: input.limit, partitionKey, expand: input.expand, detail: input.detail });
     return {
       ok: result.ok,
       source: "gbrain-adapter",
@@ -3909,13 +4041,18 @@ export async function buildKnowledgeApp(
       citations: result.ok ? buildBrainQueryCitations(result.data) : [],
       sourceIds: input.sourceIds ?? [],
       degradedReason: result.error ?? null,
+      ...fanOutReport(result),
     };
   });
 
   app.post("/api/brain/recall", async (request) => {
     const input = BrainRecallInputSchema.parse(request.body);
     const partitionKey = request.knowledgePartitionKey ?? input.partitionKey;
-    const result = await brain.recall({ query: input.query, limit: input.limit, partitionKey, grep: input.grep, entity: input.entity, sessionId: input.sessionId, includeExpired: input.includeExpired, budgetTokens: input.budgetTokens, since: input.since, supersessions: input.supersessions, includePending: input.includePending });
+    const recallIn = (partition: string | undefined) => brain.recall({ query: input.query, limit: input.limit, partitionKey: partition, grep: input.grep, entity: input.entity, sessionId: input.sessionId, includeExpired: input.includeExpired, budgetTokens: input.budgetTokens, since: input.since, supersessions: input.supersessions, includePending: input.includePending });
+    const view = request.knowledgeReadPartitions;
+    // Contract 2: one recall per read partition (its own source or bank), merged by score (brain-read-view.ts).
+    const result = view ? withoutScopes(mergeEngineResults(await fanOut(view, recallIn, fanOutFor(request)),
+      { limit: input.limit, ...(input.budgetTokens ? { maxTokens: input.budgetTokens } : {}), maxBytes: engineResponseCap(brain.engine) })) : await recallIn(partitionKey);
     return {
       ok: result.ok,
       source: "gbrain-adapter",
@@ -3927,6 +4064,7 @@ export async function buildKnowledgeApp(
       memories: result.ok ? result.data : [],
       citations: [],
       degradedReason: result.error ?? null,
+      ...fanOutReport(result),
     };
   });
 

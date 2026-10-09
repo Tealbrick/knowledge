@@ -171,8 +171,9 @@ describe("edge-partition isolation in the Program (runtime principal path)", () 
         { method: "DELETE", url: `/api/knowledge/collections/${owned.id}` },
       ] as const) {
         const response = await app.inject({ ...request, headers: as("personal-agent") });
-        expect(response.statusCode, `${request.method} ${request.url}`).toBe(403);
-        expect(response.body).not.toContain("polygonface-only");
+        // Uniform not-found (0.5.0): an ID of another partition answers like a missing ID.
+        expect(response.statusCode, `${request.method} ${request.url}`).toBe(404);
+        expect(response.json()).toEqual({ ok: false, error: "not_found" });
       }
       // default -> personal, and a sibling partition -> personal.
       for (const token of ["default-agent", "other-agent"]) {
@@ -184,7 +185,8 @@ describe("edge-partition isolation in the Program (runtime principal path)", () 
           { method: "GET", url: `/api/companies/${encodeURIComponent(personal)}/knowledge/collections` },
         ] as const) {
           const response = await app.inject({ ...request, headers: as(token) });
-          expect(response.statusCode, `${token} ${request.method} ${request.url}`).toBe(403);
+          // By ID: uniform not-found; by an explicit foreign partition path: the selector is refused (403).
+          expect(response.statusCode, `${token} ${request.method} ${request.url}`).toBe(request.url.startsWith("/api/companies/") ? 403 : 404);
           expect(response.body).not.toContain("personal-only");
         }
       }
@@ -285,8 +287,10 @@ describe("Research scoping for a partitioned attachment", () => {
       expect(await discover(personalToken)).toEqual(["nb-personal"]);
       expect(await discover(defaultToken)).toEqual(["nb-default"]);
       const read = (token: string, id: string) => app.inject({ url: `/api/research/notebooks/${id}/engine`, headers: { authorization: `Bearer ${token}` } });
-      expect((await read(personalToken, "nb-default")).json()).toEqual({ error: "notebook_scope_denied" });
-      expect((await read(defaultToken, "nb-personal")).json()).toEqual({ error: "notebook_scope_denied" });
+      // Uniform not-found: another partition's notebook answers like a missing one.
+      expect((await read(personalToken, "nb-default")).json()).toEqual({ ok: false, error: "not_found" });
+      expect((await read(defaultToken, "nb-personal")).json()).toEqual({ ok: false, error: "not_found" });
+      expect((await read(defaultToken, "nb-missing")).json()).toEqual({ ok: false, error: "not_found" });
       // An invalid key mints nothing rather than a default-partition bearer.
       for (const partitionKey of ["default", "a/b", "Personal", "../x"]) expect(authority.issue({ ...grant, partitionKey }), partitionKey).toBeNull();
     } finally { await app.close(); }
@@ -312,7 +316,7 @@ describe("existing rows after the upgrade", () => {
     try {
       const as = (token: string) => ({ authorization: `Bearer ${token}` });
       expect((await app.inject({ url: `/api/knowledge/documents/${document.id}`, headers: as("default-agent") })).statusCode).toBe(200);
-      expect((await app.inject({ url: `/api/knowledge/documents/${document.id}`, headers: as("personal-agent") })).statusCode).toBe(403);
+      expect((await app.inject({ url: `/api/knowledge/documents/${document.id}`, headers: as("personal-agent") })).statusCode).toBe(404);
       expect((await app.inject({ url: `/api/companies/${companyId}/knowledge/collections`, headers: as("default-agent") })).json().map((c: { id: string }) => c.id)).toContain(collection.id);
       expect((await app.inject({ url: `/api/companies/${companyId}/knowledge/partitions` })).json().partitions).toEqual([]);
     } finally { await app.close(); }
@@ -334,10 +338,11 @@ describe("security review follow-ups", () => {
     try {
       for (const url of ["/healthz", "/api/status", "/bootstrap.json"]) {
         const body = (await app.inject({ url })).json();
-        expect(body.partitionContract, url).toBe(1);
+        expect(body.partitionContract, url).toBe(2);
         expect(body.capabilities.edgePartitions, url).toBe(true);
+        expect(body.capabilities.readPartitions, url).toBe(true);
       }
-      expect((await app.inject({ url: "/healthz" })).json()).toEqual({ ok: true, service: "knowledge", capabilities: { edgePartitions: true }, partitionContract: 1 });
+      expect((await app.inject({ url: "/healthz" })).json()).toEqual({ ok: true, service: "knowledge", capabilities: { edgePartitions: true, readPartitions: true }, partitionContract: 2 });
     } finally { await app.close(); }
   });
 

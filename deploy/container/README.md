@@ -45,7 +45,7 @@ ceiling. A bare app bearer is not proof of a purchased licence.
 ## Teal Brick miniapp contract
 
 `tealbrick.app.json` at the repository root is the release manifest (`tealbrick.miniapp/v1`, contract
-alpha.4). The edge serves `/.well-known/tealbrick/{manifest,claim,status,settings,companions,guidance/1}`, accepts
+alpha.5). The edge serves `/.well-known/tealbrick/{manifest,claim,status,settings,companions,guidance/1}`, accepts
 Portal app grants (`tbag_`) next to the attachment path above, and offers a break-glass owner login when
 `TEALBRICK_EMERGENCY_CODE` is set (random, at least 128 bits; the deployer generates it, rotate by redeploying;
 the Railway template does not set it). `TEALBRICK_INSTANCE_TOKEN`, `TEALBRICK_TENANT_ID` and
@@ -53,6 +53,8 @@ the Railway template does not set it). `TEALBRICK_INSTANCE_TOKEN`, `TEALBRICK_TE
 `KNOWLEDGE_PORTAL_ORG_ID`. Operations, error codes, partition binding, settings, conformance result and the
 Open Notebook/SurrealDB sidecar plan are in [../../docs/miniapp-contract.md](../../docs/miniapp-contract.md).
 `node --test deploy/container/contract-edge.test.mjs deploy/container/app-grant-edge.test.mjs` runs the real edge against a fake Portal.
+`node --test deploy/container/read-partitions-edge.test.ts` (TypeScript, run by Node 24 type stripping) covers partitions
+contract 2 read sets on the attachment, `tbag_` and `tbkg_` paths. CI runs `deploy/container/*.test.mjs` and `*.test.ts`.
 
 ## Build and distribute
 

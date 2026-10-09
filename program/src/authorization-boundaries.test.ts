@@ -77,7 +77,9 @@ describe("Program authorization finding regressions", () => {
     const headers = { authorization: "Bearer alpha-reader" };
     const denied = await restricted.inject({ method: "POST", url: "/api/research/graph/query", headers,
       payload: { query: "*", companyId: "alpha", scope: { notebookId: beta.json().id } } });
-    expect(denied.statusCode).toBe(400);
+    // A notebook outside the principal's partitions answers like a missing one (uniform not-found).
+    expect(denied.statusCode).toBe(404);
+    expect(denied.json()).toEqual({ ok: false, error: "not_found" });
     const allowed = await restricted.inject({ method: "POST", url: "/api/research/graph/query", headers,
       payload: { query: "Alpha", companyId: "alpha", scope: { notebookId: alpha.json().id } } });
     expect(allowed.statusCode).toBe(200);

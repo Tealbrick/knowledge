@@ -16,15 +16,33 @@ import type {
   ResearchOutput,
   ResearchSource,
 } from "./types.js";
+import { randomBytes } from "node:crypto";
 import { EDGE_PARTITION_KEY, normalizeKnowledgePartitionKey } from "./partition-authority.js";
 
 function nowIso() {
   return new Date().toISOString();
 }
 
-function createId(prefix: string, value: number) {
-  return `${prefix}_${value.toString(36).padStart(4, "0")}`;
+const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
+export const RANDOM_ID_LENGTH = 20;
+
+/**
+ * New object ids are random and unguessable: the prefix and 20 base32 characters (100 bits) from the system CSPRNG,
+ * e.g. `kdoc_q3x7...`. A shared counter would let one partition learn how many objects others create and guess
+ * their ids. Sequential ids of earlier releases (`kdoc_0001`) stay valid; every reader treats ids as opaque strings.
+ */
+export function createId(prefix: string) {
+  const bytes = randomBytes(RANDOM_ID_LENGTH);
+  let value = "";
+  for (const byte of bytes) value += BASE32[byte & 31];
+  return `${prefix}_${value}`;
 }
+
+/** Collections, documents and research records of one partition, or of several (a contract 2 read view). */
+export type KnowledgeScope = string | readonly string[];
+// A read view lists canonical partitions; rows of a top-level workspace keep the id as Portal sent it.
+const inScope = (scope: KnowledgeScope) => typeof scope === "string" ? (companyId: string) => companyId === scope
+  : (companyId: string) => scope.includes(normalizeKnowledgePartitionKey(companyId) ?? companyId);
 
 function slugify(value: string) {
   return (
@@ -118,7 +136,8 @@ function restoreCounter(value: unknown, ids: readonly string[], prefix: string):
   const explicit =
     typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
   const fromIds = ids.reduce((max, id) => {
-    if (!id.startsWith(`${prefix}_`)) {
+    // Random ids (0.5.0+) carry no counter.
+    if (!id.startsWith(`${prefix}_`) || id.length - prefix.length - 1 >= RANDOM_ID_LENGTH) {
       return max;
     }
     const parsed = Number.parseInt(id.slice(prefix.length + 1), 36);
@@ -318,7 +337,7 @@ export class KnowledgeStore {
     }
     const timestamp = nowIso();
     const collection: KnowledgeCollection = {
-      id: createId("kcol", ++this.collectionCounter),
+      id: createId("kcol"),
       companyId,
       name: "Default",
       description: "Default knowledge collection",
@@ -351,10 +370,11 @@ export class KnowledgeStore {
     return [...keys].sort();
   }
 
-  listKnowledgeCollections(companyId: string, ensureDefault = true) {
-    if (ensureDefault) this.ensureKnowledgeDefaultCollection(companyId);
+  listKnowledgeCollections(scope: KnowledgeScope, ensureDefault = true) {
+    if (ensureDefault && typeof scope === "string") this.ensureKnowledgeDefaultCollection(scope);
+    const included = inScope(scope);
     return this.collections
-      .filter((collection) => collection.companyId === companyId)
+      .filter((collection) => included(collection.companyId))
       .map((collection) => ({
         ...collection,
         documentCount: this.documents.filter((document) => document.collectionId === collection.id)
@@ -376,7 +396,7 @@ export class KnowledgeStore {
   ) {
     const timestamp = nowIso();
     const collection: KnowledgeCollection = {
-      id: createId("kcol", ++this.collectionCounter),
+      id: createId("kcol"),
       companyId,
       name: input.name.trim(),
       description: input.description?.trim() || null,
@@ -478,7 +498,7 @@ export class KnowledgeStore {
   }
 
   searchKnowledgeDocuments(
-    companyId: string,
+    scope: KnowledgeScope,
     input: {
       readonly q: string;
       readonly collectionId?: string | null;
@@ -491,8 +511,9 @@ export class KnowledgeStore {
     const collectionById = new Map(
       this.collections.map((collection) => [collection.id, collection]),
     );
+    const included = inScope(scope);
     return this.documents
-      .filter((document) => document.companyId === companyId)
+      .filter((document) => included(document.companyId))
       .filter((document) => !input.collectionId || document.collectionId === input.collectionId)
       .filter((document) => !input.excludeDocumentId || document.id !== input.excludeDocumentId)
       .filter((document) => {
@@ -555,7 +576,7 @@ export class KnowledgeStore {
             syncedAt: input.source?.syncedAt ?? timestamp,
           };
     const document: KnowledgeDocument = {
-      id: createId("kdoc", ++this.documentCounter),
+      id: createId("kdoc"),
       companyId: collection.companyId,
       collectionId,
       parentDocumentId: input.parentDocumentId?.trim() || null,
@@ -726,7 +747,7 @@ export class KnowledgeStore {
     }
     const timestamp = nowIso();
     const comment: KnowledgeDocumentComment = {
-      id: createId("kcom", ++this.commentCounter),
+      id: createId("kcom"),
       companyId: document.companyId,
       documentId,
       parentCommentId: input.parentCommentId?.trim() || null,
@@ -764,7 +785,7 @@ export class KnowledgeStore {
     }
     const timestamp = nowIso();
     const grants = (input.grants ?? existing.grants).map((grant) => ({
-      id: createId("kgrant", ++this.grantCounter),
+      id: createId("kgrant"),
       principalType: grant.principalType,
       principalId: grant.principalId,
       role: grant.role,
@@ -799,7 +820,7 @@ export class KnowledgeStore {
     }
     const attachment: KnowledgeDocumentAttachment = {
       ...input,
-      id: input.id ?? createId("katt", ++this.attachmentCounter),
+      id: input.id ?? createId("katt"),
     };
     this.attachments.unshift(attachment);
     const index = this.documents.indexOf(document);
@@ -880,7 +901,7 @@ export class KnowledgeStore {
       return { id: existing.id };
     }
     const link: KnowledgeDocumentLink = {
-      id: createId("klink", ++this.linkCounter),
+      id: createId("klink"),
       companyId: source.companyId,
       sourceDocumentId: source.id,
       targetDocumentId: target.id,
@@ -1005,7 +1026,7 @@ export class KnowledgeStore {
       );
       if (!existing) {
         this.ownerBindings.unshift({
-          id: createId("kbind", ++this.ownerBindingCounter),
+          id: createId("kbind"),
           ownerType,
           ownerId,
           bindingType,
@@ -1057,7 +1078,7 @@ export class KnowledgeStore {
     );
     if (!existing) {
       this.ownerBindings.unshift({
-        id: createId("kbind", ++this.ownerBindingCounter),
+        id: createId("kbind"),
         ownerType,
         ownerId,
         bindingType,
@@ -1101,9 +1122,10 @@ export class KnowledgeStore {
     return changed;
   }
 
-  listResearchNotebooks(companyId: string) {
+  listResearchNotebooks(scope: KnowledgeScope) {
+    const included = inScope(scope);
     return this.notebooks
-      .filter((notebook) => notebook.companyId === companyId)
+      .filter((notebook) => included(notebook.companyId))
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .map((notebook) => ({
         ...notebook,
@@ -1125,7 +1147,7 @@ export class KnowledgeStore {
   }) {
     const timestamp = nowIso();
     const notebook: ResearchNotebook = {
-      id: createId("notebook", ++this.notebookCounter),
+      id: createId("notebook"),
       companyId: input.companyId,
       title: input.title.trim() || "Untitled notebook",
       slug: nonEmptyString(input.slug) ?? slugify(input.title),
@@ -1205,9 +1227,10 @@ export class KnowledgeStore {
     });
   }
 
-  listResearchSources(companyId: string, notebookId?: string | null) {
+  listResearchSources(scope: KnowledgeScope, notebookId?: string | null) {
+    const included = inScope(scope);
     return this.sources
-      .filter((source) => source.companyId === companyId)
+      .filter((source) => included(source.companyId))
       .filter((source) => !notebookId || source.notebookId === notebookId)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
@@ -1242,7 +1265,7 @@ export class KnowledgeStore {
     }
     const timestamp = nowIso();
     const source: ResearchSource = {
-      id: createId("source", ++this.sourceCounter),
+      id: createId("source"),
       companyId: input.companyId,
       notebookId: input.notebookId,
       title: input.title.trim() || "Untitled source",
@@ -1359,7 +1382,7 @@ export class KnowledgeStore {
     const timestamp = nowIso();
     const entry: ResearchEntry = {
       ...input,
-      id: createId("entry", ++this.entryCounter),
+      id: createId("entry"),
       role: nonEmptyString(input.role) ?? "reference",
       bodyFormat: input.bodyFormat ?? "markdown",
       version: input.version ?? null,
@@ -1404,7 +1427,7 @@ export class KnowledgeStore {
     }
     const timestamp = nowIso();
     const output: ResearchOutput = {
-      id: createId("output", ++this.outputCounter),
+      id: createId("output"),
       companyId: input.companyId,
       notebookId: input.notebookId,
       outputKind: nonEmptyString(input.outputKind) ?? "memo",
@@ -1597,7 +1620,7 @@ export class KnowledgeStore {
     actor: { readonly createdByAgentId?: string | null; readonly createdByUserId?: string | null } = {},
   ) {
     this.revisions.unshift({
-      id: createId("krev", ++this.revisionCounter),
+      id: createId("krev"),
       companyId: document.companyId,
       documentId: document.id,
       version,
@@ -1625,7 +1648,7 @@ export class KnowledgeStore {
   ): KnowledgeBinding {
     const binding: KnowledgeBinding = {
       ...input,
-      bindingId: input.bindingId ?? `binding_${++this.bindingCounter}`,
+      bindingId: input.bindingId ?? createId("binding"),
       createdAt: input.createdAt ?? new Date().toISOString(),
       partitionKey: input.partitionKey ?? null,
     };

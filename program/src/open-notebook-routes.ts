@@ -166,6 +166,11 @@ function sendError(reply: FastifyReply, status: 400 | 401 | 403 | 404 | 409 | 41
   return reply.code(status).send({ error });
 }
 
+/** Uniform not-found: the same bytes for a notebook that is missing, unmapped, stale or outside the caller's partitions. */
+function sendNotFound(reply: FastifyReply) {
+  return reply.code(404).send({ ok: false, error: "not_found" });
+}
+
 function sendBrowserError(reply: FastifyReply, error: unknown) {
   const status = browserSessionErrorStatus(error) as 401 | 403 | 429 | 503;
   const code = error instanceof ResearchBrowserSessionError ? error.code : "browser_session_authority_unavailable";
@@ -414,8 +419,16 @@ export function registerOpenNotebookRoutes(
     }
     const notebookId = request.params?.notebookId;
     const mapping = mappings.byKnowledgeId.get(notebookId);
+    // Uniform not-found: a notebook that does not exist, is not mapped, or lives outside the partitions this principal
+    // may use for the operation (its read set for reads, its write partition for writes) gets one answer. A foreign
+    // notebook is refused from the mapping alone, before the owner lookup, so it costs the same work as a missing one.
     if (!mapping) {
-      sendError(reply, 404, "notebook_not_found");
+      sendNotFound(reply);
+      return;
+    }
+    const partition = authorizeKnowledgePartition(principal, mapping.companyId, capability);
+    if (!partition.allowed) {
+      sendNotFound(reply);
       return;
     }
     let currentCompany: string | null;
@@ -425,13 +438,8 @@ export function registerOpenNotebookRoutes(
       sendError(reply, 503, "notebook_owner_unavailable");
       return;
     }
-    if (currentCompany === null) {
-      sendError(reply, 404, "notebook_not_found");
-      return;
-    }
-    const partition = authorizeKnowledgePartition(principal, mapping.companyId, capability);
-    if (typeof currentCompany !== "string" || !currentCompany || currentCompany !== mapping.companyId || !partition.allowed) {
-      sendError(reply, 403, "notebook_scope_denied");
+    if (typeof currentCompany !== "string" || !currentCompany || currentCompany !== mapping.companyId) {
+      sendNotFound(reply);
       return;
     }
     request.knowledgePrincipal = principal;
@@ -453,17 +461,15 @@ export function registerOpenNotebookRoutes(
     // upstream call so deletion, revocation, or ownership changes fail closed.
     const principal = await resolvePrincipal(request, reply, capability);
     if (reply.sent || !principal) return undefined;
+    const partition = authorizeKnowledgePartition(principal, mapping.companyId, capability);
+    if (!partition.allowed) return sendNotFound(reply);
     let currentCompany: string | null;
     try {
       currentCompany = options.resolveNotebookCompany(request.params.notebookId);
     } catch {
       return sendError(reply, 503, "notebook_owner_unavailable");
     }
-    if (currentCompany === null) return sendError(reply, 404, "notebook_not_found");
-    const partition = authorizeKnowledgePartition(principal, mapping.companyId, capability);
-    if (typeof currentCompany !== "string" || !currentCompany || currentCompany !== mapping.companyId || !partition.allowed) {
-      return sendError(reply, 403, "notebook_scope_denied");
-    }
+    if (typeof currentCompany !== "string" || !currentCompany || currentCompany !== mapping.companyId) return sendNotFound(reply);
     request.knowledgePrincipal = principal;
     request.knowledgePartitionKey = partition.partitionKey;
     if (!options.adapter) {

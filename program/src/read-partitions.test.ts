@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { MAX_READ_PARTITIONS as KIT_MAX_READ_PARTITIONS } from "@tealbrick/contract";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,7 +14,8 @@ import { hindsightBankForPartition } from "./hindsight-client.js";
 import { registerOpenNotebookRoutes, type OpenNotebookRouteAdapter } from "./open-notebook-routes.js";
 import { MAX_READ_PARTITIONS, edgeScopeFor, parseEdgeReadPartitionsClaim, parseReadPartitionKeys } from "./partition-authority.js";
 import { portalPrincipalFromResponse, type PortalPrincipalResolver } from "./portal-principal.js";
-import { createId, KnowledgeStore } from "./store.js";
+import { SqliteKnowledgePersistence } from "./persistence.js";
+import { createId, KnowledgeStore, type KnowledgeStoreSnapshot } from "./store.js";
 import { startFakeHindsight } from "../scripts/fixtures/fake-engines.mjs";
 
 /**
@@ -77,6 +81,7 @@ async function snapshot(app: FastifyInstance, request: { method: string; url: st
   const response = await app.inject(request as never);
   return { status: response.statusCode, headers: stableHeaders(response.headers), body: response.body };
 }
+const snapshotOf = (app: FastifyInstance, grant: string, url: string) => snapshot(app, { method: "GET", url, headers: as(grant) });
 
 describe("read set parsing and principals", () => {
   it("accepts 1..64 unique keys or null that contain the write key; anything else fails closed", () => {
@@ -649,5 +654,36 @@ describe("dedupe by Knowledge document across partitions", () => {
       { id: "same", text: "same", [PARTITION_LABEL_FIELD]: [pa, pb] },
       { id: "other", text: "o", [PARTITION_LABEL_FIELD]: [pb] },
     ]);
+  });
+});
+
+describe("upgrade from 0.4.4: sequential ids saved by the old store", () => {
+  it("loads the saved store and reads its objects by id through an agent path", async () => {
+    // Saved by the Knowledge 0.4.4 store code (sequential ids kcol_0001, kdoc_0001, krev_0001, ...).
+    const snapshot = JSON.parse(readFileSync(new URL("../scripts/fixtures/store-0.4.4-sequential-ids.json", import.meta.url), "utf8")) as KnowledgeStoreSnapshot;
+    expect(snapshot.documents.map((document) => document.id).sort()).toEqual(["kdoc_0001", "kdoc_0002"]);
+    const directory = mkdtempSync(path.join(tmpdir(), "knowledge-upgrade-"));
+    try {
+      const databasePath = path.join(directory, "knowledge.sqlite");
+      new SqliteKnowledgePersistence(databasePath).save(snapshot);
+      const app = await knowledge({ knowledgeDatabasePath: databasePath, dataDir: directory });
+      const get = (grant: string, url: string) => snapshotOf(app, grant, url);
+      // The workspace document for a workspace agent (contract 1), the beta document for A (read set) and B.
+      const workspaceDocument = await get("D1", "/api/knowledge/documents/kdoc_0001");
+      expect([workspaceDocument.status, JSON.parse(workspaceDocument.body).title]).toEqual([200, "Workspace note"]);
+      for (const grant of ["A", "B", "B1"]) {
+        const betaDocument = await get(grant, "/api/knowledge/documents/kdoc_0002");
+        expect([betaDocument.status, JSON.parse(betaDocument.body).companyId], grant).toEqual([200, pb]);
+      }
+      expect(JSON.parse((await get("B", "/api/knowledge/documents/kdoc_0002/revisions")).body).map((revision: { id: string }) => revision.id)).toContain("krev_0002");
+      expect(JSON.parse((await get("A", `/api/companies/${companyId}/knowledge/search?q=marker`)).body).map((hit: { id: string }) => hit.id)).toContain("kdoc_0002");
+      // Outside the read set: the same answer as a missing id, old or new format.
+      const foreign = await get("A", "/api/knowledge/documents/kdoc_0001");
+      expect(foreign).toEqual(await get("A", "/api/knowledge/documents/kdoc_0009"));
+      expect(foreign.status).toBe(404);
+      // New objects next to the old ones get random ids.
+      const created = await app.inject({ method: "POST", url: "/api/knowledge/collections/kcol_0002/documents", headers: as("B"), payload: { title: "new", body: "n" } });
+      expect([created.statusCode, created.json().id]).toEqual([201, expect.stringMatching(/^kdoc_[a-z2-7]{20}$/u)]);
+    } finally { await Promise.all(apps.splice(0).map((app) => app.close())); rmSync(directory, { recursive: true, force: true }); }
   });
 });

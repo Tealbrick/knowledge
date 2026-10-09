@@ -141,10 +141,10 @@
   ],
   "sourceBuild": {
     "repository": "https://github.com/Tealbrick/knowledge",
-    "ref": "release-knowledge-v0.4.4",
+    "ref": "release-knowledge-v0.4.5",
     "refType": "branch",
-    "releaseTag": "v0.4.4",
-    "resolvedSourceSha": "312d43553be904155462d449f1791baddf575aed",
+    "releaseTag": "v0.4.5",
+    "resolvedSourceSha": "5a1eda1f10a89f3a259b07accef9eb49cb075af8",
     "rootDirectory": "/",
     "dockerfilePath": "deploy/container/Dockerfile",
     "branchProtection": {

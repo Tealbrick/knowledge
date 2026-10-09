@@ -35,7 +35,7 @@ import {
   readViewFor,
 } from "./partition-authority.js";
 import { ATTACHMENT_TOKEN_PATTERN } from "./attachment-research-principal.js";
-import { fanOut, mergeEngineResults, withoutScopes } from "./brain-read-view.js";
+import { EngineCallLimiter, fanOut, mergeEngineResults, withoutScopes } from "./brain-read-view.js";
 import { OpenNotebookAdapter } from "./open-notebook.js";
 import { registerOpenNotebookRoutes } from "./open-notebook-routes.js";
 import { ResearchWriteLedger } from "./research-write-ledger.js";
@@ -3823,6 +3823,11 @@ export async function buildKnowledgeApp(
     });
   });
 
+  // Contract 2 fan-out reads: at most FAN_OUT_CONCURRENCY engine calls per request, and every call takes one of the
+  // principal's engine-call slots (shared with native operations; brain-read-view.ts).
+  const engineCalls = new EngineCallLimiter();
+  const fanOutFor = (request: FastifyRequest) => ({ limiter: engineCalls, principalId: request.knowledgePrincipal?.principalId ?? "anonymous" });
+
   app.get("/api/brain/entities", async (request) => {
     const query = BrainEntitiesQuerySchema.parse(request.query);
     const view = request.knowledgeReadPartitions;
@@ -3833,7 +3838,7 @@ export async function buildKnowledgeApp(
       const result = view
         ? await (async () => {
           const window = Math.min(query.offset + query.limit + 1, 100);
-          const merged = withoutScopes(mergeEngineResults(await fanOut(view, (partition) => brain.listPages({ limit: window, offset: 0, partitionKey: partition }))));
+          const merged = withoutScopes(mergeEngineResults(await fanOut(view, (partition) => brain.listPages({ limit: window, offset: 0, partitionKey: partition }), fanOutFor(request))));
           return { ...merged, data: Array.isArray(merged.data) ? merged.data.slice(query.offset, query.offset + query.limit + 1) : merged.data };
         })()
         : await brain.listPages({
@@ -3860,7 +3865,7 @@ export async function buildKnowledgeApp(
       // (write partition first); without one, the answer is the write partition's.
       partitionKey = view[0];
       for (const partition of view) {
-        if ((await brain.getPage({ slug, partitionKey: partition })).ok) { partitionKey = partition; break; }
+        if ((await engineCalls.run(fanOutFor(request).principalId, () => brain.getPage({ slug, partitionKey: partition }))).ok) { partitionKey = partition; break; }
       }
     }
     const [profile, entityCard, links, graph, timeline, recall] = await Promise.all([
@@ -3973,7 +3978,7 @@ export async function buildKnowledgeApp(
   });
 
   registerModelSettingsRoutes(app, { dataDir: config.dataDir, gbrainHome: config.gbrainHome, brain, authority: process.env.KNOWLEDGE_SETTINGS_TOKEN, research: researchSync });
-  registerNativeMemoryRoutes(app, {brain,dataDir:config.dataDir,persistent:Boolean(config.knowledgeDatabasePath)});
+  registerNativeMemoryRoutes(app, {brain,dataDir:config.dataDir,persistent:Boolean(config.knowledgeDatabasePath),engineCalls});
 
   app.get("/api/brain/indexing", async (request, reply) => {
     const query = request.query as { partitionKey?: string };
@@ -3988,7 +3993,7 @@ export async function buildKnowledgeApp(
     const view = request.knowledgeReadPartitions;
     // Contract 2: one query per read partition, merged by score (brain-read-view.ts).
     const result = view
-      ? withoutScopes(mergeEngineResults(await fanOut(view, (partition) => brain.query({ query: input.query, limit: input.limit, partitionKey: partition, expand: input.expand, detail: input.detail })), input.limit))
+      ? withoutScopes(mergeEngineResults(await fanOut(view, (partition) => brain.query({ query: input.query, limit: input.limit, partitionKey: partition, expand: input.expand, detail: input.detail }), fanOutFor(request)), input.limit))
       : await brain.query({ query: input.query, limit: input.limit, partitionKey, expand: input.expand, detail: input.detail });
     return {
       ok: result.ok,
@@ -4012,7 +4017,7 @@ export async function buildKnowledgeApp(
     const recallIn = (partition: string | undefined) => brain.recall({ query: input.query, limit: input.limit, partitionKey: partition, grep: input.grep, entity: input.entity, sessionId: input.sessionId, includeExpired: input.includeExpired, budgetTokens: input.budgetTokens, since: input.since, supersessions: input.supersessions, includePending: input.includePending });
     const view = request.knowledgeReadPartitions;
     // Contract 2: one recall per read partition (its own source or bank), merged by score (brain-read-view.ts).
-    const result = view ? withoutScopes(mergeEngineResults(await fanOut(view, recallIn), input.limit)) : await recallIn(partitionKey);
+    const result = view ? withoutScopes(mergeEngineResults(await fanOut(view, recallIn, fanOutFor(request)), input.limit)) : await recallIn(partitionKey);
     return {
       ok: result.ok,
       source: "gbrain-adapter",

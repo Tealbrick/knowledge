@@ -5,7 +5,7 @@ import type {MemoryEngine} from "./memory-engine.js";
 import {BrainExtractions} from "./brain-extractions.js";
 import {normalizeKnowledgePartitionKey} from "./partition-authority.js";
 import {nativeOperationAuthorized} from "./brain-native-policy.js";
-import {fanOut, mergeNativeResults} from "./brain-read-view.js";
+import {EngineCallLimiter, fanOut, mergeNativeResults} from "./brain-read-view.js";
 
 /**
  * Contract 2: native reads that run once per partition of the read set and merge (stateless lookups, lists and
@@ -26,7 +26,12 @@ export const FAN_OUT_NATIVE_READS: ReadonlySet<string> = new Set([
 const requestSchema=z.object({partitionKey:z.string().min(1).max(256),arguments:z.record(z.string(),z.unknown())}).strict();
 /** Native engine operations one principal may have in flight; beyond it the route answers 429. */
 export const NATIVE_MAX_IN_FLIGHT_PER_PRINCIPAL=4;
-export function registerNativeMemoryRoutes(app: FastifyInstance, options: {brain: MemoryEngine; dataDir: string; persistent: boolean}) {
+/**
+ * Native requests one principal may have admitted at once (429 beyond). Engine calls are bounded separately and
+ * shared with fan-out reads: EngineCallLimiter, MAX_ENGINE_CALLS_PER_PRINCIPAL (brain-read-view.ts).
+ */
+export function registerNativeMemoryRoutes(app: FastifyInstance, options: {brain: MemoryEngine; dataDir: string; persistent: boolean; engineCalls?: EngineCallLimiter}) {
+  const engineCalls=options.engineCalls ?? new EngineCallLimiter();
   const receipts=new BrainExtractions(options.persistent?path.join(options.dataDir,"brain-native-receipts.sqlite"):":memory:");
   app.addHook("onClose",()=>receipts.close());
   const inFlight=new Map<string,number>();
@@ -67,9 +72,9 @@ export function registerNativeMemoryRoutes(app: FastifyInstance, options: {brain
     // Contract 2: a read of its own partition reads every partition of the principal's read set, merged.
     const view=!writes && FAN_OUT_NATIVE_READS.has(operation) ? request.knowledgeReadPartitions : undefined;
     const execute=async()=>{
-      if(view) return mergeNativeResults(await fanOut(view,(scope)=>options.brain.nativeOperation(operation,input.arguments,scope,principal.principalId)),
+      if(view) return mergeNativeResults(await fanOut(view,(scope)=>options.brain.nativeOperation(operation,input.arguments,scope,principal.principalId),{limiter:engineCalls,principalId:owner}),
         typeof input.arguments.limit==="number" ? input.arguments.limit : undefined);
-      const value=await options.brain.nativeOperation(operation,input.arguments,partition,principal.principalId);
+      const value=await engineCalls.run(owner,()=>options.brain.nativeOperation(operation,input.arguments,partition,principal.principalId));
       // A handler/storage failure may follow a partial write. Hold the receipt;
       // never turn a transport or internal failure into permission to retry it.
       if(writes && !value.ok && ["internal","storage_error","unavailable"].includes(value.error?.error)) throw new Error("Native write requires reconciliation");

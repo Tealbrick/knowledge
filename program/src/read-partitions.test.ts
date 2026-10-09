@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildKnowledgeApp } from "./app.js";
 import { createAttachmentResearchAuthority } from "./attachment-research-principal.js";
-import { mergeEngineResults, mergeNativeResults, mergeRankedLists } from "./brain-read-view.js";
+import { FAN_OUT_CONCURRENCY, MAX_ENGINE_CALLS_PER_PRINCIPAL, mergeEngineResults, mergeNativeResults, mergeRankedLists } from "./brain-read-view.js";
 import { GBrainRuntime } from "./gbrain.js";
 import { hindsightBankForPartition } from "./hindsight-client.js";
 import { registerOpenNotebookRoutes, type OpenNotebookRouteAdapter } from "./open-notebook-routes.js";
@@ -37,6 +37,8 @@ const GRANTS: Record<string, Record<string, unknown>> = {
   B1: { partitionKey: "beta" },
   D1: {},
   D2: { readPartitionKeys: [null] },
+  // The widest read set: 64 partitions (alpha plus k1..k63).
+  W: { partitionKey: "alpha", readPartitionKeys: ["alpha", ...Array.from({ length: 63 }, (_, i) => `k${i + 1}`)] },
 };
 function resolver(): PortalPrincipalResolver {
   const table = Object.fromEntries(Object.entries(GRANTS).map(([name, claim]) => [name, principalFor(claim)]));
@@ -423,5 +425,35 @@ describe("random, unguessable ids", () => {
     }
     // Revisions of the new document are random too; nothing reveals how many objects other partitions created.
     expect(store.listKnowledgeDocumentRevisions(document.id).every((revision: { id: string }) => /^krev_[a-z2-7]{20}$/u.test(revision.id))).toBe(true);
+  });
+});
+
+describe("bounded fan-out", () => {
+  it(`runs at most ${FAN_OUT_CONCURRENCY} engine calls per request and per principal, also with 64 read partitions`, async () => {
+    let running = 0, max = 0;
+    const partitions: unknown[] = [];
+    const slow = async <T>(partitionKey: unknown, value: T): Promise<T> => {
+      partitions.push(partitionKey);
+      running += 1;
+      max = Math.max(max, running);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      running -= 1;
+      return value;
+    };
+    vi.spyOn(GBrainRuntime.prototype, "recall").mockImplementation((input) => slow(input.partitionKey, { ok: true, status: "ready", tool: "recall", data: [] }));
+    vi.spyOn(GBrainRuntime.prototype, "nativeOperation").mockImplementation((_op, _args, partitionKey) => slow(partitionKey, { ok: true, data: [] }));
+    const app = await knowledge();
+    const recall = () => app.inject({ method: "POST", url: "/api/brain/recall", headers: as("W"), payload: { query: "q", scopeRef: companyId } });
+    const search = () => app.inject({ method: "POST", url: "/api/brain/native/search", headers: as("W"), payload: { partitionKey: companyId, arguments: { query: "q" } } });
+    expect((await recall()).statusCode).toBe(200);
+    expect(new Set(partitions).size).toBe(64);
+    expect(max).toBe(FAN_OUT_CONCURRENCY);
+    // Two fan-out reads and a native fan-out of the same principal at once: the principal's engine-call slots are shared.
+    partitions.length = 0;
+    max = 0;
+    const answers = await Promise.all([recall(), recall(), search()]);
+    expect(answers.map((answer) => answer.statusCode)).toEqual([200, 200, 200]);
+    expect(partitions).toHaveLength(3 * 64);
+    expect(max).toBeLessThanOrEqual(MAX_ENGINE_CALLS_PER_PRINCIPAL);
   });
 });

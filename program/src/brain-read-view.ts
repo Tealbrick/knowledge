@@ -56,9 +56,72 @@ export function mergeRankedLists(lists: readonly (readonly unknown[])[], limit?:
   return { items, scopes };
 }
 
-/** Run one read per partition of the view, concurrently, in read-set order. */
-export function fanOut<T>(partitions: readonly string[], run: (partition: string) => Promise<T>): Promise<T[]> {
-  return Promise.all(partitions.map((partition) => run(partition)));
+/** At most this many engine calls of one fan-out read run at the same time (a read set may hold 64 partitions). */
+export const FAN_OUT_CONCURRENCY = 4;
+/**
+ * At most this many engine calls run at the same time for one principal, across all its requests: native operations
+ * and the per-partition calls of contract 2 fan-out reads share it. Extra calls wait for a slot.
+ */
+export const MAX_ENGINE_CALLS_PER_PRINCIPAL = 4;
+
+/** Per-principal bound on engine calls in flight (FIFO wait queue; a released slot passes to the next waiter). */
+export class EngineCallLimiter {
+  private readonly running = new Map<string, number>();
+  private readonly waiting = new Map<string, Array<() => void>>();
+  constructor(readonly max: number = MAX_ENGINE_CALLS_PER_PRINCIPAL) {}
+
+  inFlight(principalId: string): number {
+    return this.running.get(principalId) ?? 0;
+  }
+
+  async run<T>(principalId: string, task: () => Promise<T>): Promise<T> {
+    await this.acquire(principalId);
+    try { return await task(); } finally { this.release(principalId); }
+  }
+
+  private acquire(principalId: string): Promise<void> {
+    const running = this.inFlight(principalId);
+    if (running < this.max) { this.running.set(principalId, running + 1); return Promise.resolve(); }
+    return new Promise((resolve) => {
+      const queue = this.waiting.get(principalId) ?? [];
+      queue.push(resolve);
+      this.waiting.set(principalId, queue);
+    });
+  }
+
+  private release(principalId: string): void {
+    const queue = this.waiting.get(principalId);
+    const next = queue?.shift();
+    if (queue && queue.length === 0) this.waiting.delete(principalId);
+    // The slot passes to the next waiter: the running count stays the same.
+    if (next) { next(); return; }
+    const left = this.inFlight(principalId) - 1;
+    if (left > 0) this.running.set(principalId, left); else this.running.delete(principalId);
+  }
+}
+
+export interface FanOutOptions {
+  /** Shared per-principal bound; with `principalId`, every call takes one of the principal's slots. */
+  readonly limiter?: EngineCallLimiter;
+  readonly principalId?: string;
+}
+
+/**
+ * Run one read per partition of the view, at most FAN_OUT_CONCURRENCY at a time (and within the principal's
+ * MAX_ENGINE_CALLS_PER_PRINCIPAL when a limiter is given). Results keep read-set order.
+ */
+export async function fanOut<T>(partitions: readonly string[], run: (partition: string) => Promise<T>, options: FanOutOptions = {}): Promise<T[]> {
+  const results = new Array<T>(partitions.length);
+  const call = (partition: string) => options.limiter && options.principalId ? options.limiter.run(options.principalId, () => run(partition)) : run(partition);
+  let next = 0;
+  const worker = async () => {
+    while (next < partitions.length) {
+      const index = next++;
+      results[index] = await call(partitions[index]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(FAN_OUT_CONCURRENCY, partitions.length) }, worker));
+  return results;
 }
 
 /** List-shaped fields of an engine answer object that can be merged across partitions. */

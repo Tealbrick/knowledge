@@ -12,7 +12,7 @@
     "id": "knowledge",
     "name": "Knowledge",
     "major": 1,
-    "version": "0.4.4",
+    "version": "0.5.0",
     "summary": "Teal Brick Knowledge: canonical documents and collections, a GBrain memory engine and research notebooks, for people and agents of one workspace.",
     "domain": "documents, collections, search, brain memory, research notebooks"
   },

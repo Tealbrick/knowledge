@@ -8,6 +8,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
 
 import { createMemoryEngine, type MemoryEngine } from "./memory-engine.js";
+import type { ToolCallResult } from "./gbrain.js";
 import { nativeOperationAuthorized } from "./brain-native-policy.js";
 import { BrainProjections } from "./brain-projections.js";
 import { BrainExtractions } from "./brain-extractions.js";
@@ -221,6 +222,11 @@ const BrainRecallInputSchema = BrainContextInputSchema.extend({
   supersessions: z.boolean().optional(),
   includePending: z.boolean().optional(),
 });
+
+/** Engines answer at most this many page rows per call (GBrain's remote cap; Hindsight is clamped to it). */
+const ENGINE_PAGE_ROWS = 100;
+/** Contract 2 entity listing over a read set: `offset + limit` may be at most this (exact merged pages up to it). */
+export const MAX_ENTITY_VIEW_WINDOW = 500;
 
 const BrainEntitiesQuerySchema = z.object({
   slug: z.string().trim().min(1).optional(),
@@ -3823,6 +3829,21 @@ export async function buildKnowledgeApp(
     });
   });
 
+  /** The first `count` page rows of one partition, read in engine pages of at most ENGINE_PAGE_ROWS rows. */
+  const listPagePrefix = async (partition: string, count: number): Promise<ToolCallResult> => {
+    const rows: unknown[] = [];
+    let first: ToolCallResult | null = null;
+    while (rows.length < count) {
+      const want = Math.min(ENGINE_PAGE_ROWS, count - rows.length);
+      const page = await brain.listPages({ limit: want, offset: rows.length, partitionKey: partition });
+      if (!page.ok || !Array.isArray(page.data)) return page;
+      first ??= page;
+      rows.push(...page.data);
+      if (page.data.length < want) break;
+    }
+    return { ...(first ?? { ok: true, status: "ready" as const, tool: "list_pages" }), data: rows };
+  };
+
   // Contract 2 fan-out reads: at most FAN_OUT_CONCURRENCY engine calls per request, and every call takes one of the
   // principal's engine-call slots (shared with native operations; brain-read-view.ts).
   const engineCalls = new EngineCallLimiter();
@@ -3831,17 +3852,23 @@ export async function buildKnowledgeApp(
   const fanOutReport = (result: object) => "partitions" in result && "partial" in result
     ? { partitions: (result as FanOutReport).partitions, partial: (result as FanOutReport).partial, ...("truncated" in result && result.truncated ? { truncated: true } : {}) } : {};
 
-  app.get("/api/brain/entities", async (request) => {
+  app.get("/api/brain/entities", async (request, reply) => {
     const query = BrainEntitiesQuerySchema.parse(request.query);
     const view = request.knowledgeReadPartitions;
     let partitionKey = request.knowledgePartitionKey ?? query.partitionKey;
     const slug = query.slug;
     if (!slug) {
-      // Contract 2: the first `offset + limit + 1` rows of every read partition, merged, then the requested window.
+      if (view && query.offset + query.limit > MAX_ENTITY_VIEW_WINDOW) {
+        // Contract 2 pages are exact up to this depth (every read partition is read from its start); deeper ones are refused.
+        return reply.code(400).send({ ok: false, error: "offset_out_of_range", maxWindow: MAX_ENTITY_VIEW_WINDOW,
+          suggestion: `For a read set, offset + limit must be at most ${MAX_ENTITY_VIEW_WINDOW}. Name one read partition (partitionKey=<workspace>/<key>) to page deeper.` });
+      }
+      // Contract 2: the first `offset + limit + 1` rows of every read partition (engine pages of at most 100), merged,
+      // then exactly the requested window plus one sentinel row.
       const result = view
         ? await (async () => {
-          const window = Math.min(query.offset + query.limit + 1, 100);
-          const merged = withoutScopes(mergeEngineResults(await fanOut(view, (partition) => brain.listPages({ limit: window, offset: 0, partitionKey: partition }), fanOutFor(request))));
+          const window = query.offset + query.limit + 1;
+          const merged = withoutScopes(mergeEngineResults(await fanOut(view, (partition) => listPagePrefix(partition, window), fanOutFor(request)), { limit: window }));
           return { ...merged, data: Array.isArray(merged.data) ? merged.data.slice(query.offset, query.offset + query.limit + 1) : merged.data };
         })()
         : await brain.listPages({

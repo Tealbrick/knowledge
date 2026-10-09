@@ -559,3 +559,41 @@ describe("native fan-out limits and response cap", () => {
     expect(answer.data.map((row: { slug: string }) => row.slug)).toEqual([`${pa}-1`]);
   });
 });
+
+describe("entities over a read set: exact pages past offset 100", () => {
+  it("pages each partition from its start in engine pages of at most 100 rows and slices the merged window", async () => {
+    const rows: Record<string, string[]> = {
+      [pa]: Array.from({ length: 150 }, (_, i) => `a-${String(i).padStart(3, "0")}`),
+      [pb]: Array.from({ length: 30 }, (_, i) => `b-${String(i).padStart(3, "0")}`),
+    };
+    const calls: Array<{ partitionKey: unknown; limit: number; offset: number }> = [];
+    vi.spyOn(GBrainRuntime.prototype, "listPages").mockImplementation(async (input = {}) => {
+      const limit = input.limit ?? 100, offset = input.offset ?? 0;
+      calls.push({ partitionKey: input.partitionKey, limit, offset });
+      if (limit > 100) throw new Error("GBrain caps list_pages at 100 rows");
+      const data = (rows[String(input.partitionKey)] ?? []).slice(offset, offset + limit).map((slug) => ({ slug, type: "person" }));
+      return { ok: true, status: "ready", tool: "list_pages", data };
+    });
+    const app = await knowledge();
+    const page = async (offset: number, limit: number) => app.inject({ url: `/api/brain/entities?kind=all&partitionKey=${companyId}&offset=${offset}&limit=${limit}`, headers: as("A") });
+    // Interleaved by rank: a-000, b-000, ..., a-029, b-029 (60 rows), then a-030 .. a-149.
+    const merged = [...Array.from({ length: 30 }, (_, i) => [rows[pa]![i]!, rows[pb]![i]!]).flat(), ...rows[pa]!.slice(30)];
+    for (const [offset, limit] of [[0, 10], [55, 10], [120, 10], [170, 20]] as const) {
+      const response = await page(offset, limit);
+      expect(response.statusCode, `${offset}`).toBe(200);
+      const body = response.json();
+      expect(body.pages.map((row: { slug: string }) => row.slug), `${offset}`).toEqual(merged.slice(offset, offset + limit));
+      expect(body.pagination.hasMore, `${offset}`).toBe(offset + limit < merged.length ? true : false);
+      expect(body.partitions).toEqual([{ partition: pa, ok: true }, { partition: pb, ok: true }]);
+    }
+    expect(calls.every((call) => call.limit <= 100)).toBe(true);
+    // Deeper than the exact window: a clear 400, no engine call.
+    calls.length = 0;
+    const deep = await page(495, 10);
+    expect(deep.statusCode).toBe(400);
+    expect(deep.json()).toMatchObject({ ok: false, error: "offset_out_of_range", maxWindow: 500 });
+    expect(calls).toEqual([]);
+    // One read partition by name (beta; naming the write partition reads the whole view) keeps the engine's own paging.
+    expect((await app.inject({ url: `/api/brain/entities?kind=all&partitionKey=${encodeURIComponent(pb)}&offset=495&limit=10`, headers: as("A") })).statusCode).toBe(200);
+  });
+});

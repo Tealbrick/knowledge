@@ -118,7 +118,7 @@ never written through this endpoint (a `PUT` naming one is 400); a `GET` reports
 
 **Models from provider keys.** When the owner has saved no Settings → Models, Knowledge builds its model configuration
 from those variables at boot. Precedence: **saved Settings → Models, then provider environment, then not configured.**
-Chat prefers Anthropic, then OpenAI, then Google (`claude-sonnet-5`, `gpt-4.1-mini`, `gemini-2.5-flash`). Embeddings prefer
+Chat prefers Anthropic, then OpenAI, then Google (`claude-sonnet-5`, `gpt-6-luna`, `gemini-2.5-flash`). The OpenAI default chat model also uses `low` reasoning effort (`KNOWLEDGE_GBRAIN_CHAT_REASONING_EFFORT=low` for the memory engine, and the preselected Settings → Models value); Anthropic and Google send no reasoning effort. These are defaults only: a saved Settings → Models chat model and reasoning effort are never changed or overridden. Embeddings prefer
 OpenAI (`text-embedding-3-small`, 1536), then Google (`gemini-embedding-2`, 768); Anthropic has no embeddings API, so an
 Anthropic-only account stays not configured (`issue: "embedding_provider_required"`) until an OpenAI or Google key is
 connected or the owner sets models up. A brain that already exists keeps its embedding model: if that provider's key is

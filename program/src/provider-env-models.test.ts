@@ -5,6 +5,7 @@ import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ModelSettingsSchema, modelSettingsEnvironment, modelSettingsSummary, saveModelSettings } from "./model-settings.js";
 import { registerModelSettingsRoutes } from "./model-settings-routes.js";
+import { PROVIDER_DEFAULTS, REASONING_EFFORT_PROVIDERS } from "./model-providers.js";
 import { providerEnvModelSettings, readPinnedEmbedding, resolveEffectiveModelSettings } from "./provider-env-models.js";
 import type { GBrainRuntime } from "./gbrain.js";
 
@@ -21,10 +22,47 @@ describe("model configuration from the account's provider keys", () => {
   it("configures OpenAI chat and embeddings from OPENAI_API_KEY alone", () => {
     const { settings } = providerEnvModelSettings({ OPENAI_API_KEY: OPENAI });
     expect(settings).toMatchObject({
-      chat: { provider: "openai", model: "gpt-4.1-mini", baseUrl: "https://api.openai.com/v1" },
+      chat: { provider: "openai", model: "gpt-6-luna", reasoningEffort: "low", baseUrl: "https://api.openai.com/v1" },
       embedding: { provider: "openai", model: "text-embedding-3-small", dimensions: 1536 },
     });
-    expect(modelSettingsEnvironment(settings)).toMatchObject({ GBRAIN_CHAT_MODEL: "openai:gpt-4.1-mini", GBRAIN_EMBEDDING_MODEL: "openai:text-embedding-3-small", OPENAI_API_KEY: OPENAI });
+    expect(modelSettingsEnvironment(settings)).toMatchObject({ GBRAIN_CHAT_MODEL: "openai:gpt-6-luna", KNOWLEDGE_GBRAIN_CHAT_REASONING_EFFORT: "low", GBRAIN_EMBEDDING_MODEL: "openai:text-embedding-3-small", OPENAI_API_KEY: OPENAI });
+  });
+
+  it("uses the shared default constants: gpt-6-luna with low reasoning effort for OpenAI", () => {
+    expect(PROVIDER_DEFAULTS.openai).toMatchObject({ chatModel: "gpt-6-luna", chatReasoningEffort: "low" });
+    expect(REASONING_EFFORT_PROVIDERS.has("openai")).toBe(true);
+  });
+
+  it("sends no reasoning effort for Anthropic or Google chat, even with an OpenAI key for embeddings", () => {
+    for (const env of [
+      { ANTHROPIC_API_KEY: ANTHROPIC, OPENAI_API_KEY: OPENAI },
+      { GOOGLE_GENERATIVE_AI_API_KEY: GOOGLE },
+      { ANTHROPIC_API_KEY: ANTHROPIC, GOOGLE_GENERATIVE_AI_API_KEY: GOOGLE },
+    ]) {
+      const { settings } = providerEnvModelSettings(env);
+      expect(settings?.chat).not.toHaveProperty("reasoningEffort");
+      expect(modelSettingsEnvironment(settings)).not.toHaveProperty("KNOWLEDGE_GBRAIN_CHAT_REASONING_EFFORT");
+    }
+  });
+
+  it("keeps a saved OpenAI chat model and effort over the new defaults", async () => {
+    const env = { OPENAI_API_KEY: OPENAI };
+    const owner = (reasoningEffort?: "high") => ModelSettingsSchema.parse({
+      chat: { provider: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", apiKey: "owner-saved-key", ...(reasoningEffort ? { reasoningEffort } : {}) },
+      embedding: { provider: "openai", baseUrl: "https://api.openai.com/v1", model: "text-embedding-3-small", apiKey: "owner-saved-key", dimensions: 1536 },
+    });
+    // Saved without an effort: the default effort is not added to the owner's choice.
+    await saveModelSettings(root, root, owner());
+    const withoutEffort = await resolveEffectiveModelSettings(root, root, env);
+    expect(withoutEffort.source).toBe("knowledge-settings");
+    expect(withoutEffort.settings?.chat).toMatchObject({ model: "gpt-4.1-mini" });
+    expect(withoutEffort.settings?.chat).not.toHaveProperty("reasoningEffort");
+    expect(modelSettingsEnvironment(withoutEffort.settings)).not.toHaveProperty("KNOWLEDGE_GBRAIN_CHAT_REASONING_EFFORT");
+    // Saved with an effort: that effort wins.
+    await saveModelSettings(root, root, owner("high"));
+    const withEffort = await resolveEffectiveModelSettings(root, root, env);
+    expect(withEffort.settings?.chat).toMatchObject({ model: "gpt-4.1-mini", reasoningEffort: "high" });
+    expect(modelSettingsEnvironment(withEffort.settings)).toMatchObject({ GBRAIN_CHAT_MODEL: "openai:gpt-4.1-mini", KNOWLEDGE_GBRAIN_CHAT_REASONING_EFFORT: "high" });
   });
 
   it("configures Google chat and embeddings from GOOGLE_GENERATIVE_AI_API_KEY alone", () => {

@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "./api";
-import { describeModelSource, describeResearchStatus, describeSaveError, embeddingChoiceFromSaved, modeFromSaved, type ModelSettingsStatus } from "./ModelSettingsPanel";
+import { PROVIDER_DEFAULTS } from "../../src/model-providers";
+import { PRESETS, describeModelSource, describeResearchStatus, describeSaveError, embeddingChoiceFromSaved, modeFromSaved, type ModelSettingsStatus } from "./ModelSettingsPanel";
 
 const base = { configured: true, source: "knowledge-settings", brain: { status: "online" } };
 const connection = (provider: string) => ({ provider, baseUrl: "https://models.example/v1", model: "m", keyConfigured: true });
 
 describe("model settings panel helpers", () => {
+  it("offers the same OpenAI chat defaults as the server: gpt-6-luna with low reasoning effort", () => {
+    expect(PRESETS.openai).toMatchObject({ chatModel: PROVIDER_DEFAULTS.openai.chatModel, reasoningEffort: PROVIDER_DEFAULTS.openai.chatReasoningEffort });
+    expect(PRESETS.openai.chatModel).toBe("gpt-6-luna");
+    expect(PRESETS.openai.reasoningEffort).toBe("low");
+    // Providers without a default effort do not preselect one.
+    for (const mode of ["openrouter", "google", "anthropic", "self-hosted"] as const) expect(PRESETS[mode].reasoningEffort).toBeUndefined();
+  });
+
   it("recognises the saved provider setup", () => {
     expect(modeFromSaved(undefined)).toBe("openai");
     expect(modeFromSaved({ ...base, chat: connection("openrouter"), embedding: connection("openrouter") } as ModelSettingsStatus)).toBe("openrouter");

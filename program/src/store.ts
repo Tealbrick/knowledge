@@ -114,15 +114,23 @@ function cloneSnapshotArray<T>(value: readonly T[] | undefined): T[] {
   return cloneJson(Array.isArray(value) ? value : []);
 }
 
+// Knowledge 0.5.0+ writes random ids (20 base32 characters) that carry no counter. A
+// sequential id has a short base-36 suffix; anything this long is never one of ours.
+const RANDOM_ID_MIN_LENGTH = 20;
+
 function restoreCounter(value: unknown, ids: readonly string[], prefix: string): number {
+  // A stored counter outside the safe-integer range cannot advance (x + 1 === x) and
+  // would hand out the same id twice, so it is ignored and rebuilt from sequential ids.
   const explicit =
-    typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+    typeof value === "number" && Number.isSafeInteger(Math.trunc(value))
+      ? Math.max(0, Math.trunc(value))
+      : 0;
   const fromIds = ids.reduce((max, id) => {
-    if (!id.startsWith(`${prefix}_`)) {
+    if (!id.startsWith(`${prefix}_`) || id.length - prefix.length - 1 >= RANDOM_ID_MIN_LENGTH) {
       return max;
     }
     const parsed = Number.parseInt(id.slice(prefix.length + 1), 36);
-    return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
+    return Number.isSafeInteger(parsed) ? Math.max(max, parsed) : max;
   }, 0);
   return Math.max(explicit, fromIds);
 }

@@ -4,6 +4,9 @@
 # The prebuilt operating-system backports stage is pulled by digest, so the
 # build skips the stages the runtime image does not use. Publishing stays a
 # release-time job (see publish-dev-image.yaml and the image workflows).
+labels:
+  platform: linux/amd64
+
 when:
   - event: pull_request
   - event: push

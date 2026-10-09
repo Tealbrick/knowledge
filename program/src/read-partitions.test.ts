@@ -236,7 +236,8 @@ describe("Brain recall, context, entities and native reads", () => {
       // No scores from this engine: interleaved by rank, write partition first.
       expect(a.response.json().memories.results.map((m: { id: string }) => m.id)).toEqual(["alpha-1", "beta-1", "alpha-2", "beta-2"]);
       expect(a.response.body).not.toMatch(/gamma/u);
-      expect(a.response.body).not.toContain(pb);
+      // The answer names the read partitions it covered (no silent drop), never one outside the read set.
+      expect(a.response.json().partitions).toEqual([{ partition: pa, ok: true }, { partition: pb, ok: true }]);
       expect((await recall("B")).banks).toEqual(["beta"]);
       expect((await recall("B")).response.body).not.toMatch(/alpha/u);
       expect((await recall("C")).banks).toEqual(["gamma"]);
@@ -344,9 +345,16 @@ describe("Brain recall, context, entities and native reads", () => {
       .toEqual([{ id: 1, score: 0.5 }, { id: 3, score: 0.5 }, { id: 2, score: 0.1 }]);
     expect(mergeRankedLists([["a1", "a2", "a3"], ["b1"]]).items).toEqual(["a1", "b1", "a2", "a3"]);
     expect(mergeRankedLists([["a1", "a2"], ["b1"]], 2)).toEqual({ items: ["a1", "b1"], scopes: [0, 1] });
-    const partial = mergeEngineResults([{ ok: true, status: "ready", tool: "recall", data: ["a"] }, { ok: false, status: "degraded", tool: "recall", data: null, error: "down" }]);
-    expect(partial).toMatchObject({ ok: false, status: "degraded", error: "down", data: ["a"] });
-    expect(mergeNativeResults([{ ok: false, error: { error: "page_not_found" } }, { ok: false, error: { error: "unavailable" } }])).toEqual({ ok: false, error: { error: "page_not_found" } });
+    const partial = mergeEngineResults([{ partition: pa, value: { ok: true, status: "ready", tool: "recall", data: ["a"] } },
+      { partition: pb, value: { ok: false, status: "degraded", tool: "recall", data: null, error: "down" } }, { partition: pc, thrown: true }]);
+    expect(partial).toMatchObject({ ok: true, status: "ready", data: ["a"], partial: true,
+      partitions: [{ partition: pa, ok: true }, { partition: pb, ok: false, error: "down" }, { partition: pc, ok: false, error: "unavailable" }] });
+    // Every partition failed: the first engine error, as for one partition.
+    expect(mergeEngineResults([{ partition: pa, thrown: true }, { partition: pb, value: { ok: false, status: "degraded", data: null, error: "down" } }]))
+      .toEqual({ ok: false, status: "degraded", data: null, error: "down" });
+    expect(mergeNativeResults([{ partition: pa, value: { ok: false, error: { error: "page_not_found" } } }, { partition: pb, value: { ok: false, error: { error: "unavailable" } } }]))
+      .toEqual({ ok: false, error: { error: "page_not_found" } });
+    expect(() => mergeNativeResults([{ partition: pa, thrown: true }, { partition: pb, thrown: true }])).toThrow();
   });
 });
 
@@ -455,5 +463,58 @@ describe("bounded fan-out", () => {
     expect(answers.map((answer) => answer.statusCode)).toEqual([200, 200, 200]);
     expect(partitions).toHaveLength(3 * 64);
     expect(max).toBeLessThanOrEqual(MAX_ENGINE_CALLS_PER_PRINCIPAL);
+  });
+});
+
+describe("no silent drop: per-partition status on every fan-out read", () => {
+  it("answers with the partitions that worked plus a status per partition when one fails or throws", async () => {
+    // A reads alpha + beta. Per surface, one partition answers and the other fails (an engine error) or throws.
+    vi.spyOn(GBrainRuntime.prototype, "recall").mockImplementation(async (input) => input.partitionKey === pa
+      ? { ok: true, status: "ready", tool: "recall", data: [{ slug: "a-1", score: 0.9 }] }
+      : (() => { throw new Error("socket hang up"); })());
+    vi.spyOn(GBrainRuntime.prototype, "query").mockImplementation(async (input) => input.partitionKey === pa
+      ? { ok: true, status: "ready", tool: "query", data: [{ slug: "a-1", score: 0.9, chunk_text: "a" }] }
+      : { ok: false, status: "degraded", tool: "query", data: null, error: "gbrain_unavailable" });
+    vi.spyOn(GBrainRuntime.prototype, "listPages").mockImplementation(async (input) => input?.partitionKey === pb
+      ? { ok: true, status: "ready", tool: "list_pages", data: [{ slug: "people/b", type: "person" }] }
+      : (() => { throw new Error("boom"); })());
+    vi.spyOn(GBrainRuntime.prototype, "nativeOperation").mockImplementation(async (_op, _args, partitionKey) => {
+      if (partitionKey === pb) throw new Error("boom");
+      return { ok: true, data: [{ slug: "a-1", score: 0.5 }] };
+    });
+    const app = await knowledge();
+    const recall = await app.inject({ method: "POST", url: "/api/brain/recall", headers: as("A"), payload: { query: "q", scopeRef: companyId } });
+    expect(recall.statusCode).toBe(200);
+    expect(recall.json()).toMatchObject({ ok: true, partial: true, memories: [{ slug: "a-1" }],
+      partitions: [{ partition: pa, ok: true }, { partition: pb, ok: false, error: "unavailable" }] });
+    expect(recall.body).not.toContain("socket hang up");
+    const context = await app.inject({ method: "POST", url: "/api/brain/context", headers: as("A"), payload: { query: "q", scopeRef: companyId } });
+    expect(context.json()).toMatchObject({ ok: true, partial: true, citations: [{ slug: "a-1" }],
+      partitions: [{ partition: pa, ok: true }, { partition: pb, ok: false, error: "gbrain_unavailable" }] });
+    const entities = await app.inject({ url: `/api/brain/entities?kind=all&partitionKey=${companyId}`, headers: as("A") });
+    expect(entities.statusCode).toBe(200);
+    expect(entities.json()).toMatchObject({ ok: true, partial: true, pages: [{ slug: "people/b" }],
+      partitions: [{ partition: pa, ok: false, error: "unavailable" }, { partition: pb, ok: true }] });
+    const native = await app.inject({ method: "POST", url: "/api/brain/native/search", headers: as("A"), payload: { partitionKey: companyId, arguments: { query: "q" } } });
+    expect(native.statusCode).toBe(200);
+    expect(native.json()).toMatchObject({ ok: true, partial: true, data: [{ slug: "a-1" }],
+      partitions: [{ partition: pa, ok: true }, { partition: pb, ok: false, error: "unavailable" }] });
+    // A full answer carries the statuses too; a single-partition read does not change shape.
+    vi.spyOn(GBrainRuntime.prototype, "nativeOperation").mockImplementation(async () => ({ ok: true, data: [] }));
+    expect((await app.inject({ method: "POST", url: "/api/brain/native/search", headers: as("A"), payload: { partitionKey: companyId, arguments: { query: "q" } } })).json())
+      .toMatchObject({ ok: true, partial: false, partitions: [{ partition: pa, ok: true }, { partition: pb, ok: true }] });
+    expect((await app.inject({ method: "POST", url: "/api/brain/native/search", headers: as("B"), payload: { partitionKey: companyId, arguments: { query: "q" } } })).json())
+      .not.toHaveProperty("partitions");
+  });
+
+  it("keeps the engine's own error when every partition fails", async () => {
+    vi.spyOn(GBrainRuntime.prototype, "recall").mockImplementation(async () => ({ ok: false, status: "degraded", tool: "recall", data: null, error: "gbrain_unavailable" }));
+    vi.spyOn(GBrainRuntime.prototype, "nativeOperation").mockImplementation(async () => { throw new Error("down"); });
+    const app = await knowledge();
+    const recall = await app.inject({ method: "POST", url: "/api/brain/recall", headers: as("A"), payload: { query: "q", scopeRef: companyId } });
+    expect(recall.json()).toMatchObject({ ok: false, memories: [], degradedReason: "gbrain_unavailable" });
+    expect(recall.json()).not.toHaveProperty("partitions");
+    const native = await app.inject({ method: "POST", url: "/api/brain/native/search", headers: as("A"), payload: { partitionKey: companyId, arguments: { query: "q" } } });
+    expect(native.statusCode).toBe(503);
   });
 });

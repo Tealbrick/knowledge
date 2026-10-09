@@ -35,7 +35,7 @@ import {
   readViewFor,
 } from "./partition-authority.js";
 import { ATTACHMENT_TOKEN_PATTERN } from "./attachment-research-principal.js";
-import { EngineCallLimiter, fanOut, mergeEngineResults, withoutScopes } from "./brain-read-view.js";
+import { EngineCallLimiter, fanOut, mergeEngineResults, withoutScopes, type FanOutReport } from "./brain-read-view.js";
 import { OpenNotebookAdapter } from "./open-notebook.js";
 import { registerOpenNotebookRoutes } from "./open-notebook-routes.js";
 import { ResearchWriteLedger } from "./research-write-ledger.js";
@@ -3827,6 +3827,9 @@ export async function buildKnowledgeApp(
   // principal's engine-call slots (shared with native operations; brain-read-view.ts).
   const engineCalls = new EngineCallLimiter();
   const fanOutFor = (request: FastifyRequest) => ({ limiter: engineCalls, principalId: request.knowledgePrincipal?.principalId ?? "anonymous" });
+  // No silent drop: a fan-out answer names every read partition's outcome (absent for a single-partition read).
+  const fanOutReport = (result: object) => "partitions" in result && "partial" in result
+    ? { partitions: (result as FanOutReport).partitions, partial: (result as FanOutReport).partial } : {};
 
   app.get("/api/brain/entities", async (request) => {
     const query = BrainEntitiesQuerySchema.parse(request.query);
@@ -3848,14 +3851,17 @@ export async function buildKnowledgeApp(
         offset: query.offset,
         partitionKey,
       });
-      return buildBrainPageEnumerationResponse({
-        result,
-        kind: query.kind,
-        limit: query.limit,
-        offset: query.offset,
-        readiness: brain.nativeCapabilityReadiness(),
-        factsVisibility: brain.status().factsVisibility,
-      });
+      return {
+        ...buildBrainPageEnumerationResponse({
+          result,
+          kind: query.kind,
+          limit: query.limit,
+          offset: query.offset,
+          readiness: brain.nativeCapabilityReadiness(),
+          factsVisibility: brain.status().factsVisibility,
+        }),
+        ...fanOutReport(result),
+      };
     }
 
     const direction = query.direction ?? null;
@@ -4008,6 +4014,7 @@ export async function buildKnowledgeApp(
       citations: result.ok ? buildBrainQueryCitations(result.data) : [],
       sourceIds: input.sourceIds ?? [],
       degradedReason: result.error ?? null,
+      ...fanOutReport(result),
     };
   });
 
@@ -4029,6 +4036,7 @@ export async function buildKnowledgeApp(
       memories: result.ok ? result.data : [],
       citations: [],
       degradedReason: result.error ?? null,
+      ...fanOutReport(result),
     };
   });
 

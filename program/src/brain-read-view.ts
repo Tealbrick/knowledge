@@ -5,8 +5,11 @@
  * Merge rule (deterministic): when every item carries a numeric engine score, items are ordered by score, highest
  * first, ties by read-set order (the write partition first) and then by the engine's own order; otherwise the lists
  * are interleaved by rank (first of each partition, then second of each, ...). Exact duplicates are dropped and the
- * result is capped at the requested limit. The partition of each item is kept internally (`scopes`, parallel to
- * `items`) and is never added to an answer, and only partitions of the caller's read set are ever queried.
+ * result is capped at the requested limit. Only partitions of the caller's read set are ever queried.
+ *
+ * No silent drop: every fan-out answer carries `partitions`, one status per read partition (`{partition, ok, error?}`)
+ * and `partial` (true when a partition failed). A failing or throwing partition never fails the whole answer while
+ * another partition answered; only when every partition fails is the answer the engine's own error.
  */
 
 export interface MergedList {
@@ -110,14 +113,22 @@ export interface FanOutOptions {
  * Run one read per partition of the view, at most FAN_OUT_CONCURRENCY at a time (and within the principal's
  * MAX_ENGINE_CALLS_PER_PRINCIPAL when a limiter is given). Results keep read-set order.
  */
-export async function fanOut<T>(partitions: readonly string[], run: (partition: string) => Promise<T>, options: FanOutOptions = {}): Promise<T[]> {
-  const results = new Array<T>(partitions.length);
+/** One partition's outcome: its value, or `thrown` when the call threw (the error itself is never kept). */
+export type Settled<T> = { readonly partition: string; readonly value: T } | { readonly partition: string; readonly thrown: true };
+
+export async function fanOut<T>(partitions: readonly string[], run: (partition: string) => Promise<T>, options: FanOutOptions = {}): Promise<Settled<T>[]> {
+  const results = new Array<Settled<T>>(partitions.length);
   const call = (partition: string) => options.limiter && options.principalId ? options.limiter.run(options.principalId, () => run(partition)) : run(partition);
   let next = 0;
   const worker = async () => {
     while (next < partitions.length) {
       const index = next++;
-      results[index] = await call(partitions[index]!);
+      const partition = partitions[index]!;
+      try {
+        results[index] = { partition, value: await call(partition) };
+      } catch {
+        results[index] = { partition, thrown: true };
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(FAN_OUT_CONCURRENCY, partitions.length) }, worker));
@@ -127,40 +138,64 @@ export async function fanOut<T>(partitions: readonly string[], run: (partition: 
 /** List-shaped fields of an engine answer object that can be merged across partitions. */
 export const MERGEABLE_LIST_FIELDS = ["results", "memories", "facts", "items", "pages", "hits", "documents", "chunks"] as const;
 
+/** One read partition's outcome in a fan-out answer. */
+export interface PartitionStatus { readonly partition: string; readonly ok: boolean; readonly error?: string }
+
+/** The per-partition statuses and the partial flag every fan-out answer carries. */
+export interface FanOutReport { readonly partitions: PartitionStatus[]; readonly partial: boolean }
+
+const MAX_ERROR_CODE = 200;
+/** A short error code for a partition status (an engine code or message head; never a stack or a payload). */
+function errorCode(error: unknown): string {
+  const value = typeof error === "string" ? error
+    : error && typeof error === "object" && typeof (error as Record<string, unknown>).error === "string" ? (error as Record<string, string>).error
+    : "unavailable";
+  return value.slice(0, MAX_ERROR_CODE) || "unavailable";
+}
+
+function report<T>(settled: readonly Settled<T>[], ok: (value: T) => boolean, error: (value: T) => unknown): FanOutReport {
+  const partitions = settled.map((entry): PartitionStatus => "thrown" in entry ? { partition: entry.partition, ok: false, error: "unavailable" }
+    : ok(entry.value) ? { partition: entry.partition, ok: true } : { partition: entry.partition, ok: false, error: errorCode(error(entry.value)) });
+  return { partitions, partial: partitions.some((status) => !status.ok) };
+}
+
 interface EngineResult { readonly ok: boolean; readonly status?: unknown; readonly tool?: unknown; readonly data?: unknown; readonly error?: unknown; readonly retrieval?: unknown }
 
-/**
- * Merge per-partition engine results (Program surfaces: recall, query, listPages). The answer is `ok` only when every
- * partition answered; the data of the partitions that did answer is still merged. Array data merges as a list; an
- * object with the same list field in every answer merges that field (other fields come from the first answer).
- * Anything else cannot be merged and keeps the first answer (the write partition when it is in the view).
- */
-export function mergeEngineResults<R extends EngineResult>(results: readonly R[], limit?: number): R & { readonly scopes?: number[] } {
-  const answered = results.map((result, scope) => ({ result, scope })).filter(({ result }) => result.ok);
-  const first = results.find((result) => !result.ok) ?? results[0]!;
-  const base = answered[0]?.result ?? first;
-  const datas = answered.map(({ result }) => result.data);
-  let data: unknown = base.data;
-  let scopes: number[] | undefined;
+/** Merge list-shaped answers: arrays, or objects that share one list field (other fields from the first answer). */
+function mergeData(datas: readonly unknown[], limit: number | undefined): { data: unknown; scopes?: number[] } | null {
   if (datas.length && datas.every(Array.isArray)) {
     const merged = mergeRankedLists(datas as unknown[][], limit);
-    data = merged.items;
-    scopes = merged.scopes.map((index) => answered[index]!.scope);
-  } else if (datas.length && datas.every((value) => value && typeof value === "object" && !Array.isArray(value))) {
+    return { data: merged.items, scopes: merged.scopes };
+  }
+  if (datas.length && datas.every((value) => value && typeof value === "object" && !Array.isArray(value))) {
     const field = MERGEABLE_LIST_FIELDS.find((name) => datas.every((value) => Array.isArray((value as Record<string, unknown>)[name])));
     if (field) {
       const merged = mergeRankedLists(datas.map((value) => (value as Record<string, unknown[]>)[field]!), limit);
-      data = { ...(datas[0] as Record<string, unknown>), [field]: merged.items };
-      scopes = merged.scopes.map((index) => answered[index]!.scope);
+      return { data: { ...(datas[0] as Record<string, unknown>), [field]: merged.items }, scopes: merged.scopes };
     }
   }
-  const failed = results.find((result) => !result.ok);
+  return null;
+}
+
+/**
+ * Merge per-partition engine results (Program surfaces: recall, query, listPages). With at least one answer the
+ * result is `ok` and carries the answered partitions' data plus `partitions`/`partial`; a failed or throwing
+ * partition shows in its status. Data that cannot be merged keeps the first answer (the write partition when it
+ * is in the view). When every partition fails, the answer is the first engine error, as for a single partition.
+ */
+export function mergeEngineResults<R extends EngineResult>(settled: readonly Settled<R>[], limit?: number): R & Partial<FanOutReport> & { readonly scopes?: number[] } {
+  const answered = settled.flatMap((entry) => "thrown" in entry || !entry.value.ok ? [] : [entry.value]);
+  if (!answered.length) {
+    const failed = settled.find((entry): entry is { partition: string; value: R } => !("thrown" in entry));
+    return failed ? failed.value : ({ ok: false, status: "unavailable", data: null, error: "unavailable" } as unknown as R);
+  }
+  const merged = mergeData(answered.map((result) => result.data), limit);
   return {
-    ...base,
-    ok: failed === undefined,
-    ...(failed ? { status: failed.status ?? base.status, error: failed.error } : {}),
-    data,
-    ...(scopes ? { scopes } : {}),
+    ...answered[0]!,
+    ok: true,
+    data: merged ? merged.data : answered[0]!.data,
+    ...(merged?.scopes ? { scopes: merged.scopes } : {}),
+    ...report(settled, (result) => result.ok, (result) => result.error),
   };
 }
 
@@ -173,16 +208,16 @@ export function withoutScopes<R extends { readonly scopes?: number[] }>(result: 
 /**
  * Merge per-partition native operation answers (`{ok, data, ...}`). List-shaped data merges like
  * mergeEngineResults; anything else is a lookup and keeps the first partition that answered (read-set order, the
- * write partition first). With no answer at all, the first partition's error is the answer.
+ * write partition first). Every merged answer carries `partitions`/`partial`. With no answer at all, the first
+ * engine error is the answer; when every partition threw, this throws (the route answers 503 as for one partition).
  */
-export function mergeNativeResults(results: readonly Record<string, any>[], limit?: number): Record<string, any> {
-  const answered = results.filter((result) => result?.ok === true);
-  if (!answered.length) return results[0]!;
-  const datas = answered.map((result) => result.data);
-  if (datas.every(Array.isArray)) return { ...answered[0], data: mergeRankedLists(datas, limit).items };
-  if (datas.every((value) => value && typeof value === "object" && !Array.isArray(value))) {
-    const field = MERGEABLE_LIST_FIELDS.find((name) => datas.every((value) => Array.isArray(value[name])));
-    if (field) return { ...answered[0], data: { ...datas[0], [field]: mergeRankedLists(datas.map((value) => value[field]), limit).items } };
+export function mergeNativeResults(settled: readonly Settled<Record<string, any>>[], limit?: number): Record<string, any> {
+  const answered = settled.flatMap((entry) => "thrown" in entry || entry.value?.ok !== true ? [] : [entry.value]);
+  if (!answered.length) {
+    const failed = settled.find((entry): entry is { partition: string; value: Record<string, any> } => !("thrown" in entry));
+    if (!failed) throw new Error("every read partition failed");
+    return failed.value;
   }
-  return answered[0]!;
+  const merged = mergeData(answered.map((result) => result.data), limit);
+  return { ...answered[0], ...(merged ? { data: merged.data } : {}), ...report(settled, (result) => result?.ok === true, (result) => result?.error) };
 }

@@ -23,6 +23,16 @@ export const FAN_OUT_NATIVE_READS: ReadonlySet<string> = new Set([
   "list_mental_models", "get_mental_model", "list_tags",
 ]);
 
+/**
+ * Native reads that spend model budget or run a model (synthesis, reflection, prompt previews, dry runs). For an edge
+ * principal they run only in its write partition (PRD: reflect is single-area, in the write area); naming a read-only
+ * partition of the read set is refused with 403 model_operation_write_partition_only.
+ */
+export const MODEL_COST_NATIVE_OPERATIONS: ReadonlySet<string> = new Set(["think", "synthesize", "reflect", "test_bank_llm"]);
+export function modelCostNativeOperation(name: string): boolean {
+  return MODEL_COST_NATIVE_OPERATIONS.has(name) || name.startsWith("preview_") || name.startsWith("dry_run_");
+}
+
 const requestSchema=z.object({partitionKey:z.string().min(1).max(256),arguments:z.record(z.string(),z.unknown())}).strict();
 /** Native engine operations one principal may have in flight; beyond it the route answers 429. */
 export const NATIVE_MAX_IN_FLIGHT_PER_PRINCIPAL=4;
@@ -62,6 +72,11 @@ export function registerNativeMemoryRoutes(app: FastifyInstance, options: {brain
     const writes=policy.scope==="write";
     const input=requestSchema.parse(request.body);
     if(normalizeKnowledgePartitionKey(input.partitionKey)!==partition) return reply.code(403).send({ok:false,error:"partition_scope_denied"});
+    const bound=principal.boundPartition;
+    if(bound && modelCostNativeOperation(operation) && partition!==bound.partitionKey) {
+      return reply.code(403).send({ok:false,error:"model_operation_write_partition_only",
+        suggestion:"Model operations (think, synthesize, reflect, preview_*, dry_run_*) run only in this agent's write partition: name the workspace or omit the read partition."});
+    }
     const owner=principal.principalId, running=inFlight.get(owner)??0;
     if(running>=NATIVE_MAX_IN_FLIGHT_PER_PRINCIPAL) {
       reply.header("retry-after","1");

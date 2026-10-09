@@ -263,8 +263,16 @@ describe("Brain recall, context, entities and native reads", () => {
       from = fake.calls.length;
       expect((await app.inject({ method: "POST", url: "/api/brain/native/reflect", headers: as("A"), payload: { partitionKey: companyId, arguments: { body: { query: "q" } } } })).statusCode).toBe(200);
       expect(banks(from)).toEqual(["alpha"]);
+      // Model operations run only in the write partition: naming a read-only partition is refused before the engine.
       from = fake.calls.length;
-      expect((await app.inject({ method: "POST", url: "/api/brain/native/reflect", headers: as("A"), payload: { partitionKey: pb, arguments: { body: { query: "q" } } } })).statusCode).toBe(200);
+      for (const operation of ["reflect", "dry_run_extract_memories", "preview_prompt", "test_bank_llm"]) {
+        const refused = await app.inject({ method: "POST", url: `/api/brain/native/${operation}`, headers: as("A"), payload: { partitionKey: pb, arguments: { body: { query: "q" } } } });
+        expect([refused.statusCode, refused.json().error], operation).toEqual([403, "model_operation_write_partition_only"]);
+      }
+      expect(banks(from)).toEqual([]);
+      // A non-model read may still name one read partition.
+      from = fake.calls.length;
+      expect((await app.inject({ method: "POST", url: "/api/brain/native/recall_memories", headers: as("A"), payload: { partitionKey: pb, arguments: { body: { query: "q" } } } })).statusCode).toBe(200);
       expect(banks(from)).toEqual(["beta"]);
       from = fake.calls.length;
       const write = await app.inject({ method: "POST", url: "/api/brain/native/retain_memories", headers: { ...as("A"), "idempotency-key": "k-1" },
@@ -335,6 +343,13 @@ describe("Brain recall, context, entities and native reads", () => {
     expect(search.json().data.map((m: { slug: string }) => m.slug)).toEqual(["a-1", "b-1"]);
     const page = await app.inject({ method: "POST", url: "/api/brain/native/get_page", headers: as("A"), payload: { partitionKey: companyId, arguments: { slug: "x" } } });
     expect(page.json().data).toEqual({ slug: "x", found: "beta" });
+    seen.length = 0;
+    for (const operation of ["think", "synthesize"]) {
+      const refused = await app.inject({ method: "POST", url: `/api/brain/native/${operation}`, headers: as("A"), payload: { partitionKey: pb, arguments: { question: "q" } } });
+      expect([refused.statusCode, refused.json().error], operation).toEqual([403, "model_operation_write_partition_only"]);
+      expect((await app.inject({ method: "POST", url: `/api/brain/native/${operation}`, headers: as("A"), payload: { partitionKey: companyId, arguments: { question: "q" } } })).statusCode, operation).not.toBe(403);
+    }
+    expect(seen.map((c) => c.partitionKey)).toEqual([pa, pa]);
     seen.length = 0;
     await app.inject({ method: "POST", url: "/api/brain/native/delta", headers: as("A"), payload: { partitionKey: companyId, arguments: {} } });
     expect(seen.map((c) => c.partitionKey)).toEqual([pa]);

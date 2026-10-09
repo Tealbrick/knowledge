@@ -4010,7 +4010,7 @@ export async function buildKnowledgeApp(
     reply.send(deleted);
   });
 
-  registerModelSettingsRoutes(app, { dataDir: config.dataDir, gbrainHome: config.gbrainHome, brain, authority: process.env.KNOWLEDGE_SETTINGS_TOKEN, research: researchSync });
+  registerModelSettingsRoutes(app, { dataDir: config.dataDir, gbrainHome: config.gbrainHome, brain, authority: process.env.KNOWLEDGE_SETTINGS_TOKEN, research: researchSync, portalUrl: process.env.TEALBRICK_PORTAL_URL ?? null });
   registerNativeMemoryRoutes(app, {brain,dataDir:config.dataDir,persistent:Boolean(config.knowledgeDatabasePath),engineCalls});
 
   app.get("/api/brain/indexing", async (request, reply) => {

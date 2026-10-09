@@ -2,7 +2,8 @@
 
 Knowledge ships one release manifest, [`tealbrick.app.json`](../tealbrick.app.json)
 (schema `tealbrick.miniapp/v1`), and serves the standard control endpoints of
-`@tealbrick/contract` **0.1.0-alpha.5** (pinned exactly in `program/package.json`).
+`@tealbrick/contract` **0.1.0-alpha.6** (pinned exactly in `program/package.json`; alpha.6 adds the
+`tealbrick.models/1` model manifest, see [Model manifest](#model-manifest-tealbrickmodels1)).
 Portal, the connector and the desktop app read the manifest instead of knowing
 Knowledge by name. The older internal descriptor, [`manifest.json`](../manifest.json), is
 marked `legacy-descriptor` and is kept only for tools that still read it.
@@ -20,7 +21,7 @@ grants** (`tbag_`), and the control endpoints.
   contract validator therefore has no sidecar image to match the pin against, and says nothing.
 - `runtime.partitions: { "contract": 2 }` is declared (alpha.5, read-many / write-one): Knowledge binds app-grant writes to
   `<tenant>/<partitionKey>`, reads to the partitions in `readPartitionKeys`, and refuses grants without `partitionKey`. Portal
-  Core sends the partition fields only to apps that declare them. The pinned 0.1.0-alpha.5 kit validates the declaration and
+  Core sends the partition fields only to apps that declare them. The pinned kit (0.1.0-alpha.5 and later) validates the declaration and
   parses `readPartitionKeys` (`GrantResult.readPartitionKeys`, `effectiveReadPartitions`); see
   [memory-partitions.md](memory-partitions.md#contract-2-read-sets-read-many--write-one).
 - `runtime.sidecars` is **not** declared. Open Notebook and SurrealDB must share one generated
@@ -41,7 +42,7 @@ grants** (`tbag_`), and the control endpoints.
   (a test fails otherwise). The image workflow checks it against the release tag and runs the validator.
 
 ```sh
-npx --yes @tealbrick/contract@0.1.0-alpha.5 validate tealbrick.app.json \
+npx --yes @tealbrick/contract@0.1.0-alpha.6 validate tealbrick.app.json \
   --companion path/to/rules-approvals/tealbrick.app.json
 ```
 
@@ -203,11 +204,14 @@ tealbrick-conformance run --app http://127.0.0.1:28551 --manifest tealbrick.app.
   --audit-command "sqlite3 -json /tmp/knowledge-conformance/contract-audit.sqlite 'select * from contract_audit'" --slow --json
 ```
 
-Run with `@tealbrick/conformance` 0.1.0-alpha.3, which allows extra non-secret `/healthz` fields
-(`service`, `partitionContract` and `capabilities.edgePartitions`/`readPartitions`, which Portal Core reads to gate partitioned
-edges), so `control.healthz` passes, and which runs `authz.read-partitions` for a contract 2 manifest. Its fake Portal sends
-`partitionKey` (null by default) and `readPartitionKeys`. CI (`.woodpecker/conformance.yaml`) fails on any failing check and when
-`authz.read-partitions` does not pass.
+Run with `@tealbrick/conformance` 0.1.0-alpha.4 (pinned exactly in `.woodpecker/conformance.yaml`). It allows extra non-secret
+`/healthz` fields (`service`, `partitionContract` and `capabilities.edgePartitions`/`readPartitions`, which Portal Core reads to
+gate partitioned edges), so `control.healthz` passes, and it runs `authz.read-partitions` for a contract 2 manifest. Its fake
+Portal sends `partitionKey` (null by default) and `readPartitionKeys`. alpha.4 adds `authz.partition-pinned` (a grant cannot
+reach another partition through a selector in the query or body; passes) and the approvals checks
+(`approvals.authority-declaration` and `approvals.no-path-without-owner` pass; the hold and resolve checks skip because they
+need a live Rules companion). CI (`.woodpecker/conformance.yaml`) fails on any failing check and when `authz.read-partitions`
+does not pass.
 
 The other skips are the checks the runner cannot run against an app alone (connector, desktop, runtime-config ack, unlocks,
 account tokens, Portal logout, human UI states), plus L2.
@@ -222,3 +226,26 @@ account tokens, Portal logout, human UI states), plus L2.
   or `productTenantId`; both are accepted, and it must equal the bound workspace.
 - Core adds `partitionKey` to the app-grant answer of a partitioned edge, and `readPartitionKeys` for an edge with a read set
   (contract 2). Gate read sets on `/healthz` `partitionContract >= 2`.
+
+## Model manifest (tealbrick.models/1)
+
+Settings -> Models offers models from a `tealbrick.models/1` manifest
+(`@tealbrick/contract/models`, alpha.6). Knowledge resolves it from three
+sources with `selectModelManifest([portal, appLocal])`; the highest valid
+`version` wins, and on a tie the earlier source wins:
+
+1. Portal: `GET ${TEALBRICK_PORTAL_URL}/.well-known/tealbrick/models` (public,
+   no credentials). Absent (404, timeout, invalid body) until Portal serves it.
+   Cached for 10 minutes; a settings request never waits more than 1.5 s for it.
+2. App-local: the JSON the owner pastes in Settings -> Models
+   (`PUT /api/settings/models/manifest`, owner-only, validated with
+   `parseModelManifest`; `DELETE` removes it).
+3. Bundled: `defaultModelManifest` of the pinned kit.
+
+`GET /api/settings/models` reports the active `manifest.source` (`portal`,
+`app-local` or `bundled`) and `manifest.version`. The owner-only
+`GET /api/settings/models/available?provider=&role=` lists the provider's live
+models with the key Knowledge holds and filters them with
+`filterModels(listed, provider, role, manifest)`. Details, error codes and the
+embedding re-index step are in [memory-operation.md](memory-operation.md#model-picker-settings---models).
+These are owner routes, not manifest operations: agents cannot call them.

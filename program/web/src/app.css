@@ -1909,3 +1909,44 @@ textarea {
 .model-settings__research--success {
   color: var(--dg-success, inherit);
 }
+.model-picker {
+  display: grid;
+  gap: var(--dg-space-2, 8px);
+  min-width: 0;
+}
+.model-settings__embedding-warning {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--dg-warning) 32%, var(--dg-line));
+  border-radius: var(--dg-radius-sm);
+  background: var(--dg-warning-wash);
+  color: var(--dg-text);
+}
+.model-settings__embedding-warning p,
+.model-settings__embedding-warning ol {
+  margin: 0;
+}
+.model-settings__embedding-warning ol {
+  padding-left: 18px;
+}
+.model-settings__embedding-warning .dg-button {
+  justify-self: start;
+}
+.model-settings__manifest {
+  display: grid;
+  gap: var(--dg-space-3, 12px);
+  min-width: 0;
+}
+.model-settings__manifest summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+.model-settings__manifest[open] > :not(summary) {
+  margin-top: 8px;
+}
+.model-settings__manifest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

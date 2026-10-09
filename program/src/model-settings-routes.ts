@@ -2,7 +2,9 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { MemoryEngine } from "./memory-engine.js";
 import type { ResearchSyncResult } from "./research-model-sync.js";
-import { resolveEffectiveModelSettings } from "./provider-env-models.js";
+import { readPinnedEmbedding, resolveEffectiveModelSettings } from "./provider-env-models.js";
+import { ModelManifestResolver, clearAppLocalManifest, manifestSummary, parseOwnerManifest, saveAppLocalManifest } from "./model-manifest.js";
+import { PICKER_PROVIDERS, PICKER_ROLES, ProviderListingError, ProviderModelCache, availableModels, credentialFor, type ListingError, type PickerRole } from "./model-catalog.js";
 import { ModelSettingsUpdateError, ModelSettingsUpdateSchema, readModelSettings, resolveModelSettingsUpdate, saveModelSettings, modelSettingsSummary, testModelSettings, type ModelSettings } from "./model-settings.js";
 
 /** Research (Open Notebook) follows the same saved models; see research-model-sync.ts. */
@@ -11,8 +13,27 @@ export interface ModelSettingsResearchSync {
   summary(): Record<string, unknown>;
 }
 
-export function registerModelSettingsRoutes(app: FastifyInstance, input: { dataDir: string; gbrainHome: string; brain: MemoryEngine; authority: string | undefined; research?: ModelSettingsResearchSync | null; testModels?: typeof testModelSettings; providerEnv?: Readonly<Record<string, string | undefined>> }) {
+export interface ModelSettingsRoutesInput {
+  dataDir: string;
+  gbrainHome: string;
+  brain: MemoryEngine;
+  authority: string | undefined;
+  research?: ModelSettingsResearchSync | null;
+  testModels?: typeof testModelSettings;
+  providerEnv?: Readonly<Record<string, string | undefined>>;
+  /** Portal base URL (TEALBRICK_PORTAL_URL): the model manifest is read from its `/.well-known/tealbrick/models`. */
+  portalUrl?: string | null;
+  /** Network access for the Portal manifest and the provider model lists (tests replace it). */
+  fetch?: typeof fetch;
+  manifests?: ModelManifestResolver;
+  modelLists?: ProviderModelCache;
+}
+
+export function registerModelSettingsRoutes(app: FastifyInstance, input: ModelSettingsRoutesInput) {
   const testModels = input.testModels ?? testModelSettings;
+  const env = () => input.providerEnv ?? process.env;
+  const manifests = input.manifests ?? new ModelManifestResolver({ dataDir: input.dataDir, portalUrl: input.portalUrl ?? null, ...(input.fetch ? { fetch: input.fetch } : {}) });
+  const modelLists = input.modelLists ?? new ProviderModelCache(Date.now, input.fetch ?? fetch);
   // Research is configured after the memory save succeeded; it never undoes or fails that save.
   const syncResearch = async (settings: ModelSettings): Promise<ResearchSyncResult> => {
     if (!input.research) return { status: "not-installed" };
@@ -35,8 +56,53 @@ export function registerModelSettingsRoutes(app: FastifyInstance, input: { dataD
     }
   });
   app.get("/api/settings/models", async () => {
-    const effective = await resolveEffectiveModelSettings(input.dataDir, input.gbrainHome, input.providerEnv ?? process.env);
-    return { ...modelSettingsSummary(effective.settings, effective.source ?? undefined, effective.issue), brain: { status: input.brain.status().status }, research: input.research ? input.research.summary() : { status: "not-installed" } };
+    const [effective, active, pinned] = await Promise.all([
+      resolveEffectiveModelSettings(input.dataDir, input.gbrainHome, env()),
+      manifests.active(),
+      readPinnedEmbedding(input.gbrainHome),
+    ]);
+    return {
+      ...modelSettingsSummary(effective.settings, effective.source ?? undefined, effective.issue),
+      brain: { status: input.brain.status().status },
+      research: input.research ? input.research.summary() : { status: "not-installed" },
+      // Which model manifest (recommendations) is active: portal, app-local or bundled, and its version.
+      manifest: manifestSummary(active),
+      // The embedding model an existing brain already holds vectors for; changing it needs a re-index.
+      embeddingLock: pinned,
+    };
+  });
+  /**
+   * The models the owner may pick for one provider and role. The Program lists them with the key it
+   * already holds; the answer carries model ids only, never the key or an upstream error body.
+   */
+  app.get("/api/settings/models/available", async (request, reply) => {
+    const query = request.query as { provider?: unknown; role?: unknown };
+    const provider = typeof query.provider === "string" ? query.provider : "";
+    const role = typeof query.role === "string" ? query.role : "";
+    if (!PICKER_PROVIDERS.includes(provider) || !(PICKER_ROLES as readonly string[]).includes(role)) return reply.code(400).send({ ok: false, error: "invalid_model_query" });
+    const [active, saved] = await Promise.all([manifests.active(), readModelSettings(input.dataDir).catch(() => null)]);
+    const credential = credentialFor(provider, saved, env());
+    let listed: string[] | null = null;
+    let error: ListingError | undefined;
+    if (credential) {
+      try { listed = await modelLists.list(credential); }
+      catch (failure) { error = failure instanceof ProviderListingError ? failure.code : "provider_unreachable"; }
+    }
+    const available = availableModels({ provider, role: role as PickerRole, manifest: active.manifest, listed, keySource: credential?.source ?? "none", ...(error ? { error } : {}) });
+    return { ok: true, ...available, manifest: { source: active.source, version: active.version } };
+  });
+  /** The app-local manifest: JSON the owner pasted. It is validated before it is stored and wins only when its version is highest. */
+  app.put("/api/settings/models/manifest", async (request, reply) => {
+    const body = request.body as { manifest?: unknown } | null;
+    if (!body || typeof body !== "object" || !("manifest" in body)) return reply.code(400).send({ ok: false, error: "model_manifest_invalid", errors: [{ path: "", message: "Send {\"manifest\": ...}" }] });
+    const parsed = parseOwnerManifest(body.manifest);
+    if (!parsed.ok) return reply.code(400).send({ ok: false, error: "model_manifest_invalid", errors: parsed.errors });
+    await saveAppLocalManifest(input.dataDir, parsed.manifest);
+    return { ok: true, manifest: manifestSummary(await manifests.active()) };
+  });
+  app.delete("/api/settings/models/manifest", async () => {
+    await clearAppLocalManifest(input.dataDir);
+    return { ok: true, manifest: manifestSummary(await manifests.active()) };
   });
   app.put("/api/settings/models", async (request, reply) => {
     if (busy) return reply.code(409).send({ ok: false, error: "settings_update_in_progress" });

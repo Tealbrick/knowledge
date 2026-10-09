@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Button, CheckboxField, Feedback, SelectField, Tag, TextField } from "@tealbrick/ui";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button, CheckboxField, Feedback, SelectField, Tag, TextareaField, TextField } from "@tealbrick/ui";
 import { api, ApiError } from "./api";
 import { describeErrorCode } from "./errors";
+import { EmbeddingChangeWarning, ModelPicker, availableModelsPath, describeManifest, embeddingChange, reasoningEffortOptions, reconcilePick, type AvailableModels, type EmbeddingLock, type ManifestStatus, type PickerRole } from "./ModelPicker";
 
 type ChatProvider = "openai" | "ollama" | "openrouter" | "anthropic" | "google";
 type EmbeddingProvider = "openai" | "llama-server" | "openrouter" | "google";
@@ -31,6 +32,10 @@ export type ModelSettingsStatus = {
   reranker?: PublicConnection | null;
   brain: { status: string };
   research?: ResearchStatus;
+  /** The active model-recommendation manifest (portal, app-local or bundled) and its version. */
+  manifest?: ManifestStatus;
+  /** The embedding model an existing memory already uses; changing it needs a re-index. */
+  embeddingLock?: EmbeddingLock | null;
 };
 /** Key-free Research status returned with model settings. */
 export type ResearchStatus = { status: string; error?: string; hint?: string };
@@ -129,6 +134,71 @@ function savedKeyFor(status: ModelSettingsStatus | undefined, provider: string, 
     .some((entry) => entry?.keyConfigured && entry.keySource !== "provider-env" && entry.provider === provider && entry.baseUrl === url.trim());
 }
 
+/** The models offered for one provider and role (owner-only; the server lists them with the key it holds). */
+function useAvailableModels(provider: string | null, role: PickerRole, enabled: boolean) {
+  return useQuery({
+    queryKey: ["knowledge-model-available", provider, role],
+    queryFn: () => api<AvailableModels>(availableModelsPath(provider!, role)),
+    enabled: enabled && Boolean(provider),
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
+}
+
+/**
+ * Keep one model choice in step with its list: a listed value stays, a saved custom value opens the
+ * advanced field, anything else becomes the recommendation. `onRecommended` applies the matching
+ * reasoning effort or vector size, but never over the owner's saved setup.
+ */
+function useModelPick(available: AvailableModels | undefined, value: string, setValue: (value: string) => void, keepCustom: boolean, tick: number, onRecommended?: (available: AvailableModels) => void) {
+  const [advanced, setAdvanced] = useState(false);
+  const latest = useRef({ value, keepCustom, setValue, onRecommended });
+  latest.current = { value, keepCustom, setValue, onRecommended };
+  useEffect(() => {
+    if (!available) return;
+    const current = latest.current;
+    const next = reconcilePick(available, current.value, current.keepCustom);
+    setAdvanced(next.advanced);
+    if (next.value !== current.value) current.setValue(next.value);
+    if (!current.keepCustom && available.recommended && next.value === available.recommended) current.onRecommended?.(available);
+  }, [available, tick]);
+  return [advanced, setAdvanced] as const;
+}
+
+/** Errors of a rejected owner manifest, as "where: what" lines. */
+export function describeManifestErrors(error: Error): string[] {
+  if (!(error instanceof ApiError)) return [error.message];
+  const errors = error.body && typeof error.body === "object" ? (error.body as { errors?: { path?: string; message?: string }[] }).errors : undefined;
+  if (error.code === "model_manifest_invalid" && Array.isArray(errors) && errors.length) {
+    return errors.slice(0, 8).map((issue) => `${issue.path ? `${issue.path}: ` : ""}${issue.message ?? "Invalid value"}`);
+  }
+  return [describeErrorCode(error.code, error.status)];
+}
+
+function ManifestSettings(props: { manifest: ManifestStatus | undefined; disabled: boolean; onChanged: () => void }) {
+  const [text, setText] = useState("");
+  const save = useMutation({
+    mutationFn: () => api<{ ok: boolean; manifest: ManifestStatus }>("/api/settings/models/manifest", { method: "PUT", body: JSON.stringify({ manifest: text }) }),
+    onSuccess: () => { setText(""); props.onChanged(); },
+  });
+  const clear = useMutation({
+    mutationFn: () => api<{ ok: boolean; manifest: ManifestStatus }>("/api/settings/models/manifest", { method: "DELETE" }),
+    onSuccess: props.onChanged,
+  });
+  return <details className="model-settings__manifest">
+    <summary>Model recommendations</summary>
+    <p className="settings-note">Knowledge offers the models in its recommendation list. Teal Brick Portal can publish a newer list. You can also paste a list here; the list with the highest version is used.</p>
+    <TextareaField label="Owner recommendation list (JSON)" rows={6} value={text} disabled={props.disabled} onChange={(event) => setText(event.target.value)} />
+    <div className="model-settings__manifest-actions">
+      <Button size="small" type="button" disabled={props.disabled || !text.trim() || save.isPending} onClick={() => save.mutate()}>Save list</Button>
+      {props.manifest?.appLocal.status !== "not-configured" && <Button size="small" type="button" disabled={props.disabled || clear.isPending} onClick={() => clear.mutate()}>Remove owner list</Button>}
+    </div>
+    {save.error && <Feedback state="error" title="The list was not saved">
+      <ul className="model-settings__errors">{describeManifestErrors(save.error).map((entry) => <li key={entry}>{entry}</li>)}</ul>
+    </Feedback>}
+  </details>;
+}
+
 export function ModelSettingsPanel() {
   const status = useQuery({
     queryKey: ["knowledge-model-settings"],
@@ -150,6 +220,9 @@ export function ModelSettingsPanel() {
   const [rerankerKey, setRerankerKey] = useState("");
   const [rerankerModel, setRerankerModel] = useState("");
   const [showUrl, setShowUrl] = useState(false);
+  // Bumped when the provider setup or the saved values change, so each model list re-fits its value.
+  const [pickTick, setPickTick] = useState(0);
+  const queryClient = useQueryClient();
 
   // Prefill from saved, key-free settings once they load (or after a save).
   useEffect(() => {
@@ -174,6 +247,7 @@ export function ModelSettingsPanel() {
     setKey("");
     setEmbeddingKey("");
     setRerankerKey("");
+    setPickTick((tick) => tick + 1);
   }, [status.data]);
 
   const chooseMode = (next: ProviderMode) => {
@@ -188,6 +262,7 @@ export function ModelSettingsPanel() {
     if (!PROVIDERS[next].reranker) setUseReranker(false);
     setShowUrl(next === "self-hosted");
     if (next === "anthropic") chooseEmbeddingChoice(embeddingChoice);
+    setPickTick((tick) => tick + 1);
   };
   const chooseEmbeddingChoice = (next: EmbeddingChoice) => {
     setEmbeddingChoice(next);
@@ -195,6 +270,7 @@ export function ModelSettingsPanel() {
     setEmbeddingModel(choice.model);
     setDimensions(String(choice.dimensions));
     if (next === "self-hosted") setEmbeddingUrl(choice.url);
+    setPickTick((tick) => tick + 1);
   };
 
   const providers = PROVIDERS[mode];
@@ -207,6 +283,26 @@ export function ModelSettingsPanel() {
   const embeddingUrlEditable = selfHosted || (anthropic && embeddingChoice === "self-hosted");
   const effectiveEmbeddingUrl = anthropic ? (embeddingUrlEditable ? embeddingUrl : EMBEDDING_CHOICES[embeddingChoice].url) : selfHosted ? embeddingUrl : url;
   const effectiveRerankerUrl = selfHosted ? rerankerUrl : url;
+
+  // Model lists for each role. A saved model (same provider) is kept even when it is not listed.
+  const listsEnabled = Boolean(status.data) && !status.error;
+  const savedData = status.data?.configured ? status.data : undefined;
+  const chatList = useAvailableModels(providers.chat, "chat", listsEnabled);
+  const embeddingList = useAvailableModels(embeddingProvider, "embedding", listsEnabled);
+  const rerankerList = useAvailableModels(useReranker ? providers.reranker : null, "rerank", listsEnabled);
+  const [chatAdvanced, setChatAdvanced] = useModelPick(chatList.data, chatModel, setChatModel,
+    savedData?.chat?.provider === providers.chat && savedData.chat.model === chatModel, pickTick,
+    (available) => { if (available.reasoningEffort.recommended) setReasoningEffort(available.reasoningEffort.recommended); });
+  const [embeddingAdvanced, setEmbeddingAdvanced] = useModelPick(embeddingList.data, embeddingModel, setEmbeddingModel,
+    savedData?.embedding?.provider === embeddingProvider && savedData.embedding.model === embeddingModel, pickTick,
+    (available) => { if (available.recommendedDimensions) setDimensions(String(available.recommendedDimensions)); });
+  const [rerankerAdvanced, setRerankerAdvanced] = useModelPick(rerankerList.data, rerankerModel, setRerankerModel,
+    Boolean(savedData?.reranker) && (savedData?.reranker?.provider ?? "llama-server-reranker") === providers.reranker && savedData?.reranker?.model === rerankerModel, pickTick);
+  const pickEmbedding = (next: string) => {
+    setEmbeddingModel(next);
+    const recommended = embeddingList.data;
+    if (recommended?.recommendedDimensions && next === recommended.recommended) setDimensions(String(recommended.recommendedDimensions));
+  };
   const keys = useMemo(() => ({
     chat: key.trim() || savedKeyFor(status.data, providers.chat, url),
     embedding: separateEmbedding ? embeddingKey.trim() || savedKeyFor(status.data, embeddingProvider, effectiveEmbeddingUrl) : Boolean(key.trim()) || savedKeyFor(status.data, providers.embedding, url),
@@ -214,7 +310,16 @@ export function ModelSettingsPanel() {
   }), [key, embeddingKey, rerankerKey, status.data, providers, url, embeddingProvider, effectiveEmbeddingUrl, effectiveRerankerUrl, selfHosted, separateEmbedding, useReranker]);
 
   const dimensionValue = Number(dimensions);
-  const complete = Boolean(url.trim() && chatModel.trim() && embeddingModel.trim() && effectiveEmbeddingUrl.trim())
+  // A different embedding model or vector size on an existing memory is a re-index, never a silent save.
+  const lock = status.data?.embeddingLock ?? null;
+  const vectorChange = embeddingChange(lock, { provider: embeddingProvider, model: embeddingModel, dimensions: dimensionValue });
+  const keepEmbedding = () => {
+    if (!lock) return;
+    setEmbeddingModel(lock.model);
+    setDimensions(String(lock.dimensions ?? 1536));
+    setEmbeddingAdvanced(!(embeddingList.data?.models.includes(lock.model) ?? false));
+  };
+  const complete = !vectorChange && Boolean(url.trim() && chatModel.trim() && embeddingModel.trim() && effectiveEmbeddingUrl.trim())
     && Number.isInteger(dimensionValue) && dimensionValue >= 64 && dimensionValue <= 8192
     && (!useReranker || Boolean(rerankerModel.trim() && effectiveRerankerUrl.trim()))
     && Boolean(keys.chat && keys.embedding && keys.reranker);
@@ -242,9 +347,10 @@ export function ModelSettingsPanel() {
       };
       return api<{ ok: boolean; brain: { status: string }; research?: ResearchStatus }>("/api/settings/models", { method: "PUT", body: JSON.stringify(body) });
     },
-    onSuccess: () => void status.refetch(),
+    // A saved key can list more models: refresh the lists with the status.
+    onSuccess: () => { void status.refetch(); void queryClient.invalidateQueries({ queryKey: ["knowledge-model-available"] }); },
     // A memory-engine start failure happens after the settings were saved.
-    onError: (error) => { if (error instanceof ApiError && error.code === "brain_start_failed") void status.refetch(); },
+    onError: (error) => { if (error instanceof ApiError && error.code === "brain_start_failed") { void status.refetch(); void queryClient.invalidateQueries({ queryKey: ["knowledge-model-available"] }); } },
   });
 
   const ownerError = status.error;
@@ -264,6 +370,7 @@ export function ModelSettingsPanel() {
     </div>
     {ownerError && <Feedback state="forbidden" title="Model settings are owner-only">{ownerError.message}</Feedback>}
     {modelSource && <p className={`settings-note${modelSource.tone === "warning" ? " model-settings__research--warning" : ""}`} role="status">{modelSource.text}</p>}
+    {status.data?.manifest && <p className="settings-note model-settings__manifest-source" role="status">{describeManifest(status.data.manifest)}</p>}
     {saved && status.data?.source !== "provider-env" && <p className="settings-note">Your saved settings are shown below. Keys are never sent back to this page; leave a key blank to keep the saved one.</p>}
     <fieldset className="model-settings__form" disabled={Boolean(ownerError) || save.isPending}>
       <SelectField label="Provider" value={mode} onChange={(event) => chooseMode(event.target.value as ProviderMode)}>
@@ -274,14 +381,11 @@ export function ModelSettingsPanel() {
         placeholder={sharedKeySaved ? "Saved — leave blank to keep" : undefined}
         description={keyHint(sharedKeySaved) ?? (selfHosted ? "If your server does not check keys, enter any value." : undefined)}
         onChange={(event) => setKey(event.target.value)} />
-      <TextField label="Chat model" value={chatModel} onChange={(event) => setChatModel(event.target.value)} />
+      <ModelPicker label="Chat model" available={chatList.data} loading={chatList.isLoading} value={chatModel} advanced={chatAdvanced}
+        onChange={setChatModel} onAdvancedChange={setChatAdvanced} />
       {!fixedUrl && <SelectField label="Reasoning effort" description="How much the chat model reasons before answering. Leave on default unless your model needs it." value={reasoningEffort} onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort | "")}>
         <option value="">Model default</option>
-        <option value="none">None</option>
-        <option value="minimal">Minimal</option>
-        <option value="low">Low</option>
-        <option value="medium">Medium</option>
-        <option value="high">High</option>
+        {reasoningEffortOptions(chatList.data).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </SelectField>}
       {anthropic && <SelectField label="Embedding provider" description="Anthropic does not offer embeddings. Choose another provider for the embedding model." value={embeddingChoice} onChange={(event) => chooseEmbeddingChoice(event.target.value as EmbeddingChoice)}>
         {(Object.keys(EMBEDDING_CHOICES) as EmbeddingChoice[]).map((id) => <option key={id} value={id}>{EMBEDDING_CHOICES[id].label}</option>)}
@@ -292,7 +396,8 @@ export function ModelSettingsPanel() {
           placeholder={savedKeyFor(status.data, embeddingProvider, effectiveEmbeddingUrl) ? "Saved — leave blank to keep" : undefined}
           onChange={(event) => setEmbeddingKey(event.target.value)} />
       </>}
-      <TextField label="Embedding model" value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} />
+      <ModelPicker label="Embedding model" available={embeddingList.data} loading={embeddingList.isLoading} value={embeddingModel} advanced={embeddingAdvanced}
+        onChange={pickEmbedding} onAdvancedChange={setEmbeddingAdvanced} />
       <TextField label="Embedding dimensions" type="number" min={64} max={8192} value={dimensions}
         description="Must match the embedding model. Changing it later requires migrating existing memory."
         onChange={(event) => setDimensions(event.target.value)} />
@@ -302,9 +407,11 @@ export function ModelSettingsPanel() {
         {selfHosted && <TextField label="Reranker API key" type="password" autoComplete="off" value={rerankerKey}
           placeholder={savedKeyFor(status.data, providers.reranker, rerankerUrl) ? "Saved — leave blank to keep" : undefined}
           onChange={(event) => setRerankerKey(event.target.value)} />}
-        <TextField label="Reranker model" value={rerankerModel} onChange={(event) => setRerankerModel(event.target.value)} />
+        <ModelPicker label="Reranker model" available={rerankerList.data} loading={rerankerList.isLoading} value={rerankerModel} advanced={rerankerAdvanced}
+          onChange={setRerankerModel} onAdvancedChange={setRerankerAdvanced} />
       </>}
       {!selfHosted && !fixedUrl && <div><Button size="small" type="button" onClick={() => { if (showUrl) setUrl(PRESETS[mode].url); setShowUrl(!showUrl); }}>{showUrl ? "Use the standard API URL" : "Use a different API URL"}</Button></div>}
+      {vectorChange && <EmbeddingChangeWarning change={vectorChange} canKeep={lock?.provider === embeddingProvider} onKeep={keepEmbedding} />}
       <p className="settings-note">Use only model servers you trust. Saving sends a short test request to each model; provider charges may apply.</p>
     </fieldset>
     <div>
@@ -317,5 +424,7 @@ export function ModelSettingsPanel() {
     </Feedback>}
     {save.data && <Feedback state="success" title="Models connected">All model checks passed and memory is running. Connect each agent with its own Knowledge credential — never this model key.</Feedback>}
     {research && <p className={`settings-note model-settings__research model-settings__research--${research.tone}`} role="status">{research.text}</p>}
+    {!ownerError && status.data && <ManifestSettings manifest={status.data.manifest} disabled={save.isPending}
+      onChanged={() => { void status.refetch(); void queryClient.invalidateQueries({ queryKey: ["knowledge-model-available"] }); setPickTick((tick) => tick + 1); }} />}
   </div>;
 }

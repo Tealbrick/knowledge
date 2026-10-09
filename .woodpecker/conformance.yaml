@@ -6,10 +6,11 @@
 # Hindsight service (program/scripts/fixtures/fake-engines.mjs), so the run
 # checks the contract surface, not answer quality.
 #
-# The fake Portal of conformance 0.1.0-alpha.3 states the memory partition (`partitionKey`,
+# The fake Portal of conformance 0.1.0-alpha.4 states the memory partition (`partitionKey`,
 # null by default) and, for a `runtime.partitions.contract: 2` manifest, the read set
 # (`readPartitionKeys`) in its app-grant answers, so the run includes `authz.read-partitions`
-# (read-many / write-one) and needs no stand-in.
+# (read-many / write-one) and needs no stand-in. alpha.4 adds `authz.partition-pinned`
+# (a grant cannot pick another partition through a selector) and the approvals checks.
 #
 # Fails when the runner reports `ok: false`, the report is missing or `authz.read-partitions` did not pass.
 labels:
@@ -39,7 +40,7 @@ steps:
         mkdir -p "$RUN/data" "$RUN/runner"
         corepack enable && corepack prepare pnpm@9.15.4 --activate
         (cd program && pnpm install --frozen-lockfile)
-        npm install --prefix "$RUN/runner" --no-audit --no-fund @tealbrick/conformance@0.1.0-alpha.3
+        npm install --prefix "$RUN/runner" --no-audit --no-fund @tealbrick/conformance@0.1.0-alpha.4
         CLI="$RUN/runner/node_modules/@tealbrick/conformance/dist/cli.js"
         wait_for() { # url, seconds
           node -e 'const [u,s]=process.argv.slice(1);const end=Date.now()+s*1000;(async()=>{for(;;){try{if((await fetch(u)).ok)return}catch{}if(Date.now()>end){console.error("timeout waiting for "+u);process.exit(1)}await new Promise(r=>setTimeout(r,500))}})()' "$1" "$2"

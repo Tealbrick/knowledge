@@ -94,18 +94,31 @@ Behaviour:
 | `collections` (list), `search` | A request that names the workspace (or the write partition) covers every partition of the read set. Naming one read partition (`workspace/key`) covers only that one. Search within a collection of a read partition reads that partition. |
 | `documents/{id}`, `collections/{id}`, trees, revisions | Readable when the object lives in any partition of the read set. |
 | Research notebooks, sources, notes, context, chat sessions | Notebooks of every read partition are listed and readable; writes (sources, chat sessions, turns, receipts) only in notebooks of the write partition. |
-| `/api/brain/recall`, `/api/brain/context`, `/api/brain/entities` | One engine call per read partition (its own GBrain source or Hindsight bank, derived as for one partition), merged. An entity by slug is read from the first read partition that has it. |
-| `/api/brain/native/*` reads | Lookups, lists and searches (for example `recall`, `search`, `get_page`, `recall_memories`, `list_documents`) run once per read partition and merge. Reads that keep state or spend model budget (`delta`, `context_pack`, `synthesize`, `think`, `reflect` and the other administration views) run in one partition: the write partition, or the read partition named in `partitionKey`. |
+| `/api/brain/recall`, `/api/brain/context`, `/api/brain/entities` | One engine call per read partition (its own GBrain source or Hindsight bank, derived as for one partition), merged. An entity by slug is read from the first read partition that has it. Entity lists over a read set are exact up to `offset + limit = 500`; deeper pages answer 400 `offset_out_of_range` (name one read partition to page deeper). |
+| `/api/brain/native/*` reads | Lookups, lists and searches (for example `recall`, `search`, `get_page`, `recall_memories`, `list_documents`) run once per read partition and merge. Reads that keep state (`delta`, `context_pack` and the administration views) run in one partition: the write partition, or the read partition named in `partitionKey`. Model operations (`think`, `synthesize`, `reflect`, `test_bank_llm`, every `preview_*` and `dry_run_*`) run only in the write partition; naming a read partition answers 403 `model_operation_write_partition_only`. |
 
 Merge rule (`program/src/brain-read-view.ts`): when every item has a numeric
 engine score, items are ordered by score, highest first, ties by read-set order
 (write partition first) and then by the engine's order. Otherwise the lists
-are interleaved by rank. Exact duplicates are dropped, and the result is capped
-at the requested `limit`. The partition of each item is kept internally and is
-never added to an answer. Only partitions of the read set are ever queried. A
-merged Program answer is `ok` only when every partition answered; the answers
-of the partitions that did answer are still merged. A native lookup that is
-not a list takes the first partition that answers.
+are interleaved by rank. Rows that project the same Knowledge document from
+several partitions (`knowledge-docs/<id>`, `knowledge-doc:<id>`) collapse into
+one row, and so do exactly equal rows; chunks of one page in one partition stay
+separate. Every merged row names the partitions it was found in
+(`knowledgePartitions`). Only partitions of the read set are ever queried.
+
+Bounds: one request runs at most 4 engine calls at a time, and one principal
+has at most 4 engine calls in flight across its native operations and fan-out
+reads. The caller's limit (`limit`, Hindsight `body.limit`, `max_results`) and
+token budget (`body.max_tokens`, `budgetTokens`) apply after the merge, and a
+merged answer never exceeds the engine's response cap (2 MiB GBrain, 8 MiB
+Hindsight): it is cut to fit and says `truncated: true`.
+
+No silent drop: every fan-out answer carries `partitions`
+(`[{partition, ok, error?}]`, one per read partition) and `partial`. A failing
+or throwing partition never fails the answer while another partition answered.
+Only when every partition fails is the answer the engine's own error, as for a
+single partition. A native lookup that is not a list takes the first partition
+that answers.
 
 At the instance edge, contract 2 reads of attachments and app grants go to the
 Program with a per-request bearer that carries the read set, so the Program

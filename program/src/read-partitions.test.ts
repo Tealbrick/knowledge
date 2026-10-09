@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildKnowledgeApp } from "./app.js";
 import { createAttachmentResearchAuthority } from "./attachment-research-principal.js";
-import { FAN_OUT_CONCURRENCY, MAX_ENGINE_CALLS_PER_PRINCIPAL, mergeEngineResults, mergeNativeResults, mergeRankedLists, nativeMergeBounds } from "./brain-read-view.js";
+import { FAN_OUT_CONCURRENCY, MAX_ENGINE_CALLS_PER_PRINCIPAL, mergeEngineResults, mergeNativeResults, mergeRankedLists, nativeMergeBounds, PARTITION_LABEL_FIELD } from "./brain-read-view.js";
 import { GBRAIN_MAX_RESPONSE_BYTES } from "./gbrain-transport.js";
 import { GBrainRuntime } from "./gbrain.js";
 import { hindsightBankForPartition } from "./hindsight-client.js";
@@ -621,5 +621,33 @@ describe("entities over a read set: exact pages past offset 100", () => {
     expect(calls).toEqual([]);
     // One read partition by name (beta; naming the write partition reads the whole view) keeps the engine's own paging.
     expect((await app.inject({ url: `/api/brain/entities?kind=all&partitionKey=${encodeURIComponent(pb)}&offset=495&limit=10`, headers: as("A") })).statusCode).toBe(200);
+  });
+});
+
+describe("dedupe by Knowledge document across partitions", () => {
+  it("collapses one document projected in two partitions into one row with both partition labels", async () => {
+    vi.spyOn(GBrainRuntime.prototype, "recall").mockImplementation(async (input) => ({ ok: true, status: "ready", tool: "recall", data: input.partitionKey === pa
+      ? [{ slug: "knowledge-docs/kdoc_shared", score: 0.9, chunk_text: "current" }, { slug: "knowledge-docs/kdoc_shared", score: 0.7, chunk_text: "second chunk" }]
+      : [{ slug: "knowledge-docs/kdoc_shared", score: 0.8, chunk_text: "older copy" }, { slug: "people/b", score: 0.5, chunk_text: "b" }] }));
+    const app = await knowledge();
+    const recall = await app.inject({ method: "POST", url: "/api/brain/recall", headers: as("A"), payload: { query: "q", scopeRef: companyId } });
+    expect(recall.json().memories).toEqual([
+      { slug: "knowledge-docs/kdoc_shared", score: 0.9, chunk_text: "current", [PARTITION_LABEL_FIELD]: [pa, pb] },
+      // Two chunks of one page in one partition stay two rows.
+      { slug: "knowledge-docs/kdoc_shared", score: 0.7, chunk_text: "second chunk", [PARTITION_LABEL_FIELD]: [pa] },
+      { slug: "people/b", score: 0.5, chunk_text: "b", [PARTITION_LABEL_FIELD]: [pb] },
+    ]);
+  });
+
+  it("recognises Hindsight document ids and metadata, and falls back to exact JSON", () => {
+    const merged = mergeRankedLists([
+      [{ id: "m1", document_id: "knowledge-doc:kdoc_x", text: "alpha" }, { id: "same", text: "same" }],
+      [{ id: "m9", metadata: { knowledge_kind: "document", knowledge_id: "kdoc_x" }, text: "beta" }, { id: "same", text: "same" }, { id: "other", text: "o" }],
+    ], undefined, [pa, pb]);
+    expect(merged.items).toEqual([
+      { id: "m1", document_id: "knowledge-doc:kdoc_x", text: "alpha", [PARTITION_LABEL_FIELD]: [pa, pb] },
+      { id: "same", text: "same", [PARTITION_LABEL_FIELD]: [pa, pb] },
+      { id: "other", text: "o", [PARTITION_LABEL_FIELD]: [pb] },
+    ]);
   });
 });

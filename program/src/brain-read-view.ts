@@ -7,8 +7,9 @@ import { HINDSIGHT_MAX_RESPONSE_BYTES } from "./hindsight-client.js";
  *
  * Merge rule (deterministic): when every item carries a numeric engine score, items are ordered by score, highest
  * first, ties by read-set order (the write partition first) and then by the engine's own order; otherwise the lists
- * are interleaved by rank (first of each partition, then second of each, ...). Exact duplicates are dropped and the
- * result is capped at the requested limit. Only partitions of the caller's read set are ever queried.
+ * are interleaved by rank (first of each partition, then second of each, ...). Rows that project the same Knowledge
+ * document from several partitions, and exact duplicates, collapse into one row; every merged object row names the
+ * partitions it was found in (`knowledgePartitions`). The result is capped at the requested limit. Only partitions of the caller's read set are ever queried.
  *
  * No silent drop: every fan-out answer carries `partitions`, one status per read partition (`{partition, ok, error?}`)
  * and `partial` (true when a partition failed). A failing or throwing partition never fails the whole answer while
@@ -41,25 +42,67 @@ function stableKey(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
-export function mergeRankedLists(lists: readonly (readonly unknown[])[], limit?: number): MergedList {
+/** Field a merged fan-out row carries: the read partitions it was found in (read-set order of first sighting). */
+export const PARTITION_LABEL_FIELD = "knowledgePartitions";
+
+const DOCUMENT_SLUG = "knowledge-docs/", RESEARCH_SLUG = "knowledge-research/";
+const DOCUMENT_ID = "knowledge-doc:", RESEARCH_ID = "knowledge-research:";
+
+/**
+ * The Knowledge object a row projects, when it carries one: a GBrain page slug `knowledge-docs/<id>`, a Hindsight
+ * document id `knowledge-doc:<id>` (or its `knowledge_id` metadata), or a Research projection. Null otherwise.
+ */
+export function knowledgeProjectionKey(item: unknown): string | null {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+  const row = item as Record<string, unknown>;
+  for (const field of ["slug", "page_slug", "document_id", "documentId", "id"]) {
+    const value = row[field];
+    if (typeof value !== "string") continue;
+    if (value.startsWith(DOCUMENT_SLUG)) return `doc:${value.slice(DOCUMENT_SLUG.length)}`;
+    if (value.startsWith(DOCUMENT_ID)) return `doc:${value.slice(DOCUMENT_ID.length)}`;
+    if (value.startsWith(RESEARCH_SLUG)) return `research:${value.slice(RESEARCH_SLUG.length)}`;
+    if (value.startsWith(RESEARCH_ID)) return `research:${value.slice(RESEARCH_ID.length)}`;
+  }
+  const metadata = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata as Record<string, unknown> : null;
+  if (metadata?.knowledge_kind === "document" && typeof metadata.knowledge_id === "string") return `doc:${metadata.knowledge_id}`;
+  return null;
+}
+
+/**
+ * Merge per-partition lists. Duplicates collapse into the first row in merge order: rows that project the same
+ * Knowledge document (knowledgeProjectionKey) from different partitions, else rows that are exactly equal (stable
+ * JSON). Rows of one partition that share a document (several chunks of one page) stay separate. With `labels`
+ * (one per list), every object row gets PARTITION_LABEL_FIELD: the partitions it was found in.
+ */
+export function mergeRankedLists(lists: readonly (readonly unknown[])[], limit?: number, labels?: readonly string[]): MergedList {
   const entries = lists.flatMap((list, scope) => list.map((item, rank) => ({ item, scope, rank, score: scoreOf(item) })));
   const scored = entries.length > 0 && entries.every((entry) => entry.score !== null);
   entries.sort((left, right) => scored
     ? (right.score! - left.score!) || (left.scope - right.scope) || (left.rank - right.rank)
     : (left.rank - right.rank) || (left.scope - right.scope));
-  const seen = new Set<string>();
-  const items: unknown[] = [];
-  const scopes: number[] = [];
+  const exact = new Map<string, number>();
+  const projected = new Map<string, number>();
+  const kept: Array<{ item: unknown; scope: number; found: number[] }> = [];
   const cap = typeof limit === "number" && Number.isFinite(limit) && limit > 0 ? Math.trunc(limit) : Number.POSITIVE_INFINITY;
   for (const entry of entries) {
-    if (items.length >= cap) break;
     const key = stableKey(entry.item);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    items.push(entry.item);
-    scopes.push(entry.scope);
+    const projection = knowledgeProjectionKey(entry.item);
+    const projectedRow = projection === null ? undefined : projected.get(projection);
+    const duplicate = exact.get(key) ?? (projectedRow !== undefined && !kept[projectedRow]!.found.includes(entry.scope) ? projectedRow : undefined);
+    if (duplicate !== undefined) {
+      if (!kept[duplicate]!.found.includes(entry.scope)) kept[duplicate]!.found.push(entry.scope);
+      continue;
+    }
+    // Past the cap, rows are only read for the partition labels of rows already kept.
+    if (kept.length >= cap) continue;
+    exact.set(key, kept.length);
+    if (projection !== null && !projected.has(projection)) projected.set(projection, kept.length);
+    kept.push({ item: entry.item, scope: entry.scope, found: [entry.scope] });
   }
-  return { items, scopes };
+  const label = (row: { item: unknown; found: number[] }) => labels && row.item && typeof row.item === "object" && !Array.isArray(row.item)
+    ? { ...(row.item as Record<string, unknown>), [PARTITION_LABEL_FIELD]: [...row.found].sort((a, b) => a - b).map((scope) => labels[scope]!) }
+    : row.item;
+  return { items: kept.map(label), scopes: kept.map((row) => row.scope) };
 }
 
 /** At most this many engine calls of one fan-out read run at the same time (a read set may hold 64 partitions). */
@@ -214,15 +257,15 @@ function withinTokens(items: unknown[], scopes: number[], maxTokens: number | un
 interface MergedData { readonly items: unknown[]; readonly scopes: number[]; readonly build: (items: unknown[]) => unknown }
 
 /** Merge list-shaped answers: arrays, or objects that share one list field (other fields from the first answer). */
-function mergeData(datas: readonly unknown[], bounds: MergeBounds): MergedData | null {
+function mergeData(datas: readonly unknown[], bounds: MergeBounds, labels?: readonly string[]): MergedData | null {
   let merged: MergedList, build: (items: unknown[]) => unknown;
   if (datas.length && datas.every(Array.isArray)) {
-    merged = mergeRankedLists(datas as unknown[][], bounds.limit);
+    merged = mergeRankedLists(datas as unknown[][], bounds.limit, labels);
     build = (items) => items;
   } else if (datas.length && datas.every((value) => value && typeof value === "object" && !Array.isArray(value))) {
     const field = MERGEABLE_LIST_FIELDS.find((name) => datas.every((value) => Array.isArray((value as Record<string, unknown>)[name])));
     if (!field) return null;
-    merged = mergeRankedLists(datas.map((value) => (value as Record<string, unknown[]>)[field]!), bounds.limit);
+    merged = mergeRankedLists(datas.map((value) => (value as Record<string, unknown[]>)[field]!), bounds.limit, labels);
     build = (items) => ({ ...(datas[0] as Record<string, unknown>), [field]: items });
   } else {
     return null;
@@ -255,13 +298,14 @@ function boundedAnswer<A extends object>(merged: MergedData, maxBytes: number | 
  * is in the view). When every partition fails, the answer is the first engine error, as for a single partition.
  */
 export function mergeEngineResults<R extends EngineResult>(settled: readonly Settled<R>[], bounds: MergeBounds = {}): R & Partial<FanOutReport> & { readonly scopes?: number[]; readonly truncated?: boolean } {
-  const answered = settled.flatMap((entry) => "thrown" in entry || !entry.value.ok ? [] : [entry.value]);
+  const answeredEntries = settled.flatMap((entry) => "thrown" in entry || !entry.value.ok ? [] : [entry]);
+  const answered = answeredEntries.map((entry) => entry.value);
   if (!answered.length) {
     const failed = settled.find((entry): entry is { partition: string; value: R } => !("thrown" in entry));
     return failed ? failed.value : ({ ok: false, status: "unavailable", data: null, error: "unavailable" } as unknown as R);
   }
   const statuses = report(settled, (result) => result.ok, (result) => result.error);
-  const merged = mergeData(answered.map((result) => result.data), bounds);
+  const merged = mergeData(answered.map((result) => result.data), bounds, answeredEntries.map((entry) => entry.partition));
   if (!merged) return { ...answered[0]!, ok: true, ...statuses };
   const { answer, kept } = boundedAnswer(merged, bounds.maxBytes, (data, truncated) => ({ ...answered[0]!, ok: true, data, ...statuses, ...(truncated ? { truncated: true } : {}) }));
   return { ...answer, scopes: merged.scopes.slice(0, kept) };
@@ -280,14 +324,15 @@ export function withoutScopes<R extends { readonly scopes?: number[] }>(result: 
  * engine error is the answer; when every partition threw, this throws (the route answers 503 as for one partition).
  */
 export function mergeNativeResults(settled: readonly Settled<Record<string, any>>[], bounds: MergeBounds = {}): Record<string, any> {
-  const answered = settled.flatMap((entry) => "thrown" in entry || entry.value?.ok !== true ? [] : [entry.value]);
+  const answeredEntries = settled.flatMap((entry) => "thrown" in entry || entry.value?.ok !== true ? [] : [entry]);
+  const answered = answeredEntries.map((entry) => entry.value);
   if (!answered.length) {
     const failed = settled.find((entry): entry is { partition: string; value: Record<string, any> } => !("thrown" in entry));
     if (!failed) throw new Error("every read partition failed");
     return failed.value;
   }
   const statuses = report(settled, (result) => result?.ok === true, (result) => result?.error);
-  const merged = mergeData(answered.map((result) => result.data), bounds);
+  const merged = mergeData(answered.map((result) => result.data), bounds, answeredEntries.map((entry) => entry.partition));
   if (!merged) return { ...answered[0], ...statuses };
   return boundedAnswer(merged, bounds.maxBytes, (data, truncated) => ({ ...answered[0], data, ...statuses, ...(truncated ? { truncated: true } : {}) })).answer;
 }

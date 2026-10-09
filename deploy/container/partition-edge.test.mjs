@@ -130,7 +130,7 @@ test('per-edge partitions isolate every attachment and runtime route family on t
     assert.equal(response.status, byId ? 404 : 401, `${who} ${method} ${path}`);
     const text = await response.text();
     assert.doesNotMatch(text, /only/);
-    if (byId) assert.deepEqual(JSON.parse(text), { error: 'not_found' });
+    if (byId) assert.deepEqual(JSON.parse(text), { ok: false, error: 'not_found' });
   }
 
   // A malformed or reserved claim fails closed on every family; it never reaches the default partition.

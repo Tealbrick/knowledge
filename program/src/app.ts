@@ -1795,7 +1795,7 @@ export async function buildKnowledgeApp(
         // this operation (outside its read set for reads, its write partition for writes), gets one answer.
         const notFound = () => {
           recordAuthorization(request, "denied", capability, null);
-          reply.code(404).send({ error: "not_found" });
+          reply.code(404).send({ ok: false, error: "not_found" });
         };
         const hidden = (partition: string) => partitionHiddenFrom(requestPrincipal, partition, capability);
         // A capability the principal lacks everywhere is refused before any object lookup, so the answer is the same

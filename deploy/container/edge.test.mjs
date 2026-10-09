@@ -106,7 +106,7 @@ test('instance edge rejects unauthenticated routes and preserves Research scope'
     const chatSessions=`${base}/api/research/notebooks/notebook_none/engine/chat/sessions`;
     const admitted=await fetch(chatSessions,{method:'POST',headers:{...agentHeaders,'idempotency-key':'k1'},body:'{}'});
     assert.equal(admitted.status,404,'Admitted writer reaches the Program notebook mapping check');
-    assert.deepEqual(await admitted.json(),{error:'not_found'});
+    assert.deepEqual(await admitted.json(),{ok:false,error:'not_found'});
     deniedCapabilities.add('knowledge:research:write');
     assert.equal((await fetch(chatSessions,{method:'POST',headers:{...agentHeaders,'idempotency-key':'k1'},body:'{}'})).status,401,'Research write requires a Portal write grant');
     deniedCapabilities.clear();
@@ -124,7 +124,7 @@ test('instance edge rejects unauthenticated routes and preserves Research scope'
     // Uniform not-found: another workspace's collection id answers like a missing one.
     const foreignCollection=await fetch(`${base}/api/knowledge/collections/${otherCollection.id}/documents`,{method:'POST',headers:agentHeaders,body:JSON.stringify({title:'forbidden'})});
     assert.equal(foreignCollection.status,404);
-    assert.deepEqual(await foreignCollection.json(),{error:'not_found'});
+    assert.deepEqual(await foreignCollection.json(),{ok:false,error:'not_found'});
     assert.equal((await fetch(`${base}/api/companies/fixture-company/knowledge/collections`,{method:'POST',headers:agentHeaders,body:JSON.stringify({name:'forbidden',sourceConfig:{provider:'github_repo'}})})).status,401);
     const documentResponse=await fetch(`${base}/api/knowledge/collections/${collection.id}/documents`,{method:'POST',headers:agentHeaders,body:JSON.stringify({title:'fixture',body:'private fixture content'})});
     assert.equal(documentResponse.status,201);

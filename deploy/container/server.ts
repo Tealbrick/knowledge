@@ -307,7 +307,8 @@ const server = createServer(async (req, res) => {
     if (admittedGrant || resourceMissing) {
       const why = (agentAuth as { refusal?: { status: number; error: string } } | null)?.refusal ?? (resourceMissing ? { status: 404, error: "not_found" } : { status: 403, error: "request_denied" });
       res.writeHead(why.status, { "content-type": "application/json", "cache-control": "no-store" });
-      res.end(JSON.stringify({ error: why.error }));
+      // The uniform not-found body is the Program's: {ok:false, error:"not_found"}, byte for byte.
+      res.end(JSON.stringify(why.status === 404 ? { ok: false, error: why.error } : { error: why.error }));
       return;
     }
     // A person opening the app without (or after) a Portal session gets a

@@ -180,7 +180,7 @@ describe("Open Notebook Knowledge routes", () => {
     openApps.push(fixture.app);
     const response = await fixture.app.inject({ url: "/api/research/notebooks/notebook:alpha/engine/context", headers: bearer(alphaPrincipal.token) });
     expect(response.statusCode).toBe(404);
-    expect(response.json()).toEqual({ error: "not_found" });
+    expect(response.json()).toEqual({ ok: false, error: "not_found" });
   });
 
   it.each([
@@ -295,7 +295,7 @@ describe("Open Notebook Knowledge routes", () => {
       headers: bearer(alphaPrincipal.token),
     });
     expect(response.statusCode).toBe(404);
-    expect(response.json()).toEqual({ error: "not_found" });
+    expect(response.json()).toEqual({ ok: false, error: "not_found" });
     expect(response.body).not.toContain(note.content!);
   });
 
@@ -343,7 +343,7 @@ describe("Open Notebook Knowledge routes", () => {
 
     const response = await app.inject({ method: "GET", url: "/api/research/notebooks/notebook:alpha/engine", headers: bearer(alphaPrincipal.token) });
     expect(response.statusCode).toBe(404);
-    expect(response.json()).toEqual({ error: "not_found" });
+    expect(response.json()).toEqual({ ok: false, error: "not_found" });
     expect(calls).toEqual([]);
   });
 
@@ -391,7 +391,7 @@ describe("Open Notebook Knowledge routes", () => {
     openApps.push(fixture.app);
     const response = await fixture.app.inject({ method: "GET", url, headers });
     expect(response.statusCode, label).toBe(statusCode);
-    expect(response.json()).toEqual({ error });
+    expect(response.json()).toEqual(statusCode === 404 ? { ok: false, error } : { error });
     expect(fixture.calls).toEqual([]);
   });
 

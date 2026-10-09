@@ -119,8 +119,11 @@ this further (per operation and partition); it never widens a read set.
 
 An object id that does not exist, or that lives outside the partitions the
 caller may use for the operation (the read set for reads, the write partition
-for writes), gets one answer on every agent path: 404 `{"error":"not_found"}`.
-The lookup work is the same in both cases. A caller without the capability at
+for writes), gets one answer on every agent path: 404 `{"ok":false,"error":"not_found"}`.
+The status, the headers (except `Date`) and the body bytes are identical, and
+the lookup work is the same in both cases: no engine or owner lookup runs only
+for a foreign id (a foreign Research notebook is refused from its mapping,
+before the owner lookup). A caller without the capability at
 all gets 403 before any object lookup, for any id. A partition named directly
 (a path or `partitionKey` selector) that the caller may not use stays a 403
 refusal.

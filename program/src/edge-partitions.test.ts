@@ -173,7 +173,7 @@ describe("edge-partition isolation in the Program (runtime principal path)", () 
         const response = await app.inject({ ...request, headers: as("personal-agent") });
         // Uniform not-found (0.5.0): an ID of another partition answers like a missing ID.
         expect(response.statusCode, `${request.method} ${request.url}`).toBe(404);
-        expect(response.json()).toEqual({ error: "not_found" });
+        expect(response.json()).toEqual({ ok: false, error: "not_found" });
       }
       // default -> personal, and a sibling partition -> personal.
       for (const token of ["default-agent", "other-agent"]) {
@@ -288,9 +288,9 @@ describe("Research scoping for a partitioned attachment", () => {
       expect(await discover(defaultToken)).toEqual(["nb-default"]);
       const read = (token: string, id: string) => app.inject({ url: `/api/research/notebooks/${id}/engine`, headers: { authorization: `Bearer ${token}` } });
       // Uniform not-found: another partition's notebook answers like a missing one.
-      expect((await read(personalToken, "nb-default")).json()).toEqual({ error: "not_found" });
-      expect((await read(defaultToken, "nb-personal")).json()).toEqual({ error: "not_found" });
-      expect((await read(defaultToken, "nb-missing")).json()).toEqual({ error: "not_found" });
+      expect((await read(personalToken, "nb-default")).json()).toEqual({ ok: false, error: "not_found" });
+      expect((await read(defaultToken, "nb-personal")).json()).toEqual({ ok: false, error: "not_found" });
+      expect((await read(defaultToken, "nb-missing")).json()).toEqual({ ok: false, error: "not_found" });
       // An invalid key mints nothing rather than a default-partition bearer.
       for (const partitionKey of ["default", "a/b", "Personal", "../x"]) expect(authority.issue({ ...grant, partitionKey }), partitionKey).toBeNull();
     } finally { await app.close(); }

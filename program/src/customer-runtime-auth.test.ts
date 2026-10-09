@@ -91,7 +91,7 @@ it("denies foreign objects, conflicting/parent scopes, forged tokens and reposit
         ...(method === "PATCH" ? { payload: { title: "Forged" } } : {}) });
       // Uniform not-found: a foreign ID answers exactly like a missing one.
       expect(r.statusCode).toBe(404);
-      expect(r.json()).toEqual({ error: "not_found" });
+      expect(r.json()).toEqual({ ok: false, error: "not_found" });
     }
     // A foreign parent ID is hidden like a missing one; a foreign scope selector conflicts with the collection (400).
     for (const [payload, status] of [[{ title: "Bad parent", parentDocumentId: foreign.id }, 404], [{ title: "Bad scope", companyId: "fixture-b" }, 400]] as const) {

@@ -115,9 +115,12 @@ test('contract 2 read sets on the instance edge: attachments, app grants and run
     ];
     for (const [name, url, missing] of outsideReadSet) {
       const foreign = await call('GET', url, as(name)), absent = await call('GET', missing, as(name));
-      const [f, m]: [number, string][] = [[foreign.status, await foreign.text()], [absent.status, await absent.text()]];
+      // Status, every header but the clock, and the body bytes are identical.
+      const shape = async (response: Response) => [response.status, [...response.headers].filter(([header]) => header !== 'date'),
+        Buffer.from(await response.arrayBuffer()).toString('base64')] as const;
+      const [f, m] = [await shape(foreign), await shape(absent)];
       assert.deepEqual(f, m, label(`${name} ${url} answers like a missing id`));
-      assert.deepEqual([f[0], JSON.parse(f[1])], [404, { error: 'not_found' }], label(`${name} ${url}`));
+      assert.deepEqual([f[0], JSON.parse(Buffer.from(f[2], 'base64').toString('utf8'))], [404, { ok: false, error: 'not_found' }], label(`${name} ${url}`));
     }
 
     // Writes stay in the write partition: beta is readable for A, never writable.
@@ -127,7 +130,7 @@ test('contract 2 read sets on the instance edge: attachments, app grants and run
     assert.equal(intoBeta.status, 404, label('A writes into beta'));
     if (path !== 'attachment') {
       const patched = await call('PATCH', `/api/knowledge/documents/${seeded.B.document.id}`, as('A'), { title: 'forged' });
-      assert.deepEqual([patched.status, await patched.json()], [404, { error: 'not_found' }], label('A edits a beta document'));
+      assert.deepEqual([patched.status, await patched.json()], [404, { ok: false, error: 'not_found' }], label('A edits a beta document'));
     }
     const mine = await call('POST', `/api/companies/${company}/knowledge/collections`, { ...as('A'), ...idem() }, { name: `A via ${path}` });
     assert.equal(mine.status, 201, label('A creates'));

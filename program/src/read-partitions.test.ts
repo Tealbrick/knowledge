@@ -69,10 +69,13 @@ async function seed(app: FastifyInstance): Promise<Record<"A" | "B" | "C", Seede
   }
   return out;
 }
-/** The full answer (status, content type, body) an id outside the read set must share with a missing id. */
+/** Response headers that may differ between two otherwise identical answers (clock and tracing only). */
+const VOLATILE_HEADERS = new Set(["date", "x-request-id", "traceparent", "tracestate"]);
+const stableHeaders = (headers: Record<string, unknown>) => Object.fromEntries(Object.entries(headers).filter(([name]) => !VOLATILE_HEADERS.has(name.toLowerCase())).sort());
+/** The full answer (status, every stable header, body bytes) an id outside the read set must share with a missing id. */
 async function snapshot(app: FastifyInstance, request: { method: string; url: string; headers: Record<string, string>; payload?: unknown }) {
   const response = await app.inject(request as never);
-  return { status: response.statusCode, type: response.headers["content-type"], body: response.body };
+  return { status: response.statusCode, headers: stableHeaders(response.headers), body: response.body };
 }
 
 describe("read set parsing and principals", () => {
@@ -139,7 +142,7 @@ describe("documents, collections, search and revisions (runtime principal path)"
     // Outside the read set: a named partition is refused, a collection id looks absent.
     expect((await app.inject({ url: `/api/companies/${encodeURIComponent(pc)}/knowledge/collections`, headers: as("A") })).statusCode).toBe(403);
     const crossed = await app.inject({ url: `/api/companies/${companyId}/knowledge/search?q=marker&collectionId=${s.C.collection.id}`, headers: as("A") });
-    expect([crossed.statusCode, crossed.json()]).toEqual([404, { error: "not_found" }]);
+    expect([crossed.statusCode, crossed.json()]).toEqual([404, { ok: false, error: "not_found" }]);
 
     // By id: documents, collections, trees and revisions.
     const readable = (grant: string, seeded: Seeded) => [
@@ -151,7 +154,7 @@ describe("documents, collections, search and revisions (runtime principal path)"
     }
     for (const { grant, url } of [...readable("A", s.C), ...readable("B", s.A), ...readable("B", s.C), ...readable("C", s.A), ...readable("C", s.B)]) {
       const response = await app.inject({ url, headers: as(grant) });
-      expect([response.statusCode, response.json()], `${grant} ${url}`).toEqual([404, { error: "not_found" }]);
+      expect([response.statusCode, response.json()], `${grant} ${url}`).toEqual([404, { ok: false, error: "not_found" }]);
     }
     expect((await app.inject({ url: `/api/knowledge/documents/${s.B.document.id}`, headers: as("A") })).body).toMatch(/b-marker/u);
 
@@ -164,7 +167,7 @@ describe("documents, collections, search and revisions (runtime principal path)"
       { method: "POST", url: `/api/knowledge/collections/${s.A.collection.id}/documents`, payload: { title: "forged", parentDocumentId: s.B.document.id } },
     ]) {
       const response = await app.inject({ ...request, headers: as("A") } as never);
-      expect([response.statusCode, response.json()], `${request.method} ${request.url}`).toEqual([404, { error: "not_found" }]);
+      expect([response.statusCode, response.json()], `${request.method} ${request.url}`).toEqual([404, { ok: false, error: "not_found" }]);
     }
     const named = await app.inject({ method: "POST", url: `/api/companies/${encodeURIComponent(pb)}/knowledge/collections`, headers: as("A"), payload: { name: "forged" } });
     expect(named.statusCode).toBe(403);
@@ -198,7 +201,7 @@ describe("documents, collections, search and revisions (runtime principal path)"
       const b = await snapshot(app, { ...request(missing), headers: as("A") });
       expect(a, label).toEqual(b);
       expect(a.status, label).toBe(404);
-      expect(JSON.parse(a.body), label).toEqual({ error: "not_found" });
+      expect(JSON.parse(a.body), label).toEqual({ ok: false, error: "not_found" });
     }
   });
 
@@ -391,10 +394,11 @@ describe("Research notebooks, sources, notes, context, writes and chat receipts"
     };
     const app = Fastify();
     apps.push(app);
+    let ownerLookups = 0;
     registerOpenNotebookRoutes(app, {
       adapter, principals: { configured: false, resolve: () => null }, researchPrincipalProvider: authority.provider,
       bindings: Object.entries(scope).map(([id, companyId]) => ({ knowledgeNotebookId: id, companyId, externalNotebookId: `upstream-${id.slice(3)}` })),
-      resolveNotebookCompany: (id) => scope[id] ?? null,
+      resolveNotebookCompany: (id) => { ownerLookups += 1; return scope[id] ?? null; },
       resolveNotebookSummary: (id) => ({ id, name: id, description: "" }),
     });
     await app.ready();
@@ -410,9 +414,16 @@ describe("Research notebooks, sources, notes, context, writes and chat receipts"
     for (const url of [...reads("nb-alpha"), ...reads("nb-beta")]) expect((await call("A", "GET", url)).statusCode, `A ${url}`).toBe(200);
     expect((await call("A", "GET", "/api/research/notebooks/nb-beta/engine/notes")).body).toContain("upstream-beta note content");
     const hidden = async (who: keyof typeof tokens, method: "GET" | "POST", url: string, missingUrl: string, extra: Record<string, string> = {}, payload?: Record<string, unknown>) => {
-      const foreign = await call(who, method, url, extra, payload), missing = await call(who, method, missingUrl, extra, payload);
-      expect([foreign.statusCode, foreign.body], `${who} ${method} ${url}`).toEqual([missing.statusCode, missing.body]);
-      expect([foreign.statusCode, foreign.json()], `${who} ${method} ${url}`).toEqual([404, { error: "not_found" }]);
+      // The same bytes, the same headers and the same work: a foreign notebook is refused before the owner lookup.
+      let before = ownerLookups;
+      const foreign = await call(who, method, url, extra, payload);
+      const foreignLookups = ownerLookups - before;
+      before = ownerLookups;
+      const missing = await call(who, method, missingUrl, extra, payload);
+      expect(foreignLookups, `${who} ${method} ${url} owner lookups`).toBe(ownerLookups - before);
+      expect([foreign.statusCode, stableHeaders(foreign.headers), foreign.rawPayload], `${who} ${method} ${url}`)
+        .toEqual([missing.statusCode, stableHeaders(missing.headers), missing.rawPayload]);
+      expect([foreign.statusCode, foreign.json()], `${who} ${method} ${url}`).toEqual([404, { ok: false, error: "not_found" }]);
     };
     for (const url of reads("nb-gamma")) await hidden("A", "GET", url, url.replace("nb-gamma", "nb-missing"));
     for (const url of reads("nb-alpha")) await hidden("B", "GET", url, url.replace("nb-alpha", "nb-missing"));

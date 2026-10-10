@@ -57,7 +57,7 @@ test('a Portal-provisioned instance admits wired agents with no KNOWLEDGE_SERVIC
     await new Promise(r => portalServer.close(r)); await rm(data, { recursive: true, force: true });
   });
   let ready = false;
-  for (let i = 0; i < 150 && !ready; i++) {
+  for (const deadline = Date.now() + 30_000; !ready && Date.now() < deadline;) {
     if (child.exitCode !== null) throw new Error(`edge failed to start: ${output.slice(-500)}`);
     try { ready = (await fetch(base + '/healthz')).ok; } catch {}
     if (!ready) await new Promise(r => setTimeout(r, 30));

@@ -38,7 +38,8 @@ test('direct runtime enforces all CRUD subsets, isolation, identity, claim admin
     });
     for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { output += chunk.toString(); });
     let ready = false;
-    for (let i = 0; i < 100; i++) {
+    // A deadline, not a try count: CI runs these edge tests in parallel with image builds, and a cold tsx start can take seconds.
+    for (const deadline = Date.now() + 30_000; Date.now() < deadline;) {
       if (child.exitCode !== null) throw new Error('Fixture edge failed to start');
       try { ready = (await fetch(base + '/healthz')).ok; } catch {}
       if (ready) break;

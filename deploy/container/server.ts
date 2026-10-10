@@ -3,13 +3,13 @@ import { createHash, timingSafeEqual, randomBytes } from "node:crypto";
 import { buildKnowledgeApp } from "../../program/src/app.js";
 import { loadConfig } from "../../program/src/config.js";
 import { createKnowledgePrincipalResolver } from "../../program/src/knowledge-principal.js";
-import { bearerToken, effectiveKnowledgePartition, normalizeKnowledgePartitionKey } from "../../program/src/partition-authority.js";
+import { bearerToken, edgeReadSelector, effectiveKnowledgePartition, normalizeKnowledgePartitionKey } from "../../program/src/partition-authority.js";
 import { customerRuntimeRoute } from "../../program/src/customer-runtime-access.js";
 import { KnowledgeInstanceClaim } from "../../program/src/instance-claim.js";
 import { createPortalPrincipalResolver, portalPrincipalConfig } from "../../program/src/portal-principal.js";
 import { createAttachmentResearchAuthority } from "../../program/src/attachment-research-principal.js";
 import { IDEMPOTENCY_KEY, applyEnvAliases, launchRouteAllowed, wireKnowledgeContract } from "../../program/src/contract/index.js";
-import { attachmentConfig, attachmentRoute, edgeReadPartitionsClaim, effectiveReadPartitions, introspectAttachment, sameEdgeScope, ENGINE_READ } from "./attachment-auth.mjs";
+import { attachmentConfig, attachmentRoute, edgeReadPartitionsClaim, introspectAttachment, sameEdgeScope, ENGINE_READ } from "./attachment-auth.mjs";
 import { appGrantAuthority, programUrl, EDGE_IDEMPOTENT_OPERATIONS } from "./app-grant-edge.mjs";
 import { browserConfig, browserAccess, sendSessionEnded, wantsSessionPage } from "./browser-auth.mjs";
 
@@ -164,11 +164,14 @@ const server = createServer(async (req, res) => {
       // Contract 2 reads (documents, collections, search, Brain and native reads): the Program applies the read set
       // with an edge-minted principal; the edge only checks that every selector names the workspace or a read partition.
       // Writes of such an edge keep the contract 1 path below, bound to the write partition.
-      const readable: readonly string[] = edgeReads ? effectiveReadPartitions(attachment.companyId, edgeReads) : [];
       const readView = edgeReads !== undefined && !!route && !route.research &&
         (route.capability === 'knowledge:documents:read' || route.capability === 'knowledge:brain:read' || route.capability === ENGINE_READ);
-      const selectsReadable = (value: unknown) => { const key = normalizeKnowledgePartitionKey(value);
-        return key !== null && (key === workspacePartition || readable.includes(key)); };
+      // The workspace, an effective read partition (`workspace/key`) or a bare edge key of the read set (`key`, as the
+      // grant states it); anything else is refused. A bare key is forwarded as its effective partition.
+      const readSelection = (value: unknown) => edgeReads ? edgeReadSelector(value, attachment.companyId, edgeReads) : null;
+      const selectsReadable = (value: unknown) => readSelection(value) !== null;
+      const forwardReadable = (value: string) => { const selected = readSelection(value);
+        return selected !== null && selected !== normalizeKnowledgePartitionKey(value) ? selected : value; };
       // Research routes may need more than one capability (chat send needs read and write).
       let researchAdmitted = !route?.research;
       let expiresAt = grant ? (typeof grant.expiresAt === 'number' ? grant.expiresAt : Date.parse(grant.expiresAt)) : 0;
@@ -195,7 +198,9 @@ const server = createServer(async (req, res) => {
           if (route.companyRef !== undefined && !selectsReadable(route.companyRef)) throw new Error('partition mismatch');
           const selectors = url.searchParams.getAll('partitionKey');
           if (selectors.length > 1 || selectors.some(value => !selectsReadable(value))) throw new Error('partition mismatch');
-          if (route.capability === 'knowledge:brain:read' || route.native) url.searchParams.set('partitionKey', selectors[0] ?? attachment.companyId);
+          const forwarded = selectors[0] === undefined ? undefined : forwardReadable(selectors[0]);
+          if (forwarded !== selectors[0]) url.searchParams.set('partitionKey', forwarded!);
+          if (route.capability === 'knowledge:brain:read' || route.native) url.searchParams.set('partitionKey', forwarded ?? attachment.companyId);
           replacementUrl = `${url.pathname}${url.search}`;
         } else if (route.companyResource) {
           // A `workspace/key` path is only this edge's own partition; a default edge never reaches a child.
@@ -240,7 +245,7 @@ const server = createServer(async (req, res) => {
           if(route.bodyKind==='native' && parsed.partitionKey!==undefined && !(readView ? selectsReadable(parsed.partitionKey) : selectsPartition(parsed.partitionKey))) throw new Error('partition mismatch');
           // Contract 2 reads: the selector (default: the workspace, i.e. the whole read view) goes to the Program as named.
           if(readView && route.bodyKind==='brain' && parsed.partitionKey!==undefined && !selectsReadable(parsed.partitionKey)) throw new Error('partition mismatch');
-          const selected = readView ? (parsed.partitionKey ?? attachment.companyId) : partition;
+          const selected = readView ? (typeof parsed.partitionKey === 'string' ? forwardReadable(parsed.partitionKey) : parsed.partitionKey ?? attachment.companyId) : partition;
           replacementBody=JSON.stringify(readView && route.bodyKind==='brain' ? {...parsed,scopeRef:selected,partitionKey:selected}
             : readView && route.bodyKind==='native' ? {partitionKey:selected,arguments:parsed.arguments}
             : route.bodyKind==='brain' ? {...parsed,scopeRef:scopeCompany,partitionKey:partition}

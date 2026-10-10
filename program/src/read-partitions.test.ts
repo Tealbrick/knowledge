@@ -225,6 +225,90 @@ describe("documents, collections, search and revisions (runtime principal path)"
   });
 });
 
+describe("a read naming one partition of its read set", () => {
+  it("reads exactly that partition: by id, and on a list that names the workspace and the partition", async () => {
+    const app = await knowledge();
+    const s = await seed(app);
+    const ids = async (grant: string, url: string) => {
+      const response = await app.inject({ url, headers: as(grant) });
+      expect(response.statusCode, `${grant} ${url}`).toBe(200);
+      return response.json().map((item: { id: string }) => item.id).sort();
+    };
+    const answer = async (grant: string, url: string, method = "GET", payload?: unknown) => {
+      const response = await app.inject({ method, url, headers: as(grant), ...(payload === undefined ? {} : { payload }) } as never);
+      return [response.statusCode, response.json()] as const;
+    };
+    const beta = encodeURIComponent(pb);
+    // Bug 1: by id, naming the read partition the object lives in.
+    for (const url of [`/api/knowledge/collections/${s.B.collection.id}?partitionKey=${beta}`, `/api/knowledge/documents/${s.B.document.id}?partitionKey=${beta}`,
+      `/api/knowledge/collections/${s.B.collection.id}/tree?partitionKey=${beta}`]) {
+      const [status, body] = await answer("A", url);
+      expect(status, url).toBe(200);
+      expect(JSON.stringify(body), url).not.toMatch(/a-marker|c-marker/u);
+    }
+    // Bug 2: a list naming its own workspace (path) and one read partition (query) lists that partition only, exactly like
+    // naming that partition alone; the same for the query-only list route and for search.
+    const alone = await snapshotOf(app, "A", `/api/companies/${beta}/knowledge/collections`);
+    for (const url of [`/api/companies/${companyId}/knowledge/collections?partitionKey=${beta}`, `/api/knowledge/collections?companyId=${companyId}&partitionKey=${beta}`]) {
+      expect(await ids("A", url), url).toEqual([s.B.collection.id]);
+      expect(await snapshotOf(app, "A", url), url).toEqual(alone);
+    }
+    const search = await app.inject({ url: `/api/companies/${companyId}/knowledge/search?q=marker&partitionKey=${beta}`, headers: as("A") });
+    expect(search.statusCode).toBe(200);
+    expect(search.body).toMatch(/b-marker/u);
+    expect(search.body).not.toMatch(/a-marker|c-marker/u);
+    // An object outside the named partition: one of the caller's own write partition is refused as before, one outside
+    // the read set answers exactly like a missing id.
+    expect(await answer("A", `/api/knowledge/documents/${s.A.document.id}?partitionKey=${beta}`)).toEqual([400, { ok: false, error: "partition_key_required" }]);
+    for (const named of [`?partitionKey=${beta}`, `?companyId=${companyId}&partitionKey=${beta}`]) {
+      const foreign = await snapshotOf(app, "A", `/api/knowledge/documents/${s.C.document.id}${named}`);
+      expect(foreign, named).toEqual(await snapshotOf(app, "A", `/api/knowledge/documents/${createId("kdoc")}${named}`));
+      expect([foreign.status, JSON.parse(foreign.body)], named).toEqual([404, { ok: false, error: "not_found" }]);
+    }
+    // A partition outside the read set stays refused, with or without the workspace, and never lists gamma.
+    const gamma = encodeURIComponent(pc);
+    expect(await answer("A", `/api/companies/${companyId}/knowledge/collections?partitionKey=${gamma}`)).toEqual([400, { ok: false, error: "partition_key_required" }]);
+    expect(await answer("A", `/api/companies/${gamma}/knowledge/collections`)).toEqual([403, { ok: false, error: "partition_scope_denied" }]);
+    expect(await answer("A", `/api/knowledge/collections/${s.C.collection.id}?partitionKey=${gamma}`)).toEqual([403, { ok: false, error: "partition_scope_denied" }]);
+    // Writes naming a read-only partition keep their refusals; nothing lands in beta.
+    expect(await answer("A", `/api/companies/${companyId}/knowledge/collections?partitionKey=${beta}`, "POST", { name: "forged" })).toEqual([400, { ok: false, error: "partition_key_required" }]);
+    expect(await answer("A", `/api/companies/${beta}/knowledge/collections`, "POST", { name: "forged" })).toEqual([403, { ok: false, error: "partition_scope_denied" }]);
+    expect(await answer("A", `/api/knowledge/documents/${s.B.document.id}?partitionKey=${beta}`, "PATCH", { title: "forged" })).toEqual([403, { ok: false, error: "partition_scope_denied" }]);
+    expect(await answer("A", `/api/knowledge/documents/${s.B.document.id}?companyId=${companyId}&partitionKey=${beta}`, "DELETE")).toEqual([400, { ok: false, error: "partition_key_required" }]);
+    expect(await ids("B", `/api/companies/${companyId}/knowledge/collections`)).toEqual([s.B.collection.id]);
+    expect((await app.inject({ url: `/api/knowledge/documents/${s.B.document.id}`, headers: as("B") })).json().title).toBe("B note");
+    // Contract 1 (and a read set equal to the write key): naming another partition is refused exactly as before.
+    for (const url of [`/api/companies/${companyId}/knowledge/collections?partitionKey=${encodeURIComponent(pa)}`, `/api/knowledge/collections/${s.A.collection.id}?partitionKey=${encodeURIComponent(pa)}`]) {
+      const contract1 = await snapshotOf(app, "B1", url);
+      expect(contract1.status, url).toBeGreaterThanOrEqual(400);
+      expect(contract1.body, url).not.toMatch(new RegExp(s.A.collection.id, "u"));
+      expect(await snapshotOf(app, "B", url), url).toEqual(contract1);
+    }
+  });
+
+  it("recalls one read partition when a Brain read names the workspace and that partition", async () => {
+    const apiKey = "hindsight-tenant-key-fixture-only-000000";
+    const bank = { [hindsightBankForPartition(pa)]: "alpha", [hindsightBankForPartition(pb)]: "beta", [hindsightBankForPartition(pc)]: "gamma" };
+    const fake = await startFakeHindsight({ apiKey });
+    try {
+      const app = await knowledge({ memoryEngine: "hindsight", hindsightUrl: fake.baseUrl, hindsightApiKey: apiKey });
+      const banks = (from: number) => [...new Set(fake.calls.slice(from).filter((call) => call.bank).map((call) => bank[call.bank!]))].sort();
+      const recall = async (partitionKey: string) => {
+        const from = fake.calls.length;
+        const response = await app.inject({ method: "POST", url: "/api/brain/recall", headers: as("A"), payload: { query: "q", scopeRef: companyId, partitionKey } });
+        return [response.statusCode, banks(from)] as const;
+      };
+      expect(await recall(pb)).toEqual([200, ["beta"]]);
+      expect(await recall(pc)).toEqual([400, []]);
+      // Model operations stay in the write partition.
+      const from = fake.calls.length;
+      const model = await app.inject({ method: "POST", url: `/api/brain/native/reflect?partitionKey=${companyId}`, headers: as("A"), payload: { partitionKey: pb, arguments: { body: { query: "q" } } } });
+      expect([model.statusCode, model.json().error]).toEqual([403, "model_operation_write_partition_only"]);
+      expect(banks(from)).toEqual([]);
+    } finally { await fake.close(); }
+  });
+});
+
 describe("Brain recall, context, entities and native reads", () => {
   it("fan out once per read partition on the repository's fake Hindsight, merge, and never touch gamma", async () => {
     const apiKey = "hindsight-tenant-key-fixture-only-000000";

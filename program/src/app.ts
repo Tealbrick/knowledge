@@ -27,6 +27,7 @@ import {
   effectiveKnowledgePartition,
   grantReachesEdgePartitions,
   type KnowledgeBoundPartition,
+  namedReadPartition,
   narrowPartitionSelector,
   normalizeKnowledgePartitionKey,
   partitionGrantSummaries,
@@ -373,21 +374,62 @@ type PartitionResolution =
   | { readonly kind: "missing" }
   | { readonly kind: "conflict"; readonly direct: string | null; readonly targets: readonly string[] };
 
-function resolveRequestPartition(request: PartitionRequestShape, store: KnowledgeStore, policyPathname = requestPath(request.url)): PartitionResolution {
-  const params = request.params && typeof request.params === "object" ? request.params as Record<string, unknown> : {};
-  const query = request.query && typeof request.query === "object" ? request.query as Record<string, unknown> : {};
-  const body = request.body && typeof request.body === "object" && !Buffer.isBuffer(request.body)
-    ? request.body as Record<string, unknown>
-    : {};
-  const directValues = [params.companyId, query.companyId, query.partitionKey, body.partitionKey, body.companyId,
-    ...(policyPathname.startsWith("/api/brain/") ? [body.scopeRef, query.scopeRef] : [])];
+/** Where a request names a partition directly (path/query/body companyId and partitionKey, Brain scopeRef). */
+const DIRECT_SELECTORS = [["params", "companyId"], ["query", "companyId"], ["query", "partitionKey"], ["body", "partitionKey"], ["body", "companyId"]] as const;
+const BRAIN_DIRECT_SELECTORS = [["body", "scopeRef"], ["query", "scopeRef"]] as const;
+const directSelectorFields = (policyPathname: string) =>
+  [...DIRECT_SELECTORS, ...(policyPathname.startsWith("/api/brain/") ? BRAIN_DIRECT_SELECTORS : [])];
+const requestRecord = (request: PartitionRequestShape, where: "params" | "query" | "body"): Record<string, unknown> => {
+  const value = request[where];
+  return value && typeof value === "object" && !Buffer.isBuffer(value) ? value as Record<string, unknown> : {};
+};
+
+/** The normalized partitions a request names directly, in selector order; null when one of them is malformed. */
+function directSelectorPartitions(request: PartitionRequestShape, policyPathname = requestPath(request.url)): string[] | null {
   const directPartitions: string[] = [];
-  for (const value of directValues) {
+  for (const [where, key] of directSelectorFields(policyPathname)) {
+    const value = requestRecord(request, where)[key];
     if (typeof value !== "string" || !value.trim()) continue;
     const partition = normalizeKnowledgePartitionKey(value);
-    if (!partition) return { kind: "invalid" };
+    if (!partition) return null;
     directPartitions.push(partition);
   }
+  return directPartitions;
+}
+
+/**
+ * Contract 2 (see namedReadPartition): a read that names its own workspace (already narrowed to the write partition)
+ * and one partition of its read set reads that partition. Rewrite every direct selector that names the write partition
+ * to it, so the request is exactly a request naming that partition alone: one partition, authorized, resolved and
+ * answered as such. Only ever called for a read capability and a partition of the principal's read set.
+ */
+function narrowDirectSelectors(request: FastifyRequest, writePartition: string, readPartition: string, policyPathname: string) {
+  const rewrite = (record: Record<string, unknown>, keys: readonly string[]) => keys.flatMap((key) => {
+    const value = record[key];
+    return typeof value === "string" && normalizeKnowledgePartitionKey(value) === writePartition ? [[key, readPartition] as const] : [];
+  });
+  const fields = (where: "params" | "query" | "body") => directSelectorFields(policyPathname).filter(([at]) => at === where).map(([, key]) => key);
+  if (request.params && typeof request.params === "object") {
+    const params = request.params as Record<string, unknown>;
+    for (const [key, value] of rewrite(params, fields("params"))) params[key] = value;
+  }
+  if (request.query && typeof request.query === "object") {
+    const query = request.query as Record<string, unknown>;
+    for (const [key, value] of rewrite(query, fields("query"))) query[key] = value;
+  }
+  if (request.body && typeof request.body === "object" && !Buffer.isBuffer(request.body) && !Array.isArray(request.body)) {
+    const body = request.body as Record<string, unknown>;
+    const update = rewrite(body, fields("body"));
+    if (update.length) request.body = { ...body, ...Object.fromEntries(update) };
+  }
+}
+
+function resolveRequestPartition(request: PartitionRequestShape, store: KnowledgeStore, policyPathname = requestPath(request.url)): PartitionResolution {
+  const params = requestRecord(request, "params");
+  const query = requestRecord(request, "query");
+  const body = requestRecord(request, "body");
+  const directPartitions = directSelectorPartitions(request, policyPathname);
+  if (!directPartitions) return { kind: "invalid" };
   const uniqueDirectPartitions = [...new Set(directPartitions)];
   if (uniqueDirectPartitions.length > 1) return { kind: "invalid" };
   const directPartition = uniqueDirectPartitions[0] ?? null;
@@ -1805,10 +1847,14 @@ export async function buildKnowledgeApp(
           reply.code(403).send({ ok: false, error: "partition_scope_denied" });
           return;
         }
+        const bound = requestPrincipal.boundPartition;
+        // Contract 2: a read that names one partition of its read set (alone, or with its own workspace) reads exactly
+        // that partition. Writes, contract 1 principals and partitions outside the read set are not affected.
+        const namedRead = namedReadPartition(bound, capability, directSelectorPartitions(request, policyPathname) ?? []);
+        if (namedRead !== null && bound) narrowDirectSelectors(request, bound.partitionKey, namedRead, policyPathname);
         let resolved = resolveRequestPartition(request, store, policyPathname);
         // Contract 2: a read that names the principal's own partition (its workspace) and an object of another read
         // partition (search within a collection, for example) reads that object's partition.
-        const bound = requestPrincipal.boundPartition;
         let narrowedTo: string | null = null;
         if (resolved.kind === "conflict" && bound?.readPartitions && resolved.direct === bound.partitionKey && resolved.targets.length === 1 &&
           READ_CAPABILITIES.has(capability) && bound.readPartitions.includes(resolved.targets[0]!)) {

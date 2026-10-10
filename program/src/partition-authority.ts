@@ -244,6 +244,41 @@ export function readViewFor(
   return view.length > 1 ? Object.freeze(view) : null;
 }
 
+/**
+ * Contract 2: the one partition a READ names directly, when it is a partition of the principal's read set other than
+ * its write partition. `direct` holds the request's normalized direct selectors (path/query/body companyId and
+ * partitionKey, Brain scopeRef), after the workspace alias was narrowed to the write partition. Two shapes qualify:
+ * exactly [P], or the write partition (the principal's own workspace) plus P. The read then reads exactly P, never the
+ * whole read set. Anything else is null and keeps today's resolution and refusals unchanged: a write capability, a
+ * contract 1 principal (no read set), P outside the read set, or two different read partitions.
+ * This only selects; the caller still authorizes P (the principal's read-only grant on P).
+ */
+export function namedReadPartition(bound: KnowledgeBoundPartition | undefined, capability: string, direct: readonly string[]): string | null {
+  if (!bound?.readPartitions || bound.readPartitions.length < 2 || !READ_CAPABILITIES.has(capability)) return null;
+  const named = [...new Set(direct)].filter((partition) => partition !== bound.partitionKey);
+  if (named.length !== 1) return null;
+  const partition = named[0]!;
+  return bound.readPartitions.includes(partition) ? partition : null;
+}
+
+/**
+ * Contract 2 on the instance edge: the effective partition a read selector names, or null (refuse). Readable are the
+ * workspace (the whole read view), an effective partition of the read set (`workspace/key`, the workspace for a null
+ * entry) and a bare edge key of the read set as Portal states it in the grant (`key`), which maps to `workspace/key`.
+ * A bare key outside the read set, or any other value, is null, so a selector never reaches another partition.
+ */
+export function edgeReadSelector(value: unknown, companyId: string, readPartitionKeys: readonly (string | null)[]): string | null {
+  const key = normalizeKnowledgePartitionKey(value);
+  const workspace = normalizeKnowledgePartitionKey(companyId);
+  if (!key || !workspace) return null;
+  if (key === workspace) return workspace;
+  for (const entry of readPartitionKeys) {
+    const effective = effectiveKnowledgePartition(companyId, entry);
+    if (effective && (key === effective || (entry !== null && key === entry))) return effective;
+  }
+  return null;
+}
+
 /** Map a caller-supplied partition selector through the principal's bound-partition alias. */
 export function narrowPartitionSelector(value: unknown, bound: KnowledgeBoundPartition | undefined): unknown {
   if (!bound || typeof value !== "string" || !value.trim()) return value;

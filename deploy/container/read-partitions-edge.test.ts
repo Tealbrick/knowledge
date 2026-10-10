@@ -103,6 +103,43 @@ test('contract 2 read sets on the instance edge: attachments, app grants and run
     if (path === 'attachment') assert.deepEqual(await ids('A', `/api/companies/${encodeURIComponent(pb)}/knowledge/collections`), [seeded.B.collection.id], label('A names beta'));
     assert.notEqual((await call('GET', `/api/companies/${encodeURIComponent(pc)}/knowledge/collections`, as('A'))).status, 200, label('A names gamma'));
 
+    // A read may name one partition of its read set in the query: the effective `workspace/key` on every path, and on
+    // the attachment and app-grant paths also the bare key as the grant states it (the edge maps it to its partition).
+    // It then reads exactly that partition: the object by id, and a list that names the workspace lists only beta.
+    const names = path === 'runtime' ? [encodeURIComponent(pb)] : [encodeURIComponent(pb), 'beta'];
+    for (const name of names) {
+      assert.deepEqual(await ids('A', `${list}?partitionKey=${name}`), [seeded.B.collection.id], label(`A lists naming ${name}`));
+      for (const url of [`/api/knowledge/collections/${seeded.B.collection.id}?partitionKey=${name}`, `/api/knowledge/documents/${seeded.B.document.id}?partitionKey=${name}`]) {
+        const read = await call('GET', url, as('A'));
+        assert.equal(read.status, 200, label(`A reads ${url}`));
+        assert.doesNotMatch(await read.text(), /a-marker|c-marker/u, label(`A reads only beta: ${url}`));
+      }
+      const named = await call('GET', `/api/companies/${company}/knowledge/search?q=marker&partitionKey=${name}`, as('A'));
+      const namedSearch = await named.text();
+      assert.equal(named.status, 200, label(`A searches naming ${name}`));
+      assert.match(namedSearch, /b-marker/u, label(`A searches beta naming ${name}`));
+      assert.doesNotMatch(namedSearch, /a-marker|c-marker/u, label(`A searches only beta naming ${name}`));
+      // Writes naming a read-only partition never land in beta: refused, or the selector is ignored and it lands in alpha.
+      const forged = await call('POST', `${list}?partitionKey=${name}`, { ...as('A'), ...idem() }, { name: 'forged' });
+      if (forged.status === 201) assert.equal((await forged.json() as Stored).companyId, pa, label(`A creates naming ${name} lands in alpha`));
+      else assert.ok(forged.status >= 400 && forged.status < 500, label(`A creates naming ${name}: ${forged.status}`));
+    }
+    if (path === 'runtime') {
+      // The runtime path names partitions by their effective key; a bare key is not a partition of this workspace.
+      assert.ok((await call('GET', `${list}?partitionKey=beta`, as('A'))).status >= 400, label('runtime: a bare key is refused'));
+    }
+    // Outside the read set (bare or effective): A is refused; B (read [beta]) and the contract 1 grant B1 are refused or
+    // the selector is ignored. Nobody lists or reads an object of the partition it named.
+    for (const [name, value] of [['A', 'gamma'], ['A', encodeURIComponent(pc)], ['B', 'alpha'], ['B', encodeURIComponent(pa)], ['B1', 'alpha'], ['B1', encodeURIComponent(pa)]] as const) {
+      const foreign = name === 'A' ? seeded.C.collection.id : seeded.A.collection.id;
+      const listed = await call('GET', `${list}?partitionKey=${value}`, as(name));
+      const body = await listed.text();
+      if (name === 'A') assert.ok(listed.status >= 400 && listed.status < 500, label(`A lists naming ${value}: ${listed.status}`));
+      assert.ok(listed.status < 500 && !body.includes(foreign), label(`${name} naming ${value} does not list ${foreign}: ${listed.status}`));
+      const byId = await call('GET', `/api/knowledge/collections/${foreign}?partitionKey=${value}`, as(name));
+      assert.ok(byId.status >= 400 && byId.status < 500, label(`${name} reads naming ${value}: ${byId.status}`));
+    }
+
     // By id: readable in the read set; outside it, exactly like a missing id.
     for (const url of [`/api/knowledge/documents/${seeded.B.document.id}`, `/api/knowledge/collections/${seeded.B.collection.id}`]) {
       assert.equal((await call('GET', url, as('A'))).status, 200, label(`A reads ${url}`));

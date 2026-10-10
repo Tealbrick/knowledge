@@ -227,6 +227,22 @@ export function edgePartitionGrants(scope: Extract<EdgeScope, { ok: true }>, cap
 }
 
 /**
+ * A contract 2 read view: the only list of partitions the store accepts as a scope. Views are minted here after the
+ * partition authorization (readViewFor, or the one partition a read narrows to); a list that came from request values
+ * (a repeated query parameter, a JSON array) is never one, so the store refuses it.
+ */
+export type KnowledgeReadView = readonly string[] & { readonly __knowledgeReadView: true };
+const READ_VIEWS = new WeakSet<readonly string[]>();
+export function mintReadView(partitions: readonly string[]): KnowledgeReadView {
+  const view = Object.freeze([...partitions]);
+  READ_VIEWS.add(view);
+  return view as KnowledgeReadView;
+}
+export function isReadView(value: unknown): value is KnowledgeReadView {
+  return Array.isArray(value) && READ_VIEWS.has(value);
+}
+
+/**
  * Contract 2 read view: a read whose selector is the principal's own (write) partition — usually by naming the
  * workspace — reads every partition of its read set that the capability is granted on. Any other selection
  * (an explicit read partition, a write, a contract 1 principal) reads exactly one partition (null).
@@ -236,12 +252,47 @@ export function readViewFor(
   partitionKey: string,
   capability: string,
   authorized: (partition: string) => boolean = (partition) => authorizeKnowledgePartition(principal, partition, capability).allowed,
-): readonly string[] | null {
+): KnowledgeReadView | null {
   const bound = principal?.boundPartition;
   if (!bound?.readPartitions || bound.readPartitions.length < 2 || partitionKey !== bound.partitionKey) return null;
   if (!READ_CAPABILITIES.has(capability)) return null;
   const view = bound.readPartitions.filter(authorized);
-  return view.length > 1 ? Object.freeze(view) : null;
+  return view.length > 1 ? mintReadView(view) : null;
+}
+
+/**
+ * Contract 2: the one partition a READ names directly, when it is a partition of the principal's read set other than
+ * its write partition. `direct` holds the request's normalized direct selectors (path/query/body companyId and
+ * partitionKey, Brain scopeRef), after the workspace alias was narrowed to the write partition. Two shapes qualify:
+ * exactly [P], or the write partition (the principal's own workspace) plus P. The read then reads exactly P, never the
+ * whole read set. Anything else is null and keeps today's resolution and refusals unchanged: a write capability, a
+ * contract 1 principal (no read set), P outside the read set, or two different read partitions.
+ * This only selects; the caller still authorizes P (the principal's read-only grant on P).
+ */
+export function namedReadPartition(bound: KnowledgeBoundPartition | undefined, capability: string, direct: readonly string[]): string | null {
+  if (!bound?.readPartitions || bound.readPartitions.length < 2 || !READ_CAPABILITIES.has(capability)) return null;
+  const named = [...new Set(direct)].filter((partition) => partition !== bound.partitionKey);
+  if (named.length !== 1) return null;
+  const partition = named[0]!;
+  return bound.readPartitions.includes(partition) ? partition : null;
+}
+
+/**
+ * Contract 2 on the instance edge: the effective partition a read selector names, or null (refuse). Readable are the
+ * workspace (the whole read view), an effective partition of the read set (`workspace/key`, the workspace for a null
+ * entry) and a bare edge key of the read set as Portal states it in the grant (`key`), which maps to `workspace/key`.
+ * A bare key outside the read set, or any other value, is null, so a selector never reaches another partition.
+ */
+export function edgeReadSelector(value: unknown, companyId: string, readPartitionKeys: readonly (string | null)[]): string | null {
+  const key = normalizeKnowledgePartitionKey(value);
+  const workspace = normalizeKnowledgePartitionKey(companyId);
+  if (!key || !workspace) return null;
+  if (key === workspace) return workspace;
+  for (const entry of readPartitionKeys) {
+    const effective = effectiveKnowledgePartition(companyId, entry);
+    if (effective && (key === effective || (entry !== null && key === entry))) return effective;
+  }
+  return null;
 }
 
 /** Map a caller-supplied partition selector through the principal's bound-partition alias. */
@@ -374,6 +425,6 @@ declare module "fastify" {
      * Contract 2: set only for a read of the principal's own partition when its read set is wider (see
      * readViewFor); every entry passed the same partition authorization. Lists, search and Brain reads use it.
      */
-    knowledgeReadPartitions?: readonly string[];
+    knowledgeReadPartitions?: KnowledgeReadView;
   }
 }

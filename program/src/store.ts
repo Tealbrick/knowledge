@@ -17,7 +17,7 @@ import type {
   ResearchSource,
 } from "./types.js";
 import { randomBytes } from "node:crypto";
-import { EDGE_PARTITION_KEY, normalizeKnowledgePartitionKey } from "./partition-authority.js";
+import { EDGE_PARTITION_KEY, isReadView, normalizeKnowledgePartitionKey, type KnowledgeReadView } from "./partition-authority.js";
 
 function nowIso() {
   return new Date().toISOString();
@@ -39,10 +39,14 @@ export function createId(prefix: string) {
 }
 
 /** Collections, documents and research records of one partition, or of several (a contract 2 read view). */
-export type KnowledgeScope = string | readonly string[];
-// A read view lists canonical partitions; rows of a top-level workspace keep the id as Portal sent it.
-const inScope = (scope: KnowledgeScope) => typeof scope === "string" ? (companyId: string) => companyId === scope
-  : (companyId: string) => scope.includes(normalizeKnowledgePartitionKey(companyId) ?? companyId);
+export type KnowledgeScope = string | KnowledgeReadView;
+// A read view lists canonical partitions; rows of a top-level workspace keep the id as Portal sent it. Any other
+// non-string scope (a list or object that came from request values) is refused: it never widens a read.
+const inScope = (scope: KnowledgeScope) => {
+  if (typeof scope === "string") return (companyId: string) => companyId === scope;
+  if (!isReadView(scope)) throw new Error("Invalid Knowledge scope: only a minted read view may list partitions");
+  return (companyId: string) => scope.includes(normalizeKnowledgePartitionKey(companyId) ?? companyId);
+};
 
 function slugify(value: string) {
   return (

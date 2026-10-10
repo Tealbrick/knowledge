@@ -91,11 +91,24 @@ Behaviour:
 | Surface | Contract 2 |
 | --- | --- |
 | Writes: create, update and delete of documents and collections, Research sources, chat sessions and turns, memory-engine writes, `extract-facts` | Write partition only. A selector that names another partition is refused (403); an object of another partition answers 404 `not_found`. |
-| `collections` (list), `search` | A request that names the workspace (or the write partition) covers every partition of the read set. Naming one read partition (`workspace/key`) covers only that one. Search within a collection of a read partition reads that partition. |
-| `documents/{id}`, `collections/{id}`, trees, revisions | Readable when the object lives in any partition of the read set. |
+| `collections` (list), `search` | A request that names the workspace (or the write partition) covers every partition of the read set. Naming one read partition (`workspace/key`) covers only that one, also together with the workspace (`/api/companies/{workspace}/knowledge/collections?partitionKey={workspace}/{key}`). Search within a collection of a read partition reads that partition. |
+| `documents/{id}`, `collections/{id}`, trees, revisions | Readable when the object lives in any partition of the read set. A read that names one read partition (`?partitionKey=`) resolves the object only in that partition; an object outside the read set answers 404 `not_found`. |
 | Research notebooks, sources, notes, context, chat sessions | Notebooks of every read partition are listed and readable; writes (sources, chat sessions, turns, receipts) only in notebooks of the write partition. |
 | `/api/brain/recall`, `/api/brain/context`, `/api/brain/entities` | One engine call per read partition (its own GBrain source or Hindsight bank, derived as for one partition), merged. An entity by slug is read from the first read partition that has it. Entity lists over a read set are exact up to `offset + limit = 500`; deeper pages answer 400 `offset_out_of_range` (name one read partition to page deeper). |
 | `/api/brain/native/*` reads | Lookups, lists and searches (for example `recall`, `search`, `get_page`, `recall_memories`, `list_documents`) run once per read partition and merge. Reads that keep state (`delta`, `context_pack` and the administration views) run in one partition: the write partition, or the read partition named in `partitionKey`. Model operations (`think`, `synthesize`, `reflect`, `test_bank_llm`, every `preview_*` and `dry_run_*`) run only in the write partition; naming a read partition answers 403 `model_operation_write_partition_only`. |
+
+Naming a read partition (`namedReadPartition` in `program/src/partition-authority.ts`): a read
+(`knowledge:read`, `brain:read`, `research:read`, `brain:native:read`) that names one partition of its read
+set, alone or with its own workspace, reads exactly that partition, never the whole read set. Writes, contract 1
+grants and partitions outside the read set keep their answers. On the attachment and app-grant paths the edge
+also accepts the bare key as the grant states it (`?partitionKey={key}`, `{key}` in `readPartitionKeys`) and
+forwards it as `{workspace}/{key}`; a bare key outside the read set is refused. Runtime principals (`tbkg_`)
+name the effective `{workspace}/{key}`.
+
+A partition selector (`companyId` or `partitionKey` in the query or body, Brain `scopeRef`) must be one string.
+A repeated query parameter, a bracketed key (`partitionKey[]=`) or a JSON array, object, number, boolean or null
+is refused with 400 `invalid_partition_selector` before any lookup, for every caller. The store accepts a list of
+partitions only as a read view that the authorization minted.
 
 Merge rule (`program/src/brain-read-view.ts`): when every item has a numeric
 engine score, items are ordered by score, highest first, ties by read-set order

@@ -27,7 +27,7 @@ test('actual Knowledge edge launches an owner browser, admits local document con
   let errors='';child.stderr.on('data', chunk => { errors += chunk; });
   t.after(async () => { if (child.exitCode === null) { const exited=new Promise(r=>child.once('exit',r));child.kill('SIGTERM');await exited; } await new Promise(r=>portal.close(r));await rm(data,{recursive:true,force:true}); });
   let ready=false;
-  for(let i=0;i<100;i++){if(child.exitCode!==null)throw Error(errors);try{ready=(await fetch(base+'/healthz')).ok;}catch{}if(ready)break;await new Promise(r=>setTimeout(r,50));}
+  for(const deadline=Date.now()+30_000;Date.now()<deadline;){if(child.exitCode!==null)throw Error(errors);try{ready=(await fetch(base+'/healthz')).ok;}catch{}if(ready)break;await new Promise(r=>setTimeout(r,50));}
   assert.ok(ready,errors);
   const launch=()=>fetch(base+'/auth/launch?companyId=foreign',{method:'POST',redirect:'manual',headers:{origin:portalOrigin,'content-type':'application/x-www-form-urlencoded'},body:`ticket=${ticket}`});
   const response=await launch();assert.equal(response.status,303);

@@ -15,7 +15,7 @@ test('actual Knowledge edge launches an owner browser, admits local document con
   const portal = createServer(async (req, res) => {
     let raw = ''; for await (const chunk of req) raw += chunk;
     const input = JSON.parse(raw); calls.push(input);
-    let authorized = !revoked && req.headers['x-knowledge-instance-token'] === instance && input.schema === 1 && input.product === 'knowledge' && input.deploymentId === 'deployment';
+    let authorized = !revoked && req.headers['x-tealbrick-instance-proof'] === instance && req.headers['x-knowledge-instance-token'] === undefined && input.schema === 1 && input.product === 'knowledge' && input.deploymentId === 'deployment';
     if (req.url.endsWith('/redeem')) { authorized &&= !used && input.ticket === ticket; used = true; }
     else authorized &&= input.session === session;
     res.writeHead(200, { 'content-type': 'application/json' });

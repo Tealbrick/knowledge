@@ -18,7 +18,7 @@ test('launch redeems only with Portal Origin and sets protected cookie, never in
   assert.equal(f.res.status, 303); assert.equal(f.res.headers.location, '/?companyId=workspace');
   assert.match(f.res.headers['set-cookie'], /HttpOnly; SameSite=Lax/); assert.match(f.res.headers['set-cookie'], /Secure/);
   assert.doesNotMatch(JSON.stringify(f.res), /server-only-secret/);
-  assert.equal(f.calls[0].options.headers['x-knowledge-instance-token'], config.instanceToken);
+  assert.equal(f.calls[0].options.headers['x-tealbrick-instance-proof'], config.instanceToken); assert.equal(f.calls[0].options.headers['x-knowledge-instance-token'], undefined);
   assert.deepEqual(JSON.parse(f.calls[0].options.body), { schema: 1, product: 'knowledge', deploymentId: 'deployment', ticket });
 });
 test('launch selects only the attested company and safely encodes reserved characters', async () => {
@@ -188,8 +188,13 @@ test('the instance proves itself with the separate proof only when it has one', 
   assert.doesNotMatch(JSON.stringify(separate.calls[0].options), /server-only-secret/, 'the instance token never leaves when a separate proof exists');
   const shared = fixture('GET', '/', { cookie: `knowledge_browser=${session}` });
   await browserAccess({ ...config, instanceProof: config.instanceToken }, shared.req, shared.res, shared.transport);
-  assert.equal(shared.calls[0].options.headers['x-knowledge-instance-token'], config.instanceToken);
+  // Exactly one proof header, the contract one: Portal's gateway refuses both (400 ambiguous_instance_proof).
+  assert.deepEqual(Object.keys(shared.calls[0].options.headers).sort(), ['content-type', 'x-tealbrick-instance-proof']);
   assert.equal(shared.calls[0].options.headers['x-tealbrick-instance-proof'], config.instanceToken);
+  // A fresh ticket: earlier tests share config.replayed, so a reused ticket would be refused as a replay.
+  const launch = fixture('POST', '/auth/launch', { origin: config.portal, 'content-type': 'application/x-www-form-urlencoded' }, `ticket=${'p'.repeat(43)}`);
+  await browserAccess({ ...config, instanceProof: config.instanceToken }, launch.req, launch.res, launch.transport);
+  assert.deepEqual(Object.keys(launch.calls[0].options.headers).sort(), ['content-type', 'x-tealbrick-instance-proof'], 'the launch redeem sends one proof header');
 });
 
 test('Portal may name the workspace as productTenantId instead of companyId', async () => {

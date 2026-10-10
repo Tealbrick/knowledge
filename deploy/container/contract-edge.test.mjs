@@ -155,8 +155,9 @@ test('contract control endpoints, launch and emergency login on the instance edg
   const owner = await at('/bootstrap.json', { headers: { cookie } });
   assert.equal(owner.status, 200);
   assert.equal((await at('/bootstrap.json')).status, 401);
-  // Portal sends the proof it was provisioned with; with no separate proof the legacy header still carries the instance token.
-  assert.equal(portal.state.redeemHeaders[0]['x-knowledge-instance-token'], instanceToken);
+  // Exactly one proof header, the contract one: with no separate proof it carries the instance token; never the legacy header.
+  assert.equal(portal.state.redeemHeaders[0]['x-tealbrick-instance-proof'], instanceToken);
+  assert.equal(portal.state.redeemHeaders[0]['x-knowledge-instance-token'], undefined);
 
   // --- settings relay (purpose "settings"): server to server, no Origin, a 5-minute bearer and never a cookie
   const relay = await json(await at('/auth/launch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ticket: ticketFor(), purpose: 'settings' }) }));

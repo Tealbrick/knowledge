@@ -115,14 +115,15 @@ export function sendSessionEnded(req, res, portalUrl, emergencyEnabled = false) 
 }
 
 /**
- * How the instance proves itself to Portal. With a separate app-to-Portal proof (TEALBRICK_PORTAL_INSTANCE_PROOF) only that
- * goes out, in the generic header: the instance token never leaves the instance. Without one the proof IS the instance
- * token, as Knowledge has always sent it (legacy header; the generic header carries the same value for newer Portals).
+ * How the instance proves itself to Portal: exactly one proof header. With a separate app-to-Portal proof
+ * (TEALBRICK_PORTAL_INSTANCE_PROOF) only that goes out, in the generic header: the instance token never leaves the
+ * instance. Without one the proof IS the instance token, in the legacy header as Knowledge has always sent it. Never both:
+ * Portal's gateway refuses a request carrying both as 400 ambiguous_instance_proof.
  */
 function proofHeaders(config) {
   const separate = config.instanceProof && config.instanceProof !== config.instanceToken;
   if (separate) return { 'x-tealbrick-instance-proof': config.instanceProof };
-  return { 'x-knowledge-instance-token': config.instanceToken, ...(config.instanceProof ? { 'x-tealbrick-instance-proof': config.instanceProof } : {}) };
+  return { 'x-knowledge-instance-token': config.instanceToken };
 }
 
 async function portal(config, operation, credentials, transport) {

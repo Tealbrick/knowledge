@@ -105,6 +105,11 @@ also accepts the bare key as the grant states it (`?partitionKey={key}`, `{key}`
 forwards it as `{workspace}/{key}`; a bare key outside the read set is refused. Runtime principals (`tbkg_`)
 name the effective `{workspace}/{key}`.
 
+A partition selector (`companyId` or `partitionKey` in the query or body, Brain `scopeRef`) must be one string.
+A repeated query parameter, a bracketed key (`partitionKey[]=`) or a JSON array, object, number, boolean or null
+is refused with 400 `invalid_partition_selector` before any lookup, for every caller. The store accepts a list of
+partitions only as a read view that the authorization minted.
+
 Merge rule (`program/src/brain-read-view.ts`): when every item has a numeric
 engine score, items are ordered by score, highest first, ties by read-set order
 (write partition first) and then by the engine's order. Otherwise the lists

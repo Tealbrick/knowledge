@@ -27,6 +27,7 @@ import {
   effectiveKnowledgePartition,
   grantReachesEdgePartitions,
   type KnowledgeBoundPartition,
+  mintReadView,
   namedReadPartition,
   narrowPartitionSelector,
   normalizeKnowledgePartitionKey,
@@ -384,11 +385,30 @@ const requestRecord = (request: PartitionRequestShape, where: "params" | "query"
   return value && typeof value === "object" && !Buffer.isBuffer(value) ? value as Record<string, unknown> : {};
 };
 
+/**
+ * H1: a direct selector that is present but not a string (a repeated query parameter, `partitionKey[]=`, a JSON
+ * array, object, number, boolean or null). Such a request is refused before any lookup (400
+ * invalid_partition_selector): no check or handler may see a list or object where one partition is meant.
+ */
+function invalidDirectSelector(request: PartitionRequestShape, policyPathname: string): boolean {
+  return directSelectorFields(policyPathname).some(([where, key]) => {
+    const record = requestRecord(request, where);
+    if (Object.keys(record).some((name) => name.startsWith(`${key}[`))) return true;
+    return Object.prototype.hasOwnProperty.call(record, key) && record[key] !== undefined && typeof record[key] !== "string";
+  });
+}
+
+/** The one accessor handlers use for a partition selector read from the query or body: a string, or absent. */
+function selectorString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
 /** The normalized partitions a request names directly, in selector order; null when one of them is malformed. */
 function directSelectorPartitions(request: PartitionRequestShape, policyPathname = requestPath(request.url)): string[] | null {
   const directPartitions: string[] = [];
   for (const [where, key] of directSelectorFields(policyPathname)) {
     const value = requestRecord(request, where)[key];
+    if (value !== undefined && typeof value !== "string") return null;
     if (typeof value !== "string" || !value.trim()) continue;
     const partition = normalizeKnowledgePartitionKey(value);
     if (!partition) return null;
@@ -1816,6 +1836,11 @@ export async function buildKnowledgeApp(
     if (requestPrincipal?.boundPartition) narrowRequestToBoundPartition(request, requestPrincipal.boundPartition, policyPathname);
     if (!requestPrincipal) canonicalizeOwnerScope(request);
     const partitionProtected = partitionProtectedPath(policyPathname);
+    if (partitionProtected && invalidDirectSelector(request, policyPathname)) {
+      recordAuthorization(request, "denied", null, null);
+      reply.code(400).send({ ok: false, error: "invalid_partition_selector" });
+      return;
+    }
     // Engine routes own their existing bearer/browser/provider and mapping checks.
     const mappedResearch = isResearchSameOriginPath(policyPathname);
     const suppliedGenericBearer = request.headers.authorization !== undefined &&
@@ -1896,7 +1921,7 @@ export async function buildKnowledgeApp(
         }
         request.knowledgePartitionKey = authorization.partitionKey;
         // Contract 2: a read of its own partition reads the principal's whole read set (lists, search, Brain).
-        const view = narrowedTo !== null ? Object.freeze([narrowedTo]) : resolved.target === null
+        const view = narrowedTo !== null ? mintReadView([narrowedTo]) : resolved.target === null
           ? readViewFor(requestPrincipal, authorization.partitionKey, capability,
             nativePolicy ? (partition) => nativeOperationAuthorized(requestPrincipal, partition, nativePolicy) : undefined)
           : null;
@@ -2499,8 +2524,8 @@ export async function buildKnowledgeApp(
   });
 
   app.get("/api/knowledge/collections", async (request) => {
-    const query = request.query as { partitionKey?: string; companyId?: string };
-    return store.listKnowledgeCollections(request.knowledgeReadPartitions ?? query.partitionKey ?? query.companyId ?? "default", !request.knowledgePrincipal);
+    const query = request.query as Record<string, unknown>;
+    return store.listKnowledgeCollections(request.knowledgeReadPartitions ?? selectorString(query.partitionKey) ?? selectorString(query.companyId) ?? "default", !request.knowledgePrincipal);
   });
 
   app.get("/api/knowledge/collections/:collectionId", async (request, reply) => {
@@ -3092,7 +3117,7 @@ export async function buildKnowledgeApp(
 
   app.get("/api/research/summary", async (request, reply) => {
     const companyId = nonEmptyString(
-      (request.query as { companyId?: string }).companyId,
+      selectorString((request.query as Record<string, unknown>).companyId),
     );
     if (!companyId) {
       reply.code(400).send({ error: "companyId is required" });
@@ -4029,8 +4054,9 @@ export async function buildKnowledgeApp(
 
   app.get("/api/bindings", async (request, reply) => {
     const query = request.query as Record<string, string | undefined>;
-    if (request.knowledgePartitionKey && query.partitionKey &&
-      normalizeKnowledgePartitionKey(query.partitionKey) !== request.knowledgePartitionKey) {
+    const selected = selectorString(query.partitionKey);
+    if (request.knowledgePartitionKey && selected &&
+      normalizeKnowledgePartitionKey(selected) !== request.knowledgePartitionKey) {
       return reply.code(403).send({ ok: false, error: "partition_scope_denied" });
     }
     const bindings = store.listBindings({
@@ -4039,7 +4065,7 @@ export async function buildKnowledgeApp(
       ownerId: query.ownerId,
       artifactType: query.artifactType,
       artifactId: query.artifactId,
-      partitionKey: request.knowledgePartitionKey ? undefined : query.partitionKey,
+      partitionKey: request.knowledgePartitionKey ? undefined : selected,
     });
     return request.knowledgePartitionKey
       ? bindings.filter((binding) => normalizeKnowledgePartitionKey(binding.partitionKey) === request.knowledgePartitionKey)
@@ -4060,8 +4086,8 @@ export async function buildKnowledgeApp(
   registerNativeMemoryRoutes(app, {brain,dataDir:config.dataDir,persistent:Boolean(config.knowledgeDatabasePath),engineCalls});
 
   app.get("/api/brain/indexing", async (request, reply) => {
-    const query = request.query as { partitionKey?: string };
-    const partitionKey = request.knowledgePartitionKey ?? normalizeKnowledgePartitionKey(query.partitionKey);
+    const query = request.query as Record<string, unknown>;
+    const partitionKey = request.knowledgePartitionKey ?? normalizeKnowledgePartitionKey(selectorString(query.partitionKey));
     if (!partitionKey) return reply.code(400).send({ ok: false, error: "partition_key_required" });
     return { ok: true, ...projections.status(partitionKey) };
   });

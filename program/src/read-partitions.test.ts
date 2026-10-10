@@ -12,7 +12,7 @@ import { GBRAIN_MAX_RESPONSE_BYTES } from "./gbrain-transport.js";
 import { GBrainRuntime } from "./gbrain.js";
 import { hindsightBankForPartition } from "./hindsight-client.js";
 import { registerOpenNotebookRoutes, type OpenNotebookRouteAdapter } from "./open-notebook-routes.js";
-import { MAX_READ_PARTITIONS, edgeScopeFor, parseEdgeReadPartitionsClaim, parseReadPartitionKeys } from "./partition-authority.js";
+import { MAX_READ_PARTITIONS, edgeScopeFor, mintReadView, parseEdgeReadPartitionsClaim, parseReadPartitionKeys, readViewFor } from "./partition-authority.js";
 import { portalPrincipalFromResponse, type PortalPrincipalResolver } from "./portal-principal.js";
 import { SqliteKnowledgePersistence } from "./persistence.js";
 import { createId, KnowledgeStore, type KnowledgeStoreSnapshot } from "./store.js";
@@ -306,6 +306,85 @@ describe("a read naming one partition of its read set", () => {
       expect([model.statusCode, model.json().error]).toEqual([403, "model_operation_write_partition_only"]);
       expect(banks(from)).toEqual([]);
     } finally { await fake.close(); }
+  });
+});
+
+describe("H1: a partition selector that is not one string", () => {
+  const refused = { ok: false, error: "invalid_partition_selector" };
+  it("refuses repeated and bracketed selectors with 400 on lists, search, by-id and Brain reads, for every principal", async () => {
+    const apiKey = "hindsight-tenant-key-fixture-only-000000";
+    const fake = await startFakeHindsight({ apiKey });
+    try {
+      const app = await knowledge({ memoryEngine: "hindsight", hindsightUrl: fake.baseUrl, hindsightApiKey: apiKey });
+      const s = await seed(app);
+      const [alpha, beta, gamma] = [pa, pb, pc].map(encodeURIComponent);
+      const foreign = [s.A, s.C].flatMap((seeded) => [seeded.collection.id, seeded.document.id]);
+      // The reported repro: a contract 1 principal writing beta lists gamma + alpha through a repeated parameter.
+      const repro = await app.inject({ url: `/api/knowledge/collections?companyId=${companyId}&partitionKey=${gamma}&partitionKey=${alpha}`, headers: as("B1") });
+      expect([repro.statusCode, repro.json()]).toEqual([400, refused]);
+      const selectors = (key: string, first: string, second: string) => [`${key}=${first}&${key}=${second}`, `${key}[]=${first}&${key}[]=${second}`, `${key}[]=${first}`, `${key}[0]=${first}`];
+      const urls = (first: string, second: string) => ["partitionKey", "companyId"].flatMap((key) => selectors(key, first, second).flatMap((query) => [
+        `/api/knowledge/collections?${query}`,
+        `/api/companies/${companyId}/knowledge/collections?${query}`,
+        `/api/companies/${companyId}/knowledge/search?q=marker&${query}`,
+        `/api/knowledge/collections/${s.B.collection.id}?${query}`,
+        `/api/knowledge/documents/${s.B.document.id}?${query}`,
+        `/api/knowledge/collections/${s.A.collection.id}?${query}`,
+        `/api/brain/entities?${query}`,
+        `/api/brain/indexing?${query}`,
+        `/api/bindings?${query}`,
+      ]));
+      for (const grant of ["A", "B", "B1", "C", "D1"]) {
+        for (const url of [...urls(gamma, alpha), ...urls(beta, beta)]) {
+          const response = await app.inject({ url, headers: as(grant) });
+          expect([response.statusCode, response.json()], `${grant} ${url}`).toEqual([400, refused]);
+        }
+      }
+      // The owner path (no principal) gets the same answer, so no handler ever sees a list.
+      const owner = await app.inject({ url: `/api/knowledge/collections?partitionKey=${gamma}&partitionKey=${alpha}` });
+      expect([owner.statusCode, owner.json()]).toEqual([400, refused]);
+      // Brain reads and writes with a JSON body selector that is not a string; nothing reaches the engine.
+      const from = fake.calls.length;
+      for (const grant of ["A", "B1"]) {
+        for (const [url, extra] of [
+          ["/api/brain/recall", { partitionKey: [pa, pc] }], ["/api/brain/recall", { scopeRef: [companyId, pc] }],
+          ["/api/brain/context", { partitionKey: [pc] }], ["/api/brain/context", { scopeRef: { key: pc } }],
+          ["/api/brain/recall", { partitionKey: 7 }], ["/api/brain/recall", { companyId: true }], ["/api/brain/context", { partitionKey: null }],
+        ] as const) {
+          const response = await app.inject({ method: "POST", url, headers: as(grant), payload: { query: "q", scopeRef: companyId, ...extra } });
+          expect([response.statusCode, response.json()], `${grant} ${url} ${JSON.stringify(extra)}`).toEqual([400, refused]);
+        }
+        for (const request of [
+          { url: `/api/companies/${companyId}/knowledge/collections`, payload: { name: "forged", partitionKey: [pa, pb] } },
+          { url: `/api/companies/${companyId}/knowledge/collections`, payload: { name: "forged", companyId: [pc] } },
+          { url: `/api/knowledge/collections/${s.A.collection.id}/documents`, payload: { title: "forged", partitionKey: ["a", "b"] } },
+        ]) {
+          const response = await app.inject({ method: "POST", ...request, headers: as(grant) });
+          expect([response.statusCode, response.json()], `${grant} POST ${request.url}`).toEqual([400, refused]);
+        }
+      }
+      expect(fake.calls.slice(from).filter((call) => call.bank)).toEqual([]);
+      // Nothing was created by the refused writes.
+      expect((await app.inject({ url: `/api/companies/${companyId}/knowledge/collections`, headers: as("A") })).body).not.toMatch(/forged/u);
+      // No answer above carried data of another partition; one string selector keeps working.
+      expect((await app.inject({ url: `/api/knowledge/collections?companyId=${companyId}`, headers: as("B1") })).json().map((c: { id: string }) => c.id)).toEqual([s.B.collection.id]);
+      for (const id of foreign) expect(repro.body).not.toContain(id);
+    } finally { await fake.close(); }
+  });
+
+  it("refuses a list scope at the store boundary unless it is a minted read view", async () => {
+    const store = new KnowledgeStore();
+    for (const scope of [[pa, pc], Object.freeze([pa])]) {
+      expect(() => store.listKnowledgeCollections(scope as never, false)).toThrow(/minted read view/u);
+      expect(() => store.searchKnowledgeDocuments(scope as never, { q: "" })).toThrow(/minted read view/u);
+      expect(() => store.listResearchNotebooks(scope as never)).toThrow(/minted read view/u);
+      expect(() => store.listResearchSources(scope as never)).toThrow(/minted read view/u);
+    }
+    expect(store.listKnowledgeCollections(mintReadView([pa, pb]), false)).toEqual([]);
+    const principal = principalFor(GRANTS.A!)!;
+    const view = readViewFor(principal, pa, "knowledge:read");
+    expect(view).toEqual([pa, pb]);
+    expect(store.listResearchNotebooks(view!)).toEqual([]);
   });
 });
 

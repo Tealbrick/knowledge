@@ -227,6 +227,22 @@ export function edgePartitionGrants(scope: Extract<EdgeScope, { ok: true }>, cap
 }
 
 /**
+ * A contract 2 read view: the only list of partitions the store accepts as a scope. Views are minted here after the
+ * partition authorization (readViewFor, or the one partition a read narrows to); a list that came from request values
+ * (a repeated query parameter, a JSON array) is never one, so the store refuses it.
+ */
+export type KnowledgeReadView = readonly string[] & { readonly __knowledgeReadView: true };
+const READ_VIEWS = new WeakSet<readonly string[]>();
+export function mintReadView(partitions: readonly string[]): KnowledgeReadView {
+  const view = Object.freeze([...partitions]);
+  READ_VIEWS.add(view);
+  return view as KnowledgeReadView;
+}
+export function isReadView(value: unknown): value is KnowledgeReadView {
+  return Array.isArray(value) && READ_VIEWS.has(value);
+}
+
+/**
  * Contract 2 read view: a read whose selector is the principal's own (write) partition — usually by naming the
  * workspace — reads every partition of its read set that the capability is granted on. Any other selection
  * (an explicit read partition, a write, a contract 1 principal) reads exactly one partition (null).
@@ -236,12 +252,12 @@ export function readViewFor(
   partitionKey: string,
   capability: string,
   authorized: (partition: string) => boolean = (partition) => authorizeKnowledgePartition(principal, partition, capability).allowed,
-): readonly string[] | null {
+): KnowledgeReadView | null {
   const bound = principal?.boundPartition;
   if (!bound?.readPartitions || bound.readPartitions.length < 2 || partitionKey !== bound.partitionKey) return null;
   if (!READ_CAPABILITIES.has(capability)) return null;
   const view = bound.readPartitions.filter(authorized);
-  return view.length > 1 ? Object.freeze(view) : null;
+  return view.length > 1 ? mintReadView(view) : null;
 }
 
 /**
@@ -409,6 +425,6 @@ declare module "fastify" {
      * Contract 2: set only for a read of the principal's own partition when its read set is wider (see
      * readViewFor); every entry passed the same partition authorization. Lists, search and Brain reads use it.
      */
-    knowledgeReadPartitions?: readonly string[];
+    knowledgeReadPartitions?: KnowledgeReadView;
   }
 }
